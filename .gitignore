@@ -171,3 +171,6 @@ sphinx_*/
 
 # Nix build output
 /result
+
+# GitHub Actions
+!/.github/
