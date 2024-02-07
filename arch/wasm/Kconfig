@@ -1,0 +1,84 @@
+config WASM
+	def_bool y
+	depends on !BINFMT_ELF && !SMP && !MMU && !MODULES && !COREDUMP && !SECCOMP && !UPROBES && !COMPAT
+	select ARCH_HAS_BINFMT_WASM
+	select ARCH_HAS_SYSCALL_WRAPPER
+	select ARCH_NO_SWAP
+	select ARCH_USE_QUEUED_RWLOCKS
+	select ARCH_USE_QUEUED_SPINLOCKS
+	select BUG
+	select FLATMEM
+	select GENERIC_ATOMIC64
+	select GENERIC_BUG
+	select GENERIC_CSUM
+	select GENERIC_HWEIGHT
+	select HAS_CURRENT_STACK_POINTER
+	select HAVE_LD_DEAD_CODE_DATA_ELIMINATION # wasm implies function-sections
+	select LD_DEAD_CODE_DATA_ELIMINATION
+	select PAGE_SIZE_64KB
+	select UACCESS_MEMCPY if !MMU
+
+config ARCH_HAS_BINFMT_WASM
+	bool
+
+menu "Executable file formats"
+	config BINFMT_WASM
+		bool "Kernel support for WASM binaries"
+		depends on ARCH_HAS_BINFMT_WASM
+endmenu
+
+config CMDLINE
+	string "Kernel command string to append"
+	default ""
+
+config MMU
+	def_bool n
+
+config EARLY_PRINTK
+	def_bool y
+
+config SMP
+	def_bool n
+
+config NR_CPUS
+	int
+	default 1
+
+config HZ
+	int
+	default 100
+
+config PAGE_SIZE_64KB
+	bool
+
+config GENERIC_BUG
+	def_bool y
+	depends on BUG
+
+config GENERIC_HWEIGHT
+	def_bool y
+
+config GENERIC_CSUM
+	def_bool y
+
+config ARCH_DMA_ADDR_T_64BIT
+	def_bool 64BIT
+
+config PHYS_ADDR_T_64BIT
+	def_bool 64BIT
+
+config 64BIT
+	bool "64bit kernel"
+	default n
+
+config HIGHMEM
+	def_bool n
+	select KMAP_LOCAL
+
+config CONSOLE_LOGLEVEL_QUIET
+	int "quiet console loglevel (1-15)"
+	range 1 15
+	default "4"
+
+config LD_IS_WASMLD
+	def_bool y

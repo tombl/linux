@@ -87,7 +87,9 @@ vmlinux_link()
 		ldlibs=
 	fi
 
-	ldflags="${ldflags} ${wl}--script=${objtree}/${KBUILD_LDS}"
+	if ! is_enabled CONFIG_LD_IS_WASMLD; then
+		ldflags="${ldflags} ${wl}--script=${objtree}/${KBUILD_LDS}"
+	fi
 
 	# The kallsyms linking does not need debug symbols included.
 	if [ "$output" != "${output#.tmp_vmlinux.kallsyms}" ] ; then
@@ -98,10 +100,17 @@ vmlinux_link()
 		ldflags="${ldflags} ${wl}-Map=${output}.map"
 	fi
 
-	${ld} ${ldflags} -o ${output}					\
-		${wl}--whole-archive ${objs} ${wl}--no-whole-archive	\
-		${wl}--start-group ${libs} ${wl}--end-group		\
-		$@ ${ldlibs}
+	if is_enabled CONFIG_LD_IS_WASMLD; then
+		${ld} ${ldflags} -o ${output} \
+			${wl}--whole-archive ${objs} ${wl}--no-whole-archive \
+			${libs} \
+			$@ ${ldlibs}
+	else
+		${ld} ${ldflags} -o ${output} \
+			${wl}--whole-archive ${objs} ${wl}--no-whole-archive \
+			${wl}--start-group ${libs} ${wl}--end-group \
+			$@ ${ldlibs}
+	fi
 }
 
 # generate .BTF typeinfo from DWARF debuginfo
@@ -188,7 +197,7 @@ kallsyms_step()
 mksysmap()
 {
 	info NM ${2}
-	${CONFIG_SHELL} "${srctree}/scripts/mksysmap" ${1} ${2}
+	# ${CONFIG_SHELL} "${srctree}/scripts/mksysmap" ${1} ${2}
 }
 
 sorttable()

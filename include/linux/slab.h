@@ -561,6 +561,7 @@ static __always_inline __alloc_size(1) void *kmalloc(size_t size, gfp_t flags)
 #ifndef CONFIG_SLOB
 static __always_inline __alloc_size(1) void *kmalloc_node(size_t size, gfp_t flags, int node)
 {
+	early_printk("kmalloc_node(%zu, %#x, %d)\n", size, flags, node);
 	if (__builtin_constant_p(size)) {
 		unsigned int index;
 
