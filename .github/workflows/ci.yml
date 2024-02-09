@@ -24,6 +24,7 @@ jobs:
   deploy:
     runs-on: ubuntu-22.04
     needs: build
+    if: github.ref == 'refs/heads/wasm'
     permissions:
       pages: write
       id-token: write
