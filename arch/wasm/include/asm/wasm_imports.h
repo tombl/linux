@@ -16,6 +16,9 @@ import("return_address") void *wasm_return_address(int level);
 import("relax") void wasm_relax(void);
 
 import("get_cmdline") void wasm_get_cmdline(char *buf, size_t size);
+import("get_dt") void wasm_get_dt(char *buf, size_t size);
+
+import("get_now_nsec") unsigned long long wasm_get_now_nsec(void);
 
 #undef import
 

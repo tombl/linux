@@ -25,6 +25,7 @@
 #include <linux/delay.h>
 #include <linux/ioport.h>
 #include <linux/init.h>
+#include <linux/initcalls.h>
 #include <linux/initrd.h>
 #include <linux/memblock.h>
 #include <linux/acpi.h>
@@ -194,35 +195,33 @@ static const char *argv_init[MAX_INIT_ARGS+2] = { "init", NULL, };
 const char *envp_init[MAX_INIT_ENVS+2] = { "HOME=/", "TERM=linux", NULL, };
 static const char *panic_later, *panic_param;
 
-extern const struct obs_kernel_param __setup_start[], __setup_end[];
-
 static bool __init obsolete_checksetup(char *line)
 {
-	const struct obs_kernel_param *p;
 	bool had_early_param = false;
 
-	p = __setup_start;
-	do {
-		int n = strlen(p->str);
-		if (parameqn(line, p->str, n)) {
-			if (p->early) {
+#define X(p)                                                                   \
+	do {                                                                   \
+		int n = strlen(p.str);                                         \
+		if (parameqn(line, p.str, n)) {                                \
+			if (p.early) {                                         \
 				/* Already done in parse_early_param?
 				 * (Needs exact match on param part).
 				 * Keep iterating, as we can have early
-				 * params and __setups of same names 8( */
-				if (line[n] == '\0' || line[n] == '=')
-					had_early_param = true;
-			} else if (!p->setup_func) {
-				pr_warn("Parameter %s is obsolete, ignored\n",
-					p->str);
-				return true;
-			} else if (p->setup_func(line + n))
-				return true;
-		}
-		p++;
-	} while (p < __setup_end);
+				 * params and __setups of same names 8( */     \
+				if (line[n] == '\0' || line[n] == '=')         \
+					had_early_param = true;                \
+			} else if (!p.setup_func) {                            \
+				pr_warn("Parameter %s is obsolete, ignored\n", \
+					p.str);                                \
+				return true;                                   \
+			} else if (p.setup_func(line + n))                     \
+				return true;                                   \
+		}                                                              \
+	} while (0);
+	enumerate_setup(X)
+#undef X
 
-	return had_early_param;
+		return had_early_param;
 }
 
 /*
@@ -735,19 +734,20 @@ noinline void __ref rest_init(void)
 static int __init do_early_param(char *param, char *val,
 				 const char *unused, void *arg)
 {
-	const struct obs_kernel_param *p;
-
-	for (p = __setup_start; p < __setup_end; p++) {
-		if ((p->early && parameq(param, p->str)) ||
-		    (strcmp(param, "console") == 0 &&
-		     strcmp(p->str, "earlycon") == 0)
-		) {
-			if (p->setup_func(val) != 0)
-				pr_warn("Malformed early option '%s'\n", param);
-		}
-	}
-	/* We accept everything at this stage. */
-	return 0;
+#define X(p)                                                             \
+	do {                                                             \
+		if ((p.early && parameq(param, p.str)) ||                \
+		    (strcmp(param, "console") == 0 &&                    \
+		     strcmp(p.str, "earlycon") == 0)) {                  \
+			if (p.setup_func(val) != 0)                      \
+				pr_warn("Malformed early option '%s'\n", \
+					param);                          \
+		}                                                        \
+	} while (0);
+	enumerate_setup(X)
+#undef X
+		/* We accept everything at this stage. */
+		return 0;
 }
 
 void __init parse_early_options(char *cmdline)
@@ -1313,29 +1313,6 @@ int __init_or_module do_one_initcall(initcall_t fn)
 }
 
 
-extern initcall_entry_t __initcall_start[];
-extern initcall_entry_t __initcall0_start[];
-extern initcall_entry_t __initcall1_start[];
-extern initcall_entry_t __initcall2_start[];
-extern initcall_entry_t __initcall3_start[];
-extern initcall_entry_t __initcall4_start[];
-extern initcall_entry_t __initcall5_start[];
-extern initcall_entry_t __initcall6_start[];
-extern initcall_entry_t __initcall7_start[];
-extern initcall_entry_t __initcall_end[];
-
-static initcall_entry_t *initcall_levels[] __initdata = {
-	__initcall0_start,
-	__initcall1_start,
-	__initcall2_start,
-	__initcall3_start,
-	__initcall4_start,
-	__initcall5_start,
-	__initcall6_start,
-	__initcall7_start,
-	__initcall_end,
-};
-
 /* Keep these in sync with initcalls in include/linux/init.h */
 static const char *initcall_level_names[] __initdata = {
 	"pure",
@@ -1356,8 +1333,6 @@ static int __init ignore_unknown_bootoption(char *param, char *val,
 
 static void __init do_initcall_level(int level, char *command_line)
 {
-	initcall_entry_t *fn;
-
 	parse_args(initcall_level_names[level],
 		   command_line, __start___param,
 		   __stop___param - __start___param,
@@ -1365,8 +1340,19 @@ static void __init do_initcall_level(int level, char *command_line)
 		   NULL, ignore_unknown_bootoption);
 
 	trace_initcall_level(initcall_level_names[level]);
-	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
-		do_one_initcall(initcall_from_entry(fn));
+
+#define X(fn) do_one_initcall(initcall_from_entry(&fn));
+switch (level) {
+	case 0: enumerate_initcall(X); break;
+	case 1: enumerate_initcall1(X); enumerate_initcall1s(X); break;
+	case 2: enumerate_initcall2(X); enumerate_initcall2s(X); break;
+	case 3: enumerate_initcall3(X); enumerate_initcall3s(X); break;
+	case 4: enumerate_initcall4(X); enumerate_initcall4s(X); break;
+	case 5: enumerate_initcall5(X); enumerate_initcall5s(X); break;
+	case 6: enumerate_initcall6(X); enumerate_initcall6s(X); break;
+	case 7: enumerate_initcall7(X); enumerate_initcall7s(X); break;
+}
+#undef X
 }
 
 static void __init do_initcalls(void)
@@ -1379,7 +1365,7 @@ static void __init do_initcalls(void)
 	if (!command_line)
 		panic("%s: Failed to allocate %zu bytes\n", __func__, len);
 
-	for (level = 0; level < ARRAY_SIZE(initcall_levels) - 1; level++) {
+	for (level = 0; level < ARRAY_SIZE(initcall_level_names) - 1; level++) {
 		/* Parser modifies command_line, restore it each time */
 		strcpy(command_line, saved_command_line);
 		do_initcall_level(level, command_line);
@@ -1406,11 +1392,10 @@ static void __init do_basic_setup(void)
 
 static void __init do_pre_smp_initcalls(void)
 {
-	initcall_entry_t *fn;
-
 	trace_initcall_level("early");
-	for (fn = __initcall_start; fn < __initcall0_start; fn++)
-		do_one_initcall(initcall_from_entry(fn));
+#define X(fn) do_one_initcall(initcall_from_entry(&fn));
+	enumerate_initcallearly(X)
+#undef X
 }
 
 static int run_init_process(const char *init_filename)

@@ -1,27 +1,40 @@
+#include "linux/delay.h"
 #include <linux/init.h>
+#include <asm/param.h>
+#include <asm/timex.h>
+#include <asm/processor.h>
 
+extern unsigned long loops_per_jiffy;
 void calibrate_delay(void)
 {
+	loops_per_jiffy = 1000000000 / HZ;
 }
 
 void __init time_init(void)
 {
-	__builtin_trap();
+}
+
+void __delay(unsigned long cycles)
+{
+	cycles_t start = get_cycles();
+
+	while ((get_cycles() - start) < cycles)
+		cpu_relax();
 }
 
 void __udelay(unsigned long usecs)
 {
-	__builtin_trap();
+	__delay(usecs * 1000);
 }
 void __ndelay(unsigned long nsecs)
 {
-	__builtin_trap();
+	__delay(nsecs);
 }
 void __const_udelay(unsigned long xloops)
 {
-	__builtin_trap();
-}
-void __delay(unsigned long loops)
-{
-	__builtin_trap();
+	unsigned long long loops;
+
+	loops = (unsigned long long)xloops * loops_per_jiffy * HZ;
+
+	__delay(loops >> 32);
 }

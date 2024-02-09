@@ -116,23 +116,12 @@
 typedef int (*initcall_t)(void);
 typedef void (*exitcall_t)(void);
 
-#ifdef CONFIG_HAVE_ARCH_PREL32_RELOCATIONS
-typedef int initcall_entry_t;
-
-static inline initcall_t initcall_from_entry(initcall_entry_t *entry)
-{
-	return offset_to_ptr(entry);
-}
-#else
 typedef initcall_t initcall_entry_t;
 
 static inline initcall_t initcall_from_entry(initcall_entry_t *entry)
 {
 	return *entry;
 }
-#endif
-
-extern initcall_entry_t __con_initcall_start[], __con_initcall_end[];
 
 /* Used for constructor calls. */
 typedef void (*ctor_fn_t)(void);
@@ -228,7 +217,7 @@ extern bool initcall_debug;
 	__ADDRESSABLE(__stub)
 #else
 #define __initcall_section(__sec, __iid)			\
-	#__sec ".init"
+	#__sec
 
 #define __initcall_stub(fn, __iid, id)	fn
 
@@ -236,19 +225,12 @@ extern bool initcall_debug;
 	__ADDRESSABLE(fn)
 #endif
 
-#ifdef CONFIG_HAVE_ARCH_PREL32_RELOCATIONS
-#define ____define_initcall(fn, __stub, __name, __sec)		\
-	__define_initcall_stub(__stub, fn)			\
-	asm(".section	\"" __sec "\", \"a\"		\n"	\
-	    __stringify(__name) ":			\n"	\
-	    ".long	" __stringify(__stub) " - .	\n"	\
-	    ".previous					\n");	\
-	static_assert(__same_type(initcall_t, &fn));
-#else
-#define ____define_initcall(fn, __unused, __name, __sec)	\
-	static initcall_t __name __used 			\
-		__attribute__((__section__(__sec))) = fn;
-#endif
+#define ____define_initcall(fn, __unused, __name, __sec)			\
+	initcall_t __name __used 						\
+		__attribute__((__section__(__sec))) = fn;			\
+	__asm(									\
+		".section .kdata" __sec "$" __stringify(__name) ",\"\",@\n"	\
+	);
 
 #define __unique_initcall(fn, id, __sec, __iid)			\
 	____define_initcall(fn,					\
@@ -298,7 +280,7 @@ extern bool initcall_debug;
 #define __exitcall(fn)						\
 	static exitcall_t __exitcall_##fn __exit_call = fn
 
-#define console_initcall(fn)	___define_initcall(fn, con, .con_initcall)
+#define console_initcall(fn)	___define_initcall(fn, con, console)
 
 struct obs_kernel_param {
 	const char *str;
@@ -315,10 +297,13 @@ struct obs_kernel_param {
 #define __setup_param(str, unique_id, fn, early)			\
 	static const char __setup_str_##unique_id[] __initconst		\
 		__aligned(1) = str; 					\
-	static struct obs_kernel_param __setup_##unique_id		\
+	struct obs_kernel_param __setup_##unique_id			\
 		__used __section(".init.setup")				\
 		__aligned(__alignof__(struct obs_kernel_param))		\
-		= { __setup_str_##unique_id, fn, early }
+		= { __setup_str_##unique_id, fn, early };		\
+	__asm(								\
+		".section .kdata.setup$__setup_" #unique_id ",\"\",@\n"	\
+	);
 
 /*
  * NOTE: __setup functions return values:

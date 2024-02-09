@@ -11,6 +11,8 @@ int __cpu_up(unsigned int cpu, struct task_struct *idle)
 
 void smp_prepare_cpus(unsigned int max_cpus)
 {
+	for (int i = 0; i < NR_CPUS; i++)
+		set_cpu_possible(i, true);
 	__builtin_trap();
 }
 

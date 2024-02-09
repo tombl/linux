@@ -6,11 +6,30 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
       - run: nix build .
       - uses: actions/upload-artifact@v4
         with:
-          name: kernel.wasm
-          path: result/vmlinux
+          name: result
+          path: result/
+
+      - run: rm -f tools/wasm/vmlinux.wasm && cp result/vmlinux.wasm tools/wasm/
+      - uses: actions/configure-pages@v4
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: tools/wasm/
+          
+  deploy:
+    runs-on: ubuntu-22.04
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

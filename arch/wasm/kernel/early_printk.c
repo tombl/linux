@@ -1,9 +1,9 @@
-#include "linux/compiler_attributes.h"
-#include "linux/printk.h"
 #include <asm/wasm_imports.h>
-#include <linux/kernel.h>
+#include <linux/compiler_attributes.h>
 #include <linux/console.h>
 #include <linux/init.h>
+#include <linux/kernel.h>
+#include <linux/printk.h>
 
 static void early_console_write(struct console *con, const char *s,
 				unsigned int n)

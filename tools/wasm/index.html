@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>linux</title>
+    <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css" />
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        margin: 0;
+      }
+      #terminal {
+        width: 100vw;
+        height: 100vh;
+        .xterm-viewport {
+          scrollbar-width: none;
+        }
+      }
+
+      details {
+        font-family: monospace;
+        position: absolute;
+        top: 0;
+        right: 0;
+        background-color: gray;
+        &:not([open]) {
+          opacity: 0.5;
+        }
+        form {
+          display: flex;
+          flex-direction: column;
+          label {
+            display: flex;
+            input {
+              flex: 1;
+            }
+          }
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="terminal"></div>
+    <details>
+      <summary>options</summary>
+      <form>
+        <label>
+          path: <input type="text" name="path" value="/vmlinux.wasm" />
+        </label>
+        <label>cmdline: <input type="text" name="cmdline" /></label>
+        <button>reboot</button>
+      </form>
+    </details>
+    <script>
+      const term = new Terminal({ convertEol: true, disableStdin: true });
+      const termFit = new FitAddon.FitAddon();
+      term.loadAddon(termFit);
+      term.open(document.getElementById("terminal"));
+      termFit.fit();
+      window.onresize = () => termFit.fit();
+
+      const { path = "/vmlinux.wasm", cmdline = "" } = Object.fromEntries(
+        new URLSearchParams(location.search)
+      );
+
+      const worker = new Worker("/worker.js", { type: "module" });
+      worker.onmessage = (event) => {
+        switch (event.data.action) {
+          case "print":
+            term.write(new Uint8Array(event.data.buf));
+            break;
+          case "error":
+            term.write(`${event.data.message}\n`);
+            break;
+          case "done":
+            term.write("shutdown");
+            break;
+          default:
+            throw new Error(`unhandled event ${event.data.action}`);
+        }
+      };
+      worker.postMessage({
+        action: "boot",
+        path,
+        cmdline: cmdline.replace(/\+/g, " "),
+      });
+    </script>
+  </body>
+</html>

@@ -33,4 +33,7 @@
 #define KMAP_END 0xffffffff
 #define HAVE_ARCH_UNMAPPED_AREA
 
+extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
+#define ZERO_PAGE(vaddr) (virt_to_page(empty_zero_page))
+
 #endif

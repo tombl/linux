@@ -8,14 +8,9 @@
 #define PAGE_SIZE (1UL << PAGE_SHIFT)
 #define PAGE_MASK (~(PAGE_SIZE - 1))
 
-/*
- * Memory layout:
- * 0x00000000 - 0xBFFFFFFF: user space (3GiB)
- * 0xC0000000 - 0xFFFFFFFF: kernel space (1GiB)
- */
-
-#define PAGE_OFFSET 0xC0000000
-#define PHYS_OFFSET 0xC0000000
+#define PAGE_OFFSET _AC(CONFIG_DEFAULT_MEM_START, UL)
+#define PHYS_OFFSET _AC(CONFIG_DEFAULT_MEM_START, UL)
+#define MAX_LOW_PFN PHYS_PFN(0xfffffffful)
 
 #define clear_page(pgaddr) memset((pgaddr), 0, PAGE_SIZE)
 #define copy_page(to, from) memcpy((to), (from), PAGE_SIZE)
@@ -59,16 +54,10 @@ typedef struct page *pgtable_t;
 /* convert physical address to virtual address */
 #define __va(phys) ((void *)((unsigned long)(phys)-PHYS_OFFSET + PAGE_OFFSET))
 
-#define virt_to_page(kaddr) pfn_to_page(PFN_DOWN(__pa(kaddr)))
+#define virt_to_page(kaddr) pfn_to_page(__pa(kaddr) >> PAGE_SHIFT)
+#define page_to_virt(page) __va(page_to_pfn(page) << PAGE_SHIFT)
 #define virt_addr_valid(kaddr) pfn_valid(__pa(kaddr) >> PAGE_SHIFT)
-
 #define page_to_phys(page) (page_to_pfn(page) << PAGE_SHIFT)
-#define phys_to_page(paddr) pfn_to_page(PFN_DOWN(paddr))
-
-#define virt_to_pfn(kaddr) (__pa(kaddr) >> PAGE_SHIFT)
-#define pfn_to_virt(pfn) __va((pfn) << PAGE_SHIFT)
-
-#define page_to_virt(page) __va(page_to_phys(page))
 
 #define pfn_valid(pfn) ((pfn) < max_mapnr)
 

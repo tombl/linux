@@ -6,6 +6,8 @@ config WASM
 	select ARCH_NO_SWAP
 	select ARCH_USE_QUEUED_RWLOCKS
 	select ARCH_USE_QUEUED_SPINLOCKS
+	# select ARCH_SUPPORTS_LTO_CLANG
+	# select ARCH_SUPPORTS_LTO_CLANG_THIN
 	select BUG
 	select FLATMEM
 	select GENERIC_ATOMIC64
@@ -13,8 +15,8 @@ config WASM
 	select GENERIC_CSUM
 	select GENERIC_HWEIGHT
 	select HAS_CURRENT_STACK_POINTER
-	select HAVE_LD_DEAD_CODE_DATA_ELIMINATION # wasm implies function-sections
-	select LD_DEAD_CODE_DATA_ELIMINATION
+	select OF
+	select OF_EARLY_FLATTREE
 	select PAGE_SIZE_64KB
 	select UACCESS_MEMCPY if !MMU
 
@@ -82,3 +84,13 @@ config CONSOLE_LOGLEVEL_QUIET
 
 config LD_IS_WASMLD
 	def_bool y
+
+config DEFAULT_MEM_START
+	hex
+	prompt "PAGE_OFFSET/PHYS_OFFSET" if !MMU
+	default 0x00000000
+	help
+	  This is the base address used for both PAGE_OFFSET and PHYS_OFFSET
+	  in noMMU configurations.
+
+	  If unsure, leave the default value here.
