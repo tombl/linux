@@ -49,9 +49,7 @@
     <details>
       <summary>options</summary>
       <form>
-        <label>
-          path: <input type="text" name="path" value="/vmlinux.wasm" />
-        </label>
+        <label>path: <input type="text" name="path" /></label>
         <label>cmdline: <input type="text" name="cmdline" /></label>
         <button>reboot</button>
       </form>
@@ -67,6 +65,8 @@
       const { path = "vmlinux.wasm", cmdline = "" } = Object.fromEntries(
         new URLSearchParams(location.search)
       );
+      document.querySelector("input[name=path]").value = path;
+      document.querySelector("input[name=cmdline]").value = cmdline;
 
       const worker = new Worker("worker.js", { type: "module" });
       worker.onmessage = (event) => {
