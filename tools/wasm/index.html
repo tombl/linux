@@ -64,11 +64,11 @@
       termFit.fit();
       window.onresize = () => termFit.fit();
 
-      const { path = "/vmlinux.wasm", cmdline = "" } = Object.fromEntries(
+      const { path = "vmlinux.wasm", cmdline = "" } = Object.fromEntries(
         new URLSearchParams(location.search)
       );
 
-      const worker = new Worker("/worker.js", { type: "module" });
+      const worker = new Worker("worker.js", { type: "module" });
       worker.onmessage = (event) => {
         switch (event.data.action) {
           case "print":
