@@ -10,7 +10,6 @@
 
 #define PAGE_OFFSET _AC(CONFIG_DEFAULT_MEM_START, UL)
 #define PHYS_OFFSET _AC(CONFIG_DEFAULT_MEM_START, UL)
-#define MAX_LOW_PFN PHYS_PFN(0xfffffffful)
 
 #define clear_page(pgaddr) memset((pgaddr), 0, PAGE_SIZE)
 #define copy_page(to, from) memcpy((to), (from), PAGE_SIZE)
@@ -61,7 +60,6 @@ typedef struct page *pgtable_t;
 
 #define pfn_valid(pfn) ((pfn) < max_mapnr)
 
-#include <asm-generic/memory_model.h>
 #include <asm-generic/getorder.h>
 
 #endif

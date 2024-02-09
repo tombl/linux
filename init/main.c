@@ -11,6 +11,7 @@
  */
 
 #define DEBUG		/* Enable initcall_debug */
+#define will_define___param_initcall_debug
 
 #include <linux/types.h>
 #include <linux/extable.h>
@@ -934,10 +935,19 @@ static void __init print_unknown_bootoptions(void)
 	memblock_free(unknown_options, len);
 }
 
+#define X(_) + 1
+static const struct kernel_param* kernel_params[0 enumerate_param(X)] = {};
+#undef X
+
 asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 {
 	char *command_line;
 	char *after_dashes;
+
+	unsigned int n_kernel_params = 0;
+#define X(param) kernel_params[n_kernel_params++] = &param;
+	enumerate_param(X)
+#undef X
 
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
@@ -973,8 +983,9 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	jump_label_init();
 	parse_early_param();
 	after_dashes = parse_args("Booting kernel",
-				  static_command_line, __start___param,
-				  __stop___param - __start___param,
+				  static_command_line,
+				  kernel_params,
+				  ARRAY_SIZE(kernel_params),
 				  -1, -1, NULL, &unknown_bootoption);
 	print_unknown_bootoptions();
 	if (!IS_ERR_OR_NULL(after_dashes))
@@ -1334,8 +1345,8 @@ static int __init ignore_unknown_bootoption(char *param, char *val,
 static void __init do_initcall_level(int level, char *command_line)
 {
 	parse_args(initcall_level_names[level],
-		   command_line, __start___param,
-		   __stop___param - __start___param,
+		   command_line, kernel_params,
+		   ARRAY_SIZE(kernel_params),
 		   level, level,
 		   NULL, ignore_unknown_bootoption);
 

@@ -72,13 +72,7 @@
       worker.onmessage = (event) => {
         switch (event.data.action) {
           case "print":
-            term.write(new Uint8Array(event.data.buf));
-            break;
-          case "error":
-            term.write(`${event.data.message}\n`);
-            break;
-          case "done":
-            term.write("shutdown");
+            term.write(new Uint8Array(event.data.msg));
             break;
           default:
             throw new Error(`unhandled event ${event.data.action}`);

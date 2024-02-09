@@ -20,7 +20,7 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: tools/wasm/
-          
+
   deploy:
     runs-on: ubuntu-22.04
     needs: build

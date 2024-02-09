@@ -18,6 +18,8 @@
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+#define will_define___param_console_suspend
+#define will_define___param_console_no_auto_verbose
 
 #include <linux/kernel.h>
 #include <linux/mm.h>

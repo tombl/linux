@@ -695,8 +695,13 @@ static const char *check_pointer_msg(const void *ptr)
 	if (!ptr)
 		return "(null)";
 
+#ifdef CONFIG_WASM
+	if (IS_ERR_VALUE(ptr))
+		return "(efault)";
+#else
 	if ((unsigned long)ptr < PAGE_SIZE || IS_ERR_VALUE(ptr))
 		return "(efault)";
+#endif
 
 	return NULL;
 }

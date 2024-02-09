@@ -115,7 +115,7 @@ static bool param_check_unsafe(const struct kernel_param *kp)
 static int parse_one(char *param,
 		     char *val,
 		     const char *doing,
-		     const struct kernel_param *params,
+		     const struct kernel_param **params,
 		     unsigned num_params,
 		     s16 min_level,
 		     s16 max_level,
@@ -128,22 +128,22 @@ static int parse_one(char *param,
 
 	/* Find parameter */
 	for (i = 0; i < num_params; i++) {
-		if (parameq(param, params[i].name)) {
-			if (params[i].level < min_level
-			    || params[i].level > max_level)
+		if (parameq(param, params[i]->name)) {
+			if (params[i]->level < min_level
+			    || params[i]->level > max_level)
 				return 0;
 			/* No one handled NULL, so do it here. */
 			if (!val &&
-			    !(params[i].ops->flags & KERNEL_PARAM_OPS_FL_NOARG))
+			    !(params[i]->ops->flags & KERNEL_PARAM_OPS_FL_NOARG))
 				return -EINVAL;
 			pr_debug("handling %s with %p\n", param,
-				params[i].ops->set);
-			kernel_param_lock(params[i].mod);
-			if (param_check_unsafe(&params[i]))
-				err = params[i].ops->set(val, &params[i]);
+				params[i]->ops->set);
+			kernel_param_lock(params[i]->mod);
+			if (param_check_unsafe(params[i]))
+				err = params[i]->ops->set(val, params[i]);
 			else
 				err = -EPERM;
-			kernel_param_unlock(params[i].mod);
+			kernel_param_unlock(params[i]->mod);
 			return err;
 		}
 	}
@@ -160,7 +160,7 @@ static int parse_one(char *param,
 /* Args looks like "foo=bar,bar2 baz=fuz wiz". */
 char *parse_args(const char *doing,
 		 char *args,
-		 const struct kernel_param *params,
+		 const struct kernel_param **params,
 		 unsigned num,
 		 s16 min_level,
 		 s16 max_level,
