@@ -9,7 +9,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
-      - run: nix build . --print-build-logs --verbose
+      - run: nix build . --print-build-logs
       - uses: actions/upload-artifact@v4
         with:
           name: result
