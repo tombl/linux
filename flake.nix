@@ -38,11 +38,17 @@
               lld
               libllvm
               wabt
+              esbuild
             ];
 
             enableParallelBuilding = true;
-            buildPhase = "make -j$NIX_BUILD_CORES tinyconfig arch/wasm/vmlinux.wasm";
-            installPhase = "mkdir $out && cp arch/wasm/vmlinux.wasm $out/";
+            configurePhase = "make -j$NIX_BUILD_CORES tinyconfig debug.config";
+            buildPhase = "make -j$NIX_BUILD_CORES arch/wasm/vmlinux.wasm tools/wasm";
+            installPhase = ''
+              mkdir $out
+              cp -r tools/wasm/* $out/
+              cp arch/wasm/vmlinux.wasm $out/
+            '';
           };
         });
   };

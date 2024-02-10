@@ -27,10 +27,10 @@ void __init mem_init(void)
 {
 	void *alloc;
 	
-	early_printk("mem_init\n");
+	pr_info("mem_init\n");
 
 	memblock_free_all();
 
 	alloc = kmalloc(64, 0);
-	early_printk("malloc() = %p\n", alloc);
+	pr_info("malloc() = %p\n", alloc);
 }

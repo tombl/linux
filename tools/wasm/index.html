@@ -4,9 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>linux</title>
-    <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
-    <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css" />
+    <script
+      crossorigin="anonymous"
+      src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"
+    ></script>
+    <script
+      crossorigin="anonymous"
+      src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"
+    ></script>
+    <link
+      crossorigin="anonymous"
+      rel="stylesheet"
+      href="https://unpkg.com/xterm@5.3.0/css/xterm.css"
+    />
     <style>
       :root {
         color-scheme: light dark;
@@ -54,7 +64,9 @@
         <button>reboot</button>
       </form>
     </details>
-    <script>
+    <script type="module">
+      import { start } from "./dist/index.js";
+
       const term = new Terminal({ convertEol: true, disableStdin: true });
       const termFit = new FitAddon.FitAddon();
       term.loadAddon(termFit);
@@ -62,26 +74,47 @@
       termFit.fit();
       window.onresize = () => termFit.fit();
 
+      if (!window.crossOriginIsolated) {
+        term.write("Error: not cross origin isolated");
+      }
+
       const { path = "vmlinux.wasm", cmdline = "" } = Object.fromEntries(
         new URLSearchParams(location.search)
       );
       document.querySelector("input[name=path]").value = path;
       document.querySelector("input[name=cmdline]").value = cmdline;
 
-      const worker = new Worker("worker.js", { type: "module" });
-      worker.onmessage = (event) => {
-        switch (event.data.action) {
-          case "print":
-            term.write(new Uint8Array(event.data.msg));
-            break;
-          default:
-            throw new Error(`unhandled event ${event.data.action}`);
-        }
-      };
-      worker.postMessage({
-        action: "boot",
-        path,
+      // const worker = new Worker("worker.js", { type: "module" });
+      // worker.onmessage = (event) => {
+      //   switch (event.data.action) {
+      //     case "print":
+      //       term.write(new Uint8Array(event.data.msg));
+      //       break;
+      //     default:
+      //       throw new Error(`unhandled event ${event.data.action}`);
+      //   }
+      // };
+      // worker.postMessage({
+      //   action: "boot",
+      //   path,
+      //   cmdline: cmdline.replace(/\+/g, " "),
+      // });
+
+      const machine = start({
         cmdline: cmdline.replace(/\+/g, " "),
+        vmlinux: await WebAssembly.compileStreaming(fetch(path)),
+      });
+
+      machine.bootConsole.pipeTo(
+        new WritableStream({
+          write(chunk) {
+            term.write(chunk);
+          },
+        })
+      );
+
+      machine.addEventListener("booted", () => {
+        term.write("booted\n");
       });
     </script>
   </body>

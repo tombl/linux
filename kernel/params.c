@@ -8,6 +8,7 @@
 #include <linux/errno.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
+#include <linux/initcalls.h>
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/slab.h>
@@ -829,27 +830,28 @@ static void __init kernel_add_sysfs_param(const char *name,
  */
 static void __init param_sysfs_builtin(void)
 {
-	const struct kernel_param *kp;
-	unsigned int name_len;
-	char modname[MODULE_NAME_LEN];
-
-	for (kp = __start___param; kp < __stop___param; kp++) {
-		char *dot;
-
-		if (kp->perm == 0)
-			continue;
-
-		dot = strchr(kp->name, '.');
-		if (!dot) {
-			/* This happens for core_param() */
-			strcpy(modname, "kernel");
-			name_len = 0;
-		} else {
-			name_len = dot - kp->name + 1;
-			strlcpy(modname, kp->name, name_len);
-		}
-		kernel_add_sysfs_param(modname, kp, name_len);
-	}
+#define X(kp)                                                   \
+	do {                                                    \
+		unsigned int name_len;                          \
+		char modname[MODULE_NAME_LEN];                  \
+		char *dot;                                      \
+                                                                \
+		if (kp.perm == 0)                               \
+			continue;                               \
+                                                                \
+		dot = strchr(kp.name, '.');                     \
+		if (!dot) {                                     \
+			/* This happens for core_param() */     \
+			strcpy(modname, "kernel");              \
+			name_len = 0;                           \
+		} else {                                        \
+			name_len = dot - kp.name + 1;           \
+			strlcpy(modname, kp.name, name_len);    \
+		}                                               \
+		kernel_add_sysfs_param(modname, &kp, name_len); \
+	} while (0);
+	enumerate_param(X)
+#undef X
 }
 
 ssize_t __modver_version_show(struct module_attribute *mattr,
@@ -861,24 +863,22 @@ ssize_t __modver_version_show(struct module_attribute *mattr,
 	return scnprintf(buf, PAGE_SIZE, "%s\n", vattr->version);
 }
 
-extern const struct module_version_attribute __start___modver[];
-extern const struct module_version_attribute __stop___modver[];
-
 static void __init version_sysfs_builtin(void)
 {
-	const struct module_version_attribute *vattr;
-	struct module_kobject *mk;
-	int err;
+	pr_warn("version_sysfs_builtin is not implemented");
+	// const struct module_version_attribute *vattr;
+	// struct module_kobject *mk;
+	// int err;
 
-	for (vattr = __start___modver; vattr < __stop___modver; vattr++) {
-		mk = locate_module_kobject(vattr->module_name);
-		if (mk) {
-			err = sysfs_create_file(&mk->kobj, &vattr->mattr.attr);
-			WARN_ON_ONCE(err);
-			kobject_uevent(&mk->kobj, KOBJ_ADD);
-			kobject_put(&mk->kobj);
-		}
-	}
+	// for (vattr = __start___modver; vattr < __stop___modver; vattr++) {
+	// 	mk = locate_module_kobject(vattr->module_name);
+	// 	if (mk) {
+	// 		err = sysfs_create_file(&mk->kobj, &vattr->mattr.attr);
+	// 		WARN_ON_ONCE(err);
+	// 		kobject_uevent(&mk->kobj, KOBJ_ADD);
+	// 		kobject_put(&mk->kobj);
+	// 	}
+	// }
 }
 
 /* module-related sysfs stuff */
@@ -958,6 +958,7 @@ struct kobj_type module_ktype = {
  */
 static int __init param_sysfs_init(void)
 {
+	early_printk("param_sysfs_init");
 	module_kset = kset_create_and_add("module", &module_uevent_ops, NULL);
 	if (!module_kset) {
 		printk(KERN_WARNING "%s (%d): error creating kset\n",

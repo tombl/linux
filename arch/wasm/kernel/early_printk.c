@@ -1,5 +1,4 @@
 #include <asm/wasm_imports.h>
-#include <linux/compiler_attributes.h>
 #include <linux/console.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -8,12 +7,19 @@
 static void early_console_write(struct console *con, const char *s,
 				unsigned int n)
 {
-	wasm_print(s, n);
+	wasm_boot_console_write(s, n);
+}
+
+static int early_console_exit(struct console *con)
+{
+	wasm_boot_console_close();
+	return 0;
 }
 
 static struct console early_console_dev = {
 	.name = "earlycon",
 	.write = early_console_write,
+	.exit = early_console_exit,
 	.flags = CON_BOOT,
 	.index = -1,
 };

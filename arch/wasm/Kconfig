@@ -11,7 +11,6 @@ config WASM
 	select BUG
 	select FLATMEM
 	select GENERIC_ATOMIC64
-	select GENERIC_BUG
 	select GENERIC_CSUM
 	select GENERIC_HWEIGHT
 	select HAS_CURRENT_STACK_POINTER
@@ -54,8 +53,7 @@ config PAGE_SIZE_64KB
 	bool
 
 config GENERIC_BUG
-	def_bool y
-	depends on BUG
+	bool
 
 config GENERIC_HWEIGHT
 	def_bool y

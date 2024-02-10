@@ -3,7 +3,7 @@ LD = wasm-ld
 WASM_FEATURES = -matomics -mbulk-memory -mexception-handling -mextended-const -mmultivalue -mmutable-globals -mnontrapping-fptoint -mreference-types -mrelaxed-simd -msign-ext -msimd128
 
 cflags-y += -Wno-incompatible-library-redeclaration '-D__builtin_return_address=wasm_return_address' $(WASM_FEATURES)
-ldflags-y += --import-memory
+ldflags-y += --import-memory --shared-memory --max-memory=4294967296 --no-gc-sections
 
 KBUILD_CFLAGS += $(cflags-y)
 KBUILD_AFLAGS += $(aflags-y)
@@ -14,6 +14,9 @@ all: arch/wasm/vmlinux.wasm
 arch/wasm/vmlinux.wasm: vmlinux
 	$(Q)$(MAKE) include/generated/initcalls.h
 	$(Q)$(MAKE) vmlinux
+	$(Q)cp vmlinux $@
+
+tools/wasm/vmlinux.wasm: vmlinux
 	$(Q)cp vmlinux $@
 
 define archhelp

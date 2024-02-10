@@ -1018,7 +1018,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	 * timer interrupt). Full topology setup happens at smp_init()
 	 * time - but meanwhile we still have a functioning scheduler.
 	 */
-	sched_init();
+	// sched_init();
 
 	if (WARN(!irqs_disabled(),
 		 "Interrupts were enabled *very* early, fixing it\n"))
@@ -1159,8 +1159,10 @@ static void __init do_ctors(void)
  * normal setup code as it's just a normal ELF binary, so we
  * cannot do it again - but we do need CONFIG_CONSTRUCTORS
  * even on UML for modules.
+ * Likewise, the WebAssembly linker combines all constructors
+ * into a single function which is called in the arch startup.
  */
-#if defined(CONFIG_CONSTRUCTORS) && !defined(CONFIG_UML)
+#if defined(CONFIG_CONSTRUCTORS) && !defined(CONFIG_UML) && !defined(CONFIG_WASM)
 	ctor_fn_t *fn = (ctor_fn_t *) __ctors_start;
 
 	for (; fn < (ctor_fn_t *) __ctors_end; fn++)

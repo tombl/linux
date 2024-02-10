@@ -7,6 +7,7 @@
 #include <linux/mutex.h>
 #include <linux/of_fdt.h>
 #include <linux/printk.h>
+#include <linux/screen_info.h>
 #include <linux/start_kernel.h>
 #include <linux/types.h>
 
@@ -24,9 +25,19 @@ uintptr_t __stop___ex_table, __start___ex_table, __sched_class_highest,
 	__per_cpu_load, __per_cpu_end, _stext, _etext, _sinittext, _einittext,
 	__sched_text_start, __sched_text_end, __cpuidle_text_start,
 	__cpuidle_text_end, __lock_text_start, __lock_text_end, __bss_start,
-	__bss_stop, _sdata, _edata, __reservedmem_of_table;
+	__bss_stop, _sdata, _edata, __reservedmem_of_table, __start_builtin_fw,
+	__end_builtin_fw;
 
+
+struct screen_info screen_info = {};
+
+// https://github.com/llvm/llvm-project/blob/d2e4a725da5b4cbef8b5c1446f29fed1487aeab0/lld/wasm/Symbols.h#L515
 void __init __wasm_call_ctors(void);
+extern void __stack_low;
+extern void __stack_high;
+extern void __heap_base;
+extern void __heap_end;
+
 int __init setup_early_printk(char *buf);
 
 static char wasm_dt[1024];
@@ -36,9 +47,17 @@ void __init _start(void)
 	__wasm_call_ctors();
 
 	setup_early_printk(NULL);
+	pr_info("heap: %zu->%zu=%zu\n", (uintptr_t)&__heap_base,
+		(uintptr_t)&__heap_end,
+		(uintptr_t)&__heap_end - (uintptr_t)&__heap_base);
+	pr_info("stack: %zu->%zu=%zu\n", (uintptr_t)&__stack_low,
+		(uintptr_t)&__stack_high,
+		(uintptr_t)&__stack_high - (uintptr_t)&__stack_low);
 
 	wasm_get_dt(wasm_dt, ARRAY_SIZE(wasm_dt));
 	early_init_dt_scan(wasm_dt);
+
+	memblock_reserve(0, (phys_addr_t)&__heap_base);
 
 	start_kernel();
 }
@@ -49,22 +68,15 @@ void __init setup_arch(char **cmdline_p)
 	strscpy(command_line, boot_command_line, COMMAND_LINE_SIZE);
 	*cmdline_p = command_line;
 
-#ifdef CONFIG_BLK_DEV_INITRD
-	if (initrd_start < initrd_end &&
-	    !mem_reserve(__pa(initrd_start), __pa(initrd_end)))
-		initrd_below_start_ok = 1;
-	else
-		initrd_start = 0;
-#endif
-
 	parse_early_param();
-	early_printk("hello!\n");
 
 	unflatten_device_tree();
 
 #ifdef CONFIG_SMP
 	smp_init_cpus();
 #endif
+
+	memblock_dump_all();
 
 	zones_init();
 }
@@ -77,17 +89,17 @@ void __init setup_arch(char **cmdline_p)
 
 void machine_restart(char *cmd)
 {
-	early_printk("restart: %s", cmd);
+	pr_info("restart: %s", cmd);
 	__builtin_trap();
 }
 
 void machine_halt(void)
 {
-	early_printk("halt");
+	pr_info("halt");
 	__builtin_trap();
 }
 void machine_power_off(void)
 {
-	early_printk("poweroff");
+	pr_info("poweroff");
 	__builtin_trap();
 }
