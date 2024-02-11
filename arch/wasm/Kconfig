@@ -18,6 +18,7 @@ config WASM
 	select OF_EARLY_FLATTREE
 	select PAGE_SIZE_64KB
 	select UACCESS_MEMCPY if !MMU
+	select THREAD_INFO_IN_TASK
 
 config ARCH_HAS_BINFMT_WASM
 	bool

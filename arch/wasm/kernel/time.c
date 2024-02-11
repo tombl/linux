@@ -1,4 +1,4 @@
-#include "linux/delay.h"
+#include <linux/delay.h>
 #include <linux/init.h>
 #include <asm/param.h>
 #include <asm/timex.h>

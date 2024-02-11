@@ -1,4 +1,7 @@
-export function assert(cond: unknown, message = "Assertation failed"): asserts cond {
+export function assert(
+  cond: unknown,
+  message = "Assertation failed",
+): asserts cond {
   if (!cond) throw new Error(message);
 }
 

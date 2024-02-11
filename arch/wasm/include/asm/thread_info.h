@@ -11,7 +11,7 @@ struct thread_info {
 	struct task_struct *task;
 	unsigned long flags;
 	int preempt_count;
-	unsigned int cpu;
+	unsigned int worker;
 };
 
 #define INIT_THREAD_INFO(tsk)                                 \
@@ -19,15 +19,8 @@ struct thread_info {
 		.task = &tsk, .flags = 0, .preempt_count = 1, \
 	}
 
-extern struct thread_info *__current_thread_info;
-static inline struct thread_info *current_thread_info(void)
-{
-	return __current_thread_info;
-}
-
 extern unsigned long *__stack_pointer;
 #define current_stack_pointer __stack_pointer
-
 
 #define TIF_SYSCALL_TRACE 0 /* syscall trace active */
 #define TIF_NOTIFY_RESUME 1 /* callback before returning to user */

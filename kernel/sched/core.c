@@ -71,6 +71,10 @@
 # endif
 #endif
 
+#ifdef CONFIG_WASM
+# include <asm/wasm_imports.h>
+#endif
+
 #include <uapi/linux/sched/types.h>
 
 #include <asm/irq_regs.h>
@@ -4754,6 +4758,11 @@ void wake_up_new_task(struct task_struct *p)
 	}
 #endif
 	task_rq_unlock(rq, p, &rf);
+
+#ifdef CONFIG_WASM
+	pr_info("starting worker %i\n", task_thread_info(p)->worker);
+	wasm_start_worker(task_thread_info(p)->worker);
+#endif
 }
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS
@@ -6444,6 +6453,8 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 	struct rq_flags rf;
 	struct rq *rq;
 	int cpu;
+
+	return;
 
 	cpu = smp_processor_id();
 	rq = cpu_rq(cpu);

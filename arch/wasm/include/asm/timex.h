@@ -13,8 +13,8 @@ static inline cycles_t get_cycles(void)
 static inline int read_current_timer(unsigned long *timer_val)
 {
 	__builtin_trap();
-        *timer_val = wasm_get_now_nsec();
-        return 0;
+	*timer_val = wasm_get_now_nsec();
+	return 0;
 }
 
 #endif

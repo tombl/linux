@@ -1,5 +1,6 @@
 #include <asm/setup.h>
 #include <asm/sysmem.h>
+#include <asm/thread_info.h>
 #include <asm/wasm_imports.h>
 #include <linux/init.h>
 #include <linux/jiffies.h>
@@ -7,6 +8,7 @@
 #include <linux/mutex.h>
 #include <linux/of_fdt.h>
 #include <linux/printk.h>
+#include <linux/sched.h>
 #include <linux/screen_info.h>
 #include <linux/start_kernel.h>
 #include <linux/types.h>
@@ -15,7 +17,8 @@ unsigned long volatile jiffies = INITIAL_JIFFIES;
 
 char __init_begin[0], __init_end[0];
 
-struct thread_info *__current_thread_info = { 0 };
+#undef current
+_Thread_local struct task_struct *current = { 0 };
 
 unsigned long init_stack[THREAD_SIZE / sizeof(unsigned long)];
 unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)] = { 0 };
@@ -24,10 +27,8 @@ uintptr_t __stop___ex_table, __start___ex_table, __sched_class_highest,
 	__sched_class_lowest, __per_cpu_start, __end_rodata, __start_rodata,
 	__per_cpu_load, __per_cpu_end, _stext, _etext, _sinittext, _einittext,
 	__sched_text_start, __sched_text_end, __cpuidle_text_start,
-	__cpuidle_text_end, __lock_text_start, __lock_text_end, __bss_start,
-	__bss_stop, _sdata, _edata, __reservedmem_of_table, __start_builtin_fw,
-	__end_builtin_fw;
-
+	__cpuidle_text_end, __lock_text_start, __lock_text_end,
+	__reservedmem_of_table, __start_builtin_fw, __end_builtin_fw;
 
 struct screen_info screen_info = {};
 
@@ -42,18 +43,11 @@ int __init setup_early_printk(char *buf);
 
 static char wasm_dt[1024];
 
-void __init _start(void)
+__attribute__((export_name("start"))) void __init _start(void)
 {
 	__wasm_call_ctors();
 
 	setup_early_printk(NULL);
-	pr_info("heap: %zu->%zu=%zu\n", (uintptr_t)&__heap_base,
-		(uintptr_t)&__heap_end,
-		(uintptr_t)&__heap_end - (uintptr_t)&__heap_base);
-	pr_info("stack: %zu->%zu=%zu\n", (uintptr_t)&__stack_low,
-		(uintptr_t)&__stack_high,
-		(uintptr_t)&__stack_high - (uintptr_t)&__stack_low);
-
 	wasm_get_dt(wasm_dt, ARRAY_SIZE(wasm_dt));
 	early_init_dt_scan(wasm_dt);
 
@@ -70,6 +64,11 @@ void __init setup_arch(char **cmdline_p)
 
 	parse_early_param();
 
+	pr_info("heap: %p -> %p = %td\n", &__heap_base, &__heap_end,
+		&__heap_end - &__heap_base);
+	pr_info("stack: %p -> %p = %td\n", &__stack_low, &__stack_high,
+		&__stack_high - &__stack_low);
+
 	unflatten_device_tree();
 
 #ifdef CONFIG_SMP
@@ -81,25 +80,27 @@ void __init setup_arch(char **cmdline_p)
 	zones_init();
 }
 
-// extern void do_kernel_restart(char *cmd);
-// extern void migrate_to_reboot_cpu(void);
-// extern void machine_shutdown(void);
-// struct pt_regs;
-// extern void machine_crash_shutdown(struct pt_regs *);
-
 void machine_restart(char *cmd)
 {
-	pr_info("restart: %s", cmd);
-	__builtin_trap();
+	wasm_restart();
 }
 
 void machine_halt(void)
 {
-	pr_info("halt");
+	pr_info("halt\n");
 	__builtin_trap();
 }
 void machine_power_off(void)
 {
-	pr_info("poweroff");
+	pr_info("poweroff\n");
 	__builtin_trap();
+}
+
+__attribute__((export_name("thread_entry"))) void __init
+_thread_entry(unsigned int worker)
+{
+	early_printk("thread entry = %u\n", current_thread_info()->worker);
+	current_thread_info()->worker = worker;
+	early_printk("             = %u\n", current_thread_info()->worker);
+	pr_info("entered new thread!\n");
 }

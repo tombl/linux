@@ -6,6 +6,7 @@ const PAGE_SIZE = 1 << 16; // 64KiB
 
 interface MachineEventMap {
   booted: CustomEvent<void>;
+  error: CustomEvent<Error>;
 }
 
 interface Machine {
@@ -58,6 +59,9 @@ export function start({
     worker.postMessage(message, transfer);
   }
 
+  const workers = new Map<number, Worker>();
+  workers.set(0, worker);
+
   worker.addEventListener(
     "message",
     async ({ data }: MessageEvent<FromWorkerMessage>) => {
@@ -69,13 +73,26 @@ export function start({
           await bootConsoleWriter.close();
           await bootConsole.writable.close();
           break;
+        case "restart":
+          // @ts-ignore
+          globalThis?.location?.reload?.();
+          break;
+        case "error":
+          emit("error", data.err);
+          break;
         case "booted":
           emit("booted", undefined);
+          break;
+        case "spawn-worker":
+          console.log("spawn worker", data.id);
+          break;
+        case "start-worker":
+          console.log("start worker", data.id);
           break;
         default:
           unreachable(
             data,
-            `invalid worker message type: ${(data as { type: "string" }).type}`,
+            `invalid worker message type: ${(data as { type: string }).type}`,
           );
       }
     },

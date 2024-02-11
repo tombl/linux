@@ -210,7 +210,7 @@ build_clean:
 	$(call descend,build,clean)
 
 wasm: FORCE
-	$(call descend,wasm,dist/index.js)
+	$(call descend,wasm,all)
 
 clean: acpi_clean cgroup_clean counter_clean cpupower_clean hv_clean firewire_clean \
 		perf_clean selftests_clean turbostat_clean bootconfig_clean spi_clean usb_clean virtio_clean \
