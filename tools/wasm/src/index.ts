@@ -5,8 +5,7 @@ import { unreachable } from "./util.ts";
 const PAGE_SIZE = 1 << 16; // 64KiB
 
 interface MachineEventMap {
-  booted: CustomEvent<void>;
-  error: CustomEvent<Error>;
+  error: CustomEvent<{ error: Error; workerName: string }>;
 }
 
 interface Machine {
@@ -28,12 +27,10 @@ export function start({
   cmdline,
   vmlinux,
   memoryPages = 1024, // 64MiB
-  maxMemoryPages = memoryPages,
 }: {
   cmdline: string;
   vmlinux: WebAssembly.Module;
   memoryPages?: number;
-  maxMemoryPages?: number;
 }) {
   const bootConsole = new TransformStream<Uint8Array, Uint8Array>();
   const bootConsoleWriter = bootConsole.writable.getWriter();
@@ -46,64 +43,65 @@ export function start({
     eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
   }
 
-  const worker = new Worker(
-    (self as { BUNDLED?: true }).BUNDLED
-      ? new URL("./worker.js", import.meta.url)
-      : import.meta.resolve("./worker.ts"),
-    { type: "module" },
-  );
-  function postMessage(
-    message: ToWorkerMessage,
-    transfer: Transferable[] = [],
-  ) {
-    worker.postMessage(message, transfer);
+  function newWorker(name: string) {
+    const worker = new Worker(
+      (self as { BUNDLED?: true }).BUNDLED
+        ? new URL("./worker.js", import.meta.url)
+        : import.meta.resolve("./worker.ts"),
+      { type: "module", name },
+    );
+    function postMessage(
+      message: ToWorkerMessage,
+      transfer: Transferable[] = [],
+    ) {
+      worker.postMessage(message, transfer);
+    }
+
+    worker.addEventListener(
+      "message",
+      async ({ data }: MessageEvent<FromWorkerMessage>) => {
+        switch (data.type) {
+          case "boot-console-write":
+            bootConsoleWriter.write(data.message);
+            break;
+          case "boot-console-close":
+            await bootConsoleWriter.close();
+            await bootConsole.writable.close();
+            break;
+          case "restart":
+            // @ts-ignore: reloads browsers, inert on deno/node
+            globalThis?.location?.reload?.();
+            break;
+          case "error":
+            emit("error", { error: data.err, workerName: name });
+            break;
+          case "new-worker":
+            console.log("spawning", name, data.arg.toString(16));
+            newWorker(data.name).postMessage(
+              {
+                type: "start",
+                memory,
+                vmlinux,
+                arg: data.arg,
+              },
+            );
+            break;
+          default:
+            unreachable(
+              data,
+              `invalid worker message type: ${(data as { type: string }).type}`,
+            );
+        }
+      },
+    );
+    worker.addEventListener("error", (event) => emit("error", event.error));
+
+    return { postMessage };
   }
-
-  const workers = new Map<number, Worker>();
-  workers.set(0, worker);
-
-  worker.addEventListener(
-    "message",
-    async ({ data }: MessageEvent<FromWorkerMessage>) => {
-      switch (data.type) {
-        case "boot-console-write":
-          bootConsoleWriter.write(data.message);
-          break;
-        case "boot-console-close":
-          await bootConsoleWriter.close();
-          await bootConsole.writable.close();
-          break;
-        case "restart":
-          // @ts-ignore
-          globalThis?.location?.reload?.();
-          break;
-        case "error":
-          emit("error", data.err);
-          break;
-        case "booted":
-          emit("booted", undefined);
-          break;
-        case "spawn-worker":
-          console.log("spawn worker", data.id);
-          break;
-        case "start-worker":
-          console.log("start worker", data.id);
-          break;
-        default:
-          unreachable(
-            data,
-            `invalid worker message type: ${(data as { type: string }).type}`,
-          );
-      }
-    },
-  );
-  worker.addEventListener("error", (event) => {
-    console.error(event.error);
-  });
 
   const memory: WebAssembly.Memory = new WebAssembly.Memory({
     initial: memoryPages,
-    maximum: maxMemoryPages,
+    maximum: memoryPages,
     shared: true,
   });
 
@@ -115,14 +113,14 @@ export function start({
     aliases: {},
     memory: {
       device_type: "memory",
-      reg: [0, maxMemoryPages * PAGE_SIZE],
+      reg: [0, memoryPages * PAGE_SIZE],
     },
   });
 
-  postMessage(
+  newWorker("linux init").postMessage(
     {
       type: "boot",
-      module: vmlinux,
+      vmlinux,
       memory,
       devicetree,
     },

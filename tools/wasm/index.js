@@ -15,10 +15,6 @@ const machine = start({
 
 machine.bootConsole.pipeTo(Writable.toWeb(process.stdout));
 
-machine.addEventListener("booted", () => {
-  console.log("booted");
-});
-
-machine.addEventListener("error", (e) => {
-  console.log("error:", e.detail);
+machine.addEventListener("error", ({ detail: { error, workerName } }) => {
+  console.log(`Error in ${workerName}:`, error);
 });

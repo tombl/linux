@@ -2,18 +2,16 @@ config WASM
 	def_bool y
 	depends on !BINFMT_ELF && !SMP && !MMU && !MODULES && !COREDUMP && !SECCOMP && !UPROBES && !COMPAT
 	select ARCH_HAS_BINFMT_WASM
+	select ARCH_HAS_CURRENT_STACK_POINTER
 	select ARCH_HAS_SYSCALL_WRAPPER
 	select ARCH_NO_SWAP
 	select ARCH_USE_QUEUED_RWLOCKS
 	select ARCH_USE_QUEUED_SPINLOCKS
-	# select ARCH_SUPPORTS_LTO_CLANG
-	# select ARCH_SUPPORTS_LTO_CLANG_THIN
 	select BUG
 	select FLATMEM
 	select GENERIC_ATOMIC64
 	select GENERIC_CSUM
 	select GENERIC_HWEIGHT
-	select HAS_CURRENT_STACK_POINTER
 	select OF
 	select OF_EARLY_FLATTREE
 	select PAGE_SIZE_64KB
@@ -44,7 +42,8 @@ config SMP
 
 config NR_CPUS
 	int
-	default 1
+	default 1 if !SMP
+	default 64 if SMP
 
 config HZ
 	int

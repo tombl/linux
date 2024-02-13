@@ -12403,7 +12403,7 @@ static unsigned int get_rr_interval_fair(struct rq *rq, struct task_struct *task
  * All the scheduling class methods:
  */
 DEFINE_SCHED_CLASS(fair) = {
-
+	.rank			= SCHED_CLASS_FAIR,
 	.enqueue_task		= enqueue_task_fair,
 	.dequeue_task		= dequeue_task_fair,
 	.yield_task		= yield_task_fair,

@@ -5,8 +5,7 @@
 
 struct task_struct;
 
-static inline void cpu_relax(void)
-{
+static inline void cpu_relax(void) {
 	wasm_relax();
 }
 
@@ -36,9 +35,12 @@ struct thread_struct {};
 	{           \
 	}
 
-#define task_pt_regs(tsk) (struct pt_regs *)(NULL)
+#define task_pt_regs(task) \
+	((struct pt_regs *)(task->stack + THREAD_SIZE) - 1)
 
-#define TASK_SIZE U32_MAX
+// I believe this is unreferenced in nommu:
+#define TASK_SIZE (__builtin_trap(),U32_MAX)
+
 #define TASK_UNMAPPED_BASE 0
 
 #define KSTK_EIP(tsk) (0)

@@ -2711,7 +2711,7 @@ static void prio_changed_dl(struct rq *rq, struct task_struct *p,
 }
 
 DEFINE_SCHED_CLASS(dl) = {
-
+	.rank			= SCHED_CLASS_DL,
 	.enqueue_task		= enqueue_task_dl,
 	.dequeue_task		= dequeue_task_dl,
 	.yield_task		= yield_task_dl,

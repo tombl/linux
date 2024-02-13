@@ -104,10 +104,6 @@
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
 
-#ifdef CONFIG_WASM
-#include <asm/wasm_imports.h>
-#endif
-
 #include <trace/events/sched.h>
 
 #define CREATE_TRACE_POINTS
@@ -2009,17 +2005,12 @@ static __latent_entropy struct task_struct *copy_process(
 					int node,
 					struct kernel_clone_args *args)
 {
-#ifdef CONFIG_WASM
-	static atomic_t next_webworker_id = ATOMIC_INIT(1);
-#endif
 	int pidfd = -1, retval;
 	struct task_struct *p;
 	struct multiprocess_signals delayed;
 	struct file *pidfile = NULL;
 	const u64 clone_flags = args->flags;
 	struct nsproxy *nsp = current->nsproxy;
-
-	pr_info("copy process %u\n", pid->numbers[0].nr);
 
 	/*
 	 * Don't allow sharing the root directory with processes in a different
@@ -2070,12 +2061,10 @@ static __latent_entropy struct task_struct *copy_process(
 	 * If the new process will be in a different time namespace
 	 * do not allow it to share VM or a thread group with the forking task.
 	 */
-	pr_info("clone_flags: %llx %p %p\n", clone_flags, nsp->time_ns, nsp->time_ns_for_children);
 	if (clone_flags & (CLONE_THREAD | CLONE_VM)) {
 		if (nsp->time_ns != nsp->time_ns_for_children)
 			return ERR_PTR(-EINVAL);
 	}
-	pr_info("after\n");
 
 	if (clone_flags & CLONE_PIDFD) {
 		/*
@@ -2504,11 +2493,6 @@ static __latent_entropy struct task_struct *copy_process(
 	syscall_tracepoint_update(p);
 	write_unlock_irq(&tasklist_lock);
 
-#ifdef CONFIG_WASM
-	wasm_spawn_worker(atomic_inc_return(&next_webworker_id));
-	pr_info("spawning worker %i\n", atomic_read(&next_webworker_id));
-#endif
-	
 	if (pidfile)
 		fd_install(pidfd, pidfile);
 

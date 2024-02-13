@@ -1,5 +1,7 @@
+#include <linux/clocksource.h>
 #include <linux/delay.h>
 #include <linux/init.h>
+#include <asm/wasm_imports.h>
 #include <asm/param.h>
 #include <asm/timex.h>
 #include <asm/processor.h>
@@ -10,15 +12,11 @@ void calibrate_delay(void)
 	loops_per_jiffy = 1000000000 / HZ;
 }
 
-void __init time_init(void)
-{
-}
-
 void __delay(unsigned long cycles)
 {
-	cycles_t start = get_cycles();
+	cycles_t start = wasm_get_now_nsec();
 
-	while ((get_cycles() - start) < cycles)
+	while ((wasm_get_now_nsec() - start) < cycles)
 		cpu_relax();
 }
 
@@ -32,9 +30,24 @@ void __ndelay(unsigned long nsecs)
 }
 void __const_udelay(unsigned long xloops)
 {
-	unsigned long long loops;
+	__delay(xloops / 0x10c7ul); /* 2**32 / 1000000 (rounded up) */
+}
 
-	loops = (unsigned long long)xloops * loops_per_jiffy * HZ;
+static u64 clock_read(struct clocksource *cs)
+{
+	return wasm_get_now_nsec();
+}
 
-	__delay(loops >> 32);
+static struct clocksource clocksource = {
+	.name = "wasm",
+	.rating = 499,
+	.read = clock_read,
+	.flags = CLOCK_SOURCE_IS_CONTINUOUS,
+	.mask = CLOCKSOURCE_MASK(64),
+};
+
+void __init time_init(void)
+{
+	if (clocksource_register_khz(&clocksource, 1000000))
+		panic("unable to register clocksource\n");
 }

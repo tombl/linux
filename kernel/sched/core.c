@@ -4758,11 +4758,6 @@ void wake_up_new_task(struct task_struct *p)
 	}
 #endif
 	task_rq_unlock(rq, p, &rf);
-
-#ifdef CONFIG_WASM
-	pr_info("starting worker %i\n", task_thread_info(p)->worker);
-	wasm_start_worker(task_thread_info(p)->worker);
-#endif
 }
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS
@@ -5863,6 +5858,7 @@ static inline struct task_struct *
 __pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 {
 	const struct sched_class *class;
+	int class_i;
 	struct task_struct *p;
 
 	/*
@@ -5890,7 +5886,7 @@ __pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 restart:
 	put_prev_task_balance(rq, prev, rf);
 
-	for_each_class(class) {
+	for_each_class(class, class_i) {
 		p = class->pick_next_task(rq);
 		if (p)
 			return p;
@@ -6453,8 +6449,6 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 	struct rq_flags rf;
 	struct rq *rq;
 	int cpu;
-
-	return;
 
 	cpu = smp_processor_id();
 	rq = cpu_rq(cpu);
@@ -9678,12 +9672,12 @@ void __init sched_init(void)
 	unsigned long ptr = 0;
 	int i;
 
-	/* Make sure the linker didn't screw up */
-	BUG_ON(&idle_sched_class != &fair_sched_class + 1 ||
-	       &fair_sched_class != &rt_sched_class + 1 ||
-	       &rt_sched_class   != &dl_sched_class + 1);
+	/* Make sure the author didn't screw up */
+	BUG_ON(idle_sched_class.rank != fair_sched_class.rank + 1 ||
+	       fair_sched_class.rank != rt_sched_class.rank + 1 ||
+	       rt_sched_class.rank   != dl_sched_class.rank + 1);
 #ifdef CONFIG_SMP
-	BUG_ON(&dl_sched_class != &stop_sched_class + 1);
+	BUG_ON(dl_sched_class.rank != stop_sched_class.rank + 1);
 #endif
 
 	wait_bit_init();

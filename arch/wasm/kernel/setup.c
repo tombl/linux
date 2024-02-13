@@ -17,8 +17,7 @@ unsigned long volatile jiffies = INITIAL_JIFFIES;
 
 char __init_begin[0], __init_end[0];
 
-#undef current
-_Thread_local struct task_struct *current = { 0 };
+_Thread_local struct task_struct *current = &init_task;
 
 unsigned long init_stack[THREAD_SIZE / sizeof(unsigned long)];
 unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)] = { 0 };
@@ -40,16 +39,18 @@ extern void __heap_base;
 extern void __heap_end;
 
 int __init setup_early_printk(char *buf);
-
-static char wasm_dt[1024];
+void __init smp_init_cpus(void);
 
 __attribute__((export_name("start"))) void __init _start(void)
 {
+	static char wasm_dt[1024];
 	__wasm_call_ctors();
 
 	setup_early_printk(NULL);
+
 	wasm_get_dt(wasm_dt, ARRAY_SIZE(wasm_dt));
 	early_init_dt_scan(wasm_dt);
+	early_init_fdt_scan_reserved_mem();
 
 	memblock_reserve(0, (phys_addr_t)&__heap_base);
 
@@ -94,13 +95,4 @@ void machine_power_off(void)
 {
 	pr_info("poweroff\n");
 	__builtin_trap();
-}
-
-__attribute__((export_name("thread_entry"))) void __init
-_thread_entry(unsigned int worker)
-{
-	early_printk("thread entry = %u\n", current_thread_info()->worker);
-	current_thread_info()->worker = worker;
-	early_printk("             = %u\n", current_thread_info()->worker);
-	pr_info("entered new thread!\n");
 }

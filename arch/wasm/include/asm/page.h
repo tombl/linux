@@ -60,6 +60,10 @@ typedef struct page *pgtable_t;
 
 #define pfn_valid(pfn) ((pfn) < max_mapnr)
 
+struct page;
+void arch_alloc_page(struct page *page, int order);
+#define HAVE_ARCH_ALLOC_PAGE
+
 #include <asm-generic/getorder.h>
 
 #endif

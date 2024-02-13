@@ -728,7 +728,7 @@ noinline void __ref rest_init(void)
 	 */
 	schedule_preempt_disabled();
 	/* Call into cpu_idle with preempt disabled */
-	// cpu_startup_entry(CPUHP_ONLINE);
+	cpu_startup_entry(CPUHP_ONLINE);
 }
 
 /* Check for early params. */
@@ -1018,7 +1018,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	 * timer interrupt). Full topology setup happens at smp_init()
 	 * time - but meanwhile we still have a functioning scheduler.
 	 */
-	// sched_init();
+	sched_init();
 
 	if (WARN(!irqs_disabled(),
 		 "Interrupts were enabled *very* early, fixing it\n"))

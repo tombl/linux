@@ -1,1 +1,1 @@
-obj-y := init.o
+obj-y := init.o page.o
