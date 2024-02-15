@@ -1,11 +1,13 @@
 #ifndef _WASM_PROCESSOR_H
 #define _WASM_PROCESSOR_H
 
+#include <asm/bug.h>
 #include <asm/wasm_imports.h>
 
 struct task_struct;
 
-static inline void cpu_relax(void) {
+static inline void cpu_relax(void)
+{
 	wasm_relax();
 }
 
@@ -13,20 +15,24 @@ static inline void cpu_relax(void) {
 
 static inline unsigned long thread_saved_pc(struct task_struct *tsk)
 {
+	BUG();
 	return 0;
 }
 
 static inline void prepare_to_copy(struct task_struct *tsk)
 {
+	BUG();
 }
 
 static inline unsigned long __get_wchan(struct task_struct *p)
 {
+	BUG();
 	return 0;
 }
 
 static inline void flush_thread(void)
 {
+	BUG();
 }
 
 struct thread_struct {};

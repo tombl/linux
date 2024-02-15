@@ -3,68 +3,117 @@
 #include <linux/of_fdt.h>
 #include <linux/sched.h>
 
-int __cpu_up(unsigned int cpu, struct task_struct *idle)
+static struct {
+	unsigned long bits ____cacheline_aligned;
+} ipi_data[NR_CPUS] __cacheline_aligned;
+
+enum ipi_message_type {
+	IPI_RESCHEDULE,
+	IPI_CPU_STOP,
+};
+
+static void send_ipi_message(const struct cpumask *to_whom,
+			     enum ipi_message_type operation)
 {
-	__builtin_trap();
+	int i;
+
+	mb();
+	for_each_cpu(i, to_whom)
+		set_bit(operation, &ipi_data[i].bits);
+
+	// mb();
+	// for_each_cpu(i, to_whom)
+	// 	BUG(); // TODO(wasm): postMessage interrupt to other worker
 }
 
-static int __init get_cpu_map(const char *name, struct cpumask *cpumask)
+int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
-	unsigned long dt_root = of_get_flat_dt_root();
-	const char *buf;
-
-	buf = of_get_flat_dt_prop(dt_root, name, NULL);
-	if (!buf)
-		return -EINVAL;
-
-	if (cpulist_parse(buf, cpumask))
-		return -EINVAL;
-
-	return 0;
+	BUG();
 }
 
 void __init smp_init_cpus(void)
 {
-	struct cpumask cpumask;
-
-	if (get_cpu_map("possible-cpus", &cpumask))
-		panic("Failed to get possible-cpus from dtb");
-
-	if (!cpumask_test_cpu(0, &cpumask))
-		panic("Master cpu (cpu[0]) is missed in cpu possible mask!");
-
-	init_cpu_possible(&cpumask);
+	BUG();
 }
 
-#ifdef CONFIG_SMP
-void smp_prepare_boot_cpu(void)
+/* Called early in main to prepare the boot cpu */
+void __init smp_prepare_boot_cpu(void)
 {
+	current_thread_info()->cpu = 0;
 }
-#endif
 
-void smp_prepare_cpus(unsigned int max_cpus)
+/* Called in main to prepare secondary cpus */
+void __init smp_prepare_cpus(unsigned int max_cpus)
 {
-	for (int i = 0; i < NR_CPUS; i++)
-		set_cpu_possible(i, true);
-	__builtin_trap();
+	memset(ipi_data, 0, sizeof(ipi_data));
+
+	pr_info("SMP bringup with %i parallel processes\n", NR_CPUS);
+}
+
+void smp_send_stop(void)
+{
+	cpumask_t to_whom;
+	cpumask_copy(&to_whom, cpu_online_mask);
+	cpumask_clear_cpu(smp_processor_id(), &to_whom);
+	send_ipi_message(&to_whom, IPI_CPU_STOP);
+}
+
+void smp_send_reschedule(int cpu)
+{
+	BUG();
+	send_ipi_message(cpumask_of(cpu), IPI_RESCHEDULE);
 }
 
 void arch_smp_send_reschedule(int cpu)
 {
-	__builtin_trap();
+	BUG();
 }
 
 void arch_send_call_function_ipi_mask(const struct cpumask *mask)
 {
-	__builtin_trap();
+	BUG();
 }
 
 void arch_send_call_function_single_ipi(int cpu)
 {
-	__builtin_trap();
+	BUG();
 }
 
 void smp_cpus_done(unsigned int max_cpus)
 {
-	__builtin_trap();
+	BUG();
+}
+
+/* called on enter interrupt
+ * TODO(wasm): actually do the call
+ */
+void handle_ipi(struct pt_regs *regs)
+{
+	int this_cpu = smp_processor_id();
+	unsigned long *pending_ipis = &ipi_data[this_cpu].bits;
+	unsigned long ops;
+
+	mb(); /* Order interrupt and bit testing. */
+	while ((ops = xchg(pending_ipis, 0)) != 0) {
+		mb(); /* Order bit clearing and data access. */
+		do {
+			unsigned long which;
+
+			which = ops & -ops;
+			ops &= ~which;
+			which = __ffs(which);
+
+			switch (which) {
+			case IPI_CPU_STOP:
+				wasm_halt();
+
+			default:
+				printk(KERN_CRIT "Unknown IPI on CPU %d: %lu\n",
+				       this_cpu, which);
+				break;
+			}
+		} while (ops);
+
+		mb(); /* Order data access and bit testing. */
+	}
 }

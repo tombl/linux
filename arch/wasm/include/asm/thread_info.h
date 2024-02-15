@@ -1,11 +1,12 @@
 #ifndef _WASM_THREAD_INFO_H
 #define _WASM_THREAD_INFO_H
 
-// THREAD_SIZE is the size of the task_struct+kernel stack
-// wasm stores stacks outside of addressable memory, plus its page size is 64KiB
-// so that'll be big enough
-#define THREAD_SIZE PAGE_SIZE
-#define THREAD_SIZE_ORDER 0
+/* THREAD_SIZE is the size of the task_struct + kernel stack
+ * This is asserted in setup, but the stack should be 1 page,
+ * and a task_struct should be *way* less than a page big. */
+#define THREAD_SIZE_ORDER 1
+#define THREAD_SIZE (PAGE_SIZE << THREAD_SIZE_ORDER)
+#define THREAD_SHIFT (PAGE_SHIFT << THREAD_SIZE_ORDER)
 
 struct thread_info {
 	struct task_struct *task;
@@ -21,9 +22,6 @@ struct thread_info {
 	{                                                                      \
 		.task = &tsk, .flags = 0, .preempt_count = INIT_PREEMPT_COUNT, \
 	}
-
-extern unsigned long *__stack_pointer;
-#define current_stack_pointer __stack_pointer
 
 #define TIF_SYSCALL_TRACE 0 /* syscall trace active */
 #define TIF_NOTIFY_RESUME 1 /* resumption notification requested */

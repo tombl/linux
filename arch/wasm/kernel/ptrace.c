@@ -3,5 +3,5 @@
 void show_regs(struct pt_regs *fp)
 {
 	pr_info("show_regs");
-	__builtin_trap();
+	BUG();
 }

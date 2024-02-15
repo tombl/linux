@@ -1,1 +1,1 @@
-obj-y := init.o page.o
+obj-y := init.o page.o tls.o

@@ -1,6 +1,7 @@
 #ifndef _WASM_PTRACE_H
 #define _WASM_PTRACE_H
 
+#include <asm/bug.h>
 #include <linux/errno.h>
 
 struct task_struct;
@@ -14,12 +15,13 @@ struct task_struct;
 static inline long arch_ptrace(struct task_struct *child, long request,
 			       unsigned long addr, unsigned long data)
 {
+	BUG();
 	return -EINVAL;
 }
 
 static inline void ptrace_disable(struct task_struct *child)
 {
-	__builtin_trap();
+	BUG();
 }
 
 #endif

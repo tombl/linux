@@ -2061,6 +2061,7 @@ static inline void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
 	}
 
 	uclamp_rq_inc(rq, p);
+	pr_info("%s:%s %s %i %pS", __FILE__, __FUNCTION__, p->comm, p->sched_class->rank, p->sched_class->enqueue_task);
 	p->sched_class->enqueue_task(rq, p, flags);
 
 	if (sched_core_enabled(rq))
@@ -5834,6 +5835,7 @@ static void put_prev_task_balance(struct rq *rq, struct task_struct *prev,
 {
 #ifdef CONFIG_SMP
 	const struct sched_class *class;
+	int class_i;
 	/*
 	 * We must do the balancing pass before put_prev_task(), such
 	 * that when we release the rq->lock the task is in the same
@@ -5842,7 +5844,7 @@ static void put_prev_task_balance(struct rq *rq, struct task_struct *prev,
 	 * We can terminate the balance pass as soon as we know there is
 	 * a runnable task of @class priority or higher.
 	 */
-	for_class_range(class, prev->sched_class, &idle_sched_class) {
+	for_class_range(class, class_i, prev->sched_class, &idle_sched_class) {
 		if (class->balance(rq, prev, rf))
 			break;
 	}
@@ -9325,13 +9327,14 @@ static inline void balance_hotplug_wait(void)
 
 void set_rq_online(struct rq *rq)
 {
+	int class_i;
 	if (!rq->online) {
 		const struct sched_class *class;
 
 		cpumask_set_cpu(rq->cpu, rq->rd->online);
 		rq->online = 1;
 
-		for_each_class(class) {
+		for_each_class(class, class_i) {
 			if (class->rq_online)
 				class->rq_online(rq);
 		}
@@ -9340,10 +9343,11 @@ void set_rq_online(struct rq *rq)
 
 void set_rq_offline(struct rq *rq)
 {
+	int class_i;
 	if (rq->online) {
 		const struct sched_class *class;
 
-		for_each_class(class) {
+		for_each_class(class, class_i) {
 			if (class->rq_offline)
 				class->rq_offline(rq);
 		}

@@ -4,6 +4,52 @@
 
 #include <linux/compiler.h>
 #include <linux/threads.h>
+
+#ifdef CONFIG_USE_PER_CPU_TLS
+#define PER_CPU_ATTRIBUTES _Thread_local
+#define PER_CPU_BASE_SECTION ""
+
+bool __percpu_is_static(void *ptr);
+static inline void setup_per_cpu_areas(void) {}
+
+/*
+ * === STATIC PER CPU VARIABLES ===
+ * Given a declaration: `_Thread_local int foo;`
+ * 
+ * The compiler/linker rewrites `&foo` to `my_tls_base + FOO_OFFSET`.
+ * Which means for any given tls base, to access their foo, you need:
+ * `&foo - my_tls_base + your_tls_base`
+ * Which is rewritten to:
+ * `FOO_OFFSET + my_tls_base - my_tls_base + your_tls_base`
+ * 
+ * In the case of the local cpu, `my_tls_base == your_tls_base` and you can just write `&foo`.
+ * 
+ * === DYNAMIC PER CPU VARIABLES ===
+ * `alloc_percpu(size)` allocates `size * NR_CPUS` of memory.
+ * To access a given value, the offset is simply `cpu_idx * size`
+ */
+
+#define __per_cpu_offset __per_cpu_offset
+extern void* __per_cpu_offset[NR_CPUS];
+
+#define static_per_cpu_offset(cpu) \
+	(__per_cpu_offset[cpu] - __per_cpu_offset[raw_smp_processor_id()])
+#define dynamic_per_cpu_offset(cpu, size) (cpu * size)
+
+#define per_cpu_ptr(ptr, cpu)                                                  \
+	({                                                                     \
+		__verify_pcpu_ptr(ptr);                                        \
+		SHIFT_PERCPU_PTR((ptr), __percpu_is_static(ptr) ?              \
+						static_per_cpu_offset(cpu) :   \
+						dynamic_per_cpu_offset(        \
+							cpu, sizeof(*(ptr)))); \
+	})
+
+#define arch_raw_cpu_ptr(ptr) \
+	(__percpu_is_static(ptr) ? (ptr) : (&(ptr)[raw_smp_processor_id()]))
+
+#endif /* USE_PER_CPU_TLS */
+
 #include <linux/percpu-defs.h>
 
 #ifdef CONFIG_SMP

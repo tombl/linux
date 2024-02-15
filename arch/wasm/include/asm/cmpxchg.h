@@ -1,6 +1,7 @@
 #ifndef _WASM_CMPXCHG_H
 #define _WASM_CMPXCHG_H
 
+#include <asm/bug.h>
 #include <linux/types.h>
 
 static inline unsigned long __arch_xchg(unsigned long x, volatile void *ptr,
@@ -21,7 +22,7 @@ static inline unsigned long __arch_xchg(unsigned long x, volatile void *ptr,
 		return __atomic_exchange_n((volatile u64 *)ptr, x, order);
 #endif
 	default:
-		__builtin_trap();
+		BUG();
 	}
 }
 
@@ -68,7 +69,7 @@ static inline unsigned long __arch_cmpxchg(volatile void *ptr,
 						   (u64 *)&old, new, 0, order,
 						   __ATOMIC_SEQ_CST)
 #endif
-			default : __builtin_trap();
+			default : BUG();
 	}
 }
 

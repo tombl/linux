@@ -76,7 +76,13 @@ export function start({
             emit("error", { error: data.err, workerName: name });
             break;
           case "new-worker":
-            console.log("spawning", name, data.arg.toString(16));
+            bootConsoleWriter.write(
+              new TextEncoder().encode(
+                `Spawning ${data.name}(${
+                  data.arg.toString(16).padStart(8, "0")
+                })\n`,
+              ),
+            );
             newWorker(data.name).postMessage(
               {
                 type: "start",
@@ -117,7 +123,7 @@ export function start({
     },
   });
 
-  newWorker("linux init").postMessage(
+  newWorker("entry").postMessage(
     {
       type: "boot",
       vmlinux,

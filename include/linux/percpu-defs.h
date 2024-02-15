@@ -230,11 +230,13 @@ do {									\
 #define SHIFT_PERCPU_PTR(__p, __offset)					\
 	RELOC_HIDE((typeof(*(__p)) __kernel __force *)(__p), (__offset))
 
+#ifndef per_cpu_ptr
 #define per_cpu_ptr(ptr, cpu)						\
 ({									\
 	__verify_pcpu_ptr(ptr);						\
 	SHIFT_PERCPU_PTR((ptr), per_cpu_offset((cpu)));			\
 })
+#endif
 
 #define raw_cpu_ptr(ptr)						\
 ({									\

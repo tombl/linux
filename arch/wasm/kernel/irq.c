@@ -2,9 +2,8 @@
 #include <linux/irqchip.h>
 #include <linux/seq_file.h>
 
-void init_IRQ(void)
+void __init init_IRQ(void)
 {
-	pr_info("init irq\n");
 	irqchip_init();
 }
 

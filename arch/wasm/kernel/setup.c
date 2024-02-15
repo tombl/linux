@@ -1,33 +1,27 @@
+#include <asm/bug.h>
 #include <asm/setup.h>
 #include <asm/sysmem.h>
-#include <asm/thread_info.h>
-#include <asm/wasm_imports.h>
-#include <linux/init.h>
-#include <linux/jiffies.h>
 #include <linux/memblock.h>
-#include <linux/mutex.h>
 #include <linux/of_fdt.h>
-#include <linux/printk.h>
+#include <linux/percpu.h>
 #include <linux/sched.h>
 #include <linux/screen_info.h>
 #include <linux/start_kernel.h>
-#include <linux/types.h>
 
 unsigned long volatile jiffies = INITIAL_JIFFIES;
 
-char __init_begin[0], __init_end[0];
-
-_Thread_local struct task_struct *current = &init_task;
+DEFINE_PER_CPU(struct task_struct *, current) = &init_task;
 
 unsigned long init_stack[THREAD_SIZE / sizeof(unsigned long)];
 unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)] = { 0 };
 
-uintptr_t __stop___ex_table, __start___ex_table, __sched_class_highest,
-	__sched_class_lowest, __per_cpu_start, __end_rodata, __start_rodata,
-	__per_cpu_load, __per_cpu_end, _stext, _etext, _sinittext, _einittext,
-	__sched_text_start, __sched_text_end, __cpuidle_text_start,
-	__cpuidle_text_end, __lock_text_start, __lock_text_end,
-	__reservedmem_of_table, __start_builtin_fw, __end_builtin_fw;
+char __init_begin[0], __init_end[0], __stop___ex_table, __start___ex_table,
+	__start___ex_table, __stop___ex_table, __start___ex_table,
+	__stop___ex_table, __start___ex_table, __start___ex_table,
+	__stop___ex_table, __start___ex_table, __sched_text_start,
+	__sched_text_end, __cpuidle_text_start, __cpuidle_text_end,
+	__lock_text_start, __lock_text_end, __reservedmem_of_table,
+	__reservedmem_of_table;
 
 struct screen_info screen_info = {};
 
@@ -39,11 +33,13 @@ extern void __heap_base;
 extern void __heap_end;
 
 int __init setup_early_printk(char *buf);
-void __init smp_init_cpus(void);
+size_t __per_cpu_size;
 
 __attribute__((export_name("start"))) void __init _start(void)
 {
 	static char wasm_dt[1024];
+	
+	early_tls_init();
 	__wasm_call_ctors();
 
 	setup_early_printk(NULL);
@@ -65,20 +61,24 @@ void __init setup_arch(char **cmdline_p)
 
 	parse_early_param();
 
-	pr_info("heap: %p -> %p = %td\n", &__heap_base, &__heap_end,
+	pr_info("Heap:\t%p -> %p = %td\n", &__heap_base, &__heap_end,
 		&__heap_end - &__heap_base);
-	pr_info("stack: %p -> %p = %td\n", &__stack_low, &__stack_high,
+	pr_info("Stack:\t%p -> %p = %td\n", &__stack_low, &__stack_high,
 		&__stack_high - &__stack_low);
 
-	unflatten_device_tree();
+	BUG_ON(THREAD_SIZE <
+	       (&__stack_high - &__stack_low) + sizeof(struct task_struct));
 
-#ifdef CONFIG_SMP
-	smp_init_cpus();
-#endif
+	unflatten_device_tree();
 
 	memblock_dump_all();
 
 	zones_init();
+
+	for (int i = 0; i < NR_CPUS; i++) {
+		set_cpu_possible(i, true);
+		set_cpu_present(i, true);
+	}
 }
 
 void machine_restart(char *cmd)
@@ -89,10 +89,10 @@ void machine_restart(char *cmd)
 void machine_halt(void)
 {
 	pr_info("halt\n");
-	__builtin_trap();
+	BUG();
 }
 void machine_power_off(void)
 {
 	pr_info("poweroff\n");
-	__builtin_trap();
+	BUG();
 }

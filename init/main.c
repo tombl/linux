@@ -1361,7 +1361,7 @@ switch (level) {
 	case 2: enumerate_initcall2(X); enumerate_initcall2s(X); break;
 	case 3: enumerate_initcall3(X); enumerate_initcall3s(X); break;
 	case 4: enumerate_initcall4(X); enumerate_initcall4s(X); break;
-	case 5: enumerate_initcall5(X); enumerate_initcall5s(X); break;
+	case 5: enumerate_initcall5(X); enumerate_initcall5s(X); enumerate_initcallrootfs(X); break;
 	case 6: enumerate_initcall6(X); enumerate_initcall6s(X); break;
 	case 7: enumerate_initcall7(X); enumerate_initcall7s(X); break;
 }
