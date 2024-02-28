@@ -1,15 +1,8 @@
-#include "linux/thread_info.h"
-#include <asm/sysmem.h>
 #include <asm/wasm_imports.h>
 #include <linux/slab.h>
 #include <linux/sched.h>
 #include <linux/sched/task_stack.h>
 #include <linux/sched/task.h>
-
-void arch_cpu_idle(void)
-{
-	wasm_idle();
-}
 
 __asm__(".globaltype __stack_pointer, i32\n");
 
@@ -31,75 +24,47 @@ static void __always_inline set_stack_pointer(void *ptr)
 struct task_struct *__switch_to(struct task_struct *from,
 				struct task_struct *to)
 {
-	// struct thread_info *from_info = task_thread_info(from);
-	struct thread_info *to_info = task_thread_info(to);
+	struct pt_regs *from_regs = task_pt_regs(from);
+	struct pt_regs *to_regs = task_pt_regs(to);
 
-	to_info->from_sched = from;
+	from_regs->current_stack = get_stack_pointer();
 
-	pr_info("context switch CPU: %i PID: %u -> %u STACK: %p -> %p\n",
-		smp_processor_id(), from->pid, to->pid, get_stack_pointer(),
-		to->stack);
+	pr_info("context switch PID: %u STACK: %p\n"
+		"->                  %u        %p\n",
+		from->pid, from_regs->current_stack, to->pid,
+		to_regs->current_stack);
 
-	set_stack_pointer(to->stack);
+	set_stack_pointer(to_regs->current_stack);
+
 	current = to;
+
+	schedule_tail(from);
+
+	pr_info("regs: %p\n", to_regs);
+	BUG_ON(!to_regs->fn);
+
+	pr_info("about to call %p %p\n", to_regs->fn, to_regs->fn_arg);
+	to_regs->fn(to_regs->fn_arg);
+	to_regs->fn = NULL;
 
 	return from;
 }
 
-struct entry_arg {
-	int cpu;
-	struct thread_info *thread_info;
-	int (*fn)(void *);
-	void *fn_arg;
-};
-void show_stack(struct task_struct *task, unsigned long *sp,
-		const char *loglvl);
-
 int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 {
-	struct entry_arg *entry;
+	struct pt_regs *childregs = task_pt_regs(p);
 
-	if (!args->fn) panic("can't copy userspace thread"); // yet
+	memset(childregs, 0, sizeof(struct pt_regs));
 
-	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
-	if (!entry)
-		return -ENOMEM;
+	childregs->current_stack = childregs;
 
-	entry->fn = args->fn;
-	entry->fn_arg = args->fn_arg;
-	entry->thread_info = task_thread_info(p);
+	if (!args->fn)
+		panic("can't copy userspace thread"); // yet
 
-	wasm_new_worker(entry, p->comm);
+	pr_info("copying thread %i %p\n", p->pid, childregs);
+
+	childregs->fn = args->fn;
+	childregs->fn_arg = args->fn_arg;
 
 	return 0;
-}
-
-static atomic_t next_cpu_nr = ATOMIC_INIT(1);
-void noinline_for_stack task_entry_inner(struct entry_arg *entry)
-{
-	int (*fn)(void *) = entry->fn;
-	void *fn_arg = entry->fn_arg;
-	struct thread_info *thread_info = entry->thread_info;
-	int cpu;
-	kfree(entry);
-
-	cpu = atomic_inc_return(&next_cpu_nr);
-	smp_tls_init(cpu);
-	current = thread_info->from_sched;
-	current_thread_info()->cpu = cpu;
-	pr_info("== THREAD ENTRY! CPU: %i ==", cpu);
-
-	if (thread_info->from_sched)
-		schedule_tail(thread_info->from_sched);
-
-	fn(fn_arg);
-
-	do_exit(0);
-}
-
-__attribute__((export_name("task_entry"))) void
-task_entry(struct entry_arg *entry)
-{
-	set_stack_pointer(entry->thread_info->task->stack);
-	task_entry_inner(entry);
 }

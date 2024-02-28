@@ -9,24 +9,6 @@ include $(srctree)/scripts/Kbuild.include
 # for objtool
 include $(srctree)/scripts/Makefile.lib
 
-# Generate a linker script to ensure correct ordering of initcalls for Clang LTO
-# ---------------------------------------------------------------------------
-
-quiet_cmd_gen_initcalls_lds = GEN     $@
-      cmd_gen_initcalls_lds = \
-	$(PYTHON3) $(srctree)/scripts/jobserver-exec \
-	$(PERL) $(real-prereqs) > $@
-
-.tmp_initcalls.lds: $(srctree)/scripts/generate_initcall_order.pl \
-		vmlinux.a $(KBUILD_VMLINUX_LIBS) FORCE
-	$(call if_changed,gen_initcalls_lds)
-
-targets := .tmp_initcalls.lds
-
-ifdef CONFIG_LTO_CLANG
-initcalls-lds := .tmp_initcalls.lds
-endif
-
 # objtool for vmlinux.o
 # ---------------------------------------------------------------------------
 #
@@ -47,7 +29,7 @@ objtool-args = $(vmlinux-objtool-args-y) --link
 quiet_cmd_ld_vmlinux.o = LD      $@
 ifdef CONFIG_LD_IS_WASMLD
       cmd_ld_vmlinux.o = \
-	$(LD) ${KBUILD_LDFLAGS} -o $@ \
+	$(LD) ${KBUILD_LDFLAGS} --no-gc-sections -o $@ \
 	$(addprefix -T , $(initcalls-lds)) \
 	--whole-archive vmlinux.a --no-whole-archive \
 	$(KBUILD_VMLINUX_LIBS) \

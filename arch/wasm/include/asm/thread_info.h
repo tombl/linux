@@ -12,10 +12,8 @@ struct thread_info {
 	struct task_struct *task;
 	unsigned long flags;
 	int preempt_count;
-	struct task_struct *from_sched;
-#ifdef CONFIG_SMP
+	// struct task_struct *from_sched;
 	unsigned int cpu;
-#endif
 };
 
 #define INIT_THREAD_INFO(tsk)                                                  \

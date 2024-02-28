@@ -39,7 +39,9 @@ __attribute__((export_name("start"))) void __init _start(void)
 {
 	static char wasm_dt[1024];
 	
+#ifdef CONFIG_SMP
 	early_tls_init();
+#endif
 	__wasm_call_ctors();
 
 	setup_early_printk(NULL);

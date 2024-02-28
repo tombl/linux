@@ -14,7 +14,6 @@ EXPORT_SYMBOL(__per_cpu_offset);
 
 bool __percpu_is_static(void *ptr)
 {
-	// uintptr_t p = (uintptr_t)ptr;
 	int i;
 	for_each_possible_cpu(i) {
 		void *base = __per_cpu_offset[i];

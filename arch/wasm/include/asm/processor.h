@@ -6,10 +6,7 @@
 
 struct task_struct;
 
-static inline void cpu_relax(void)
-{
-	wasm_relax();
-}
+void cpu_relax(void);
 
 #define current_text_addr() wasm_return_address(-1)
 

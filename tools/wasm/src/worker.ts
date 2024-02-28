@@ -3,11 +3,6 @@
 
 import { assert, unreachable } from "./util.ts";
 
-const SLEEP_BUFFER = new Int32Array(new SharedArrayBuffer(4));
-function sleepSync(ms: number) {
-  Atomics.wait(SLEEP_BUFFER, 0, 0, ms);
-}
-
 export type ToWorkerMessage = {
   type: "boot";
   vmlinux: WebAssembly.Module;
@@ -24,8 +19,7 @@ export type FromWorkerMessage =
   | { type: "boot-console-write"; message: Uint8Array }
   | { type: "boot-console-close" }
   | { type: "restart" }
-  | { type: "error"; err: Error }
-  | { type: "new-worker"; arg: number; name: string };
+  | { type: "error"; err: Error };
 
 function postMessage(
   message: FromWorkerMessage,
@@ -41,13 +35,12 @@ interface Instance {
   };
 }
 
-const IDLE = Symbol("idle");
-const BACKTRACE_ADDRESS_RE = /wasm:.*:((?:0x)?[0-9a-f]+)\)$/gm;
-function iteratorNth<T>(iter: Iterator<T>, n: number) {
-  let value: T | undefined;
-  for (let i = 0; i < n; i++) value = iter.next().value;
-  return value;
-}
+// const BACKTRACE_ADDRESS_RE = /wasm:.*:((?:0x)?[0-9a-f]+)\)$/gm;
+// function iteratorNth<T>(iter: Iterator<T>, n: number) {
+//   let value: T | undefined;
+//   for (let i = 0; i < n; i++) value = iter.next().value;
+//   return value;
+// }
 
 async function boot(
   module: WebAssembly.Module,
@@ -67,12 +60,6 @@ async function boot(
         // deno-lint-ignore no-debugger
         debugger;
       },
-      relax() {
-        sleepSync(10);
-      },
-      idle() {
-        throw IDLE;
-      },
       halt() {
         self.close();
       },
@@ -88,19 +75,23 @@ async function boot(
         postMessage({ type: "boot-console-close" }, []);
       },
 
-      return_address(n: number) {
-        const matches = new Error().stack?.matchAll(BACKTRACE_ADDRESS_RE);
-        if (!matches) return -1;
-        const match = iteratorNth(matches, n + 1);
-        return parseInt(match?.[1] ?? "-1");
+      return_address() {
+        return 0;
       },
+      // return_address(n: number) {
+      //   const matches = new Error().stack?.matchAll(BACKTRACE_ADDRESS_RE);
+      //   if (!matches) return -1;
+      //   const match = iteratorNth(matches, n + 1);
+      //   return parseInt(match?.[1] ?? "-1");
+      // },
 
       set_irq_enabled(flags: number) {
         irqflags = flags;
       },
       get_irq_enabled() {
         return irqflags;
-      },
+      },        // deno-lint-ignore no-debugger
+
 
       get_dt(buf: number, size: number) {
         assert(options.type === "boot", "get_dt called on non-boot thread");
@@ -134,14 +125,6 @@ async function boot(
         }
         memory.set(trace.slice(0, size), buf);
       },
-
-      new_worker(arg: number, name: number) {
-        postMessage({
-          type: "new-worker",
-          arg,
-          name: new TextDecoder().decode(memory.slice(name, name + 16)),
-        });
-      },
     },
   })) as Instance;
 
@@ -156,14 +139,14 @@ async function boot(
       default:
         unreachable(options);
     }
+    console.log(
+      "fin",
+      options.type,
+      options.type === "secondary" ? options.type : "",
+    );
   } catch (err) {
-    if (err === IDLE) {
-      postMessage({
-        type: "boot-console-write",
-        message: new TextEncoder().encode(`Idle ${name}\n`),
-      });
-      return;
-    }
+    // deno-lint-ignore no-debugger
+    debugger;
     postMessage({ type: "error", err });
   }
 }

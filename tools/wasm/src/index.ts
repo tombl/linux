@@ -45,9 +45,12 @@ export function start({
 
   function newWorker(name: string) {
     const worker = new Worker(
-      (self as { BUNDLED?: true }).BUNDLED
-        ? new URL("./worker.js", import.meta.url)
-        : import.meta.resolve("./worker.ts"),
+      new URL(
+        (() => {
+          import("./worker.ts");
+        }).toString().match(/import\("(.*)"\)/)![1],
+        import.meta.url,
+      ),
       { type: "module", name },
     );
     function postMessage(
@@ -74,23 +77,6 @@ export function start({
             break;
           case "error":
             emit("error", { error: data.err, workerName: name });
-            break;
-          case "new-worker":
-            bootConsoleWriter.write(
-              new TextEncoder().encode(
-                `Spawning ${data.name}(${
-                  data.arg.toString(16).padStart(8, "0")
-                })\n`,
-              ),
-            );
-            newWorker(data.name).postMessage(
-              {
-                type: "start",
-                memory,
-                vmlinux,
-                arg: data.arg,
-              },
-            );
             break;
           default:
             unreachable(

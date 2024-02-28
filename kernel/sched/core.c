@@ -71,10 +71,6 @@
 # endif
 #endif
 
-#ifdef CONFIG_WASM
-# include <asm/wasm_imports.h>
-#endif
-
 #include <uapi/linux/sched/types.h>
 
 #include <asm/irq_regs.h>
@@ -2061,7 +2057,6 @@ static inline void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
 	}
 
 	uclamp_rq_inc(rq, p);
-	pr_info("%s:%s %s %i %pS", __FILE__, __FUNCTION__, p->comm, p->sched_class->rank, p->sched_class->enqueue_task);
 	p->sched_class->enqueue_task(rq, p, flags);
 
 	if (sched_core_enabled(rq))

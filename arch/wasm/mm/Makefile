@@ -1,1 +1,2 @@
-obj-y := init.o page.o tls.o
+obj-y := init.o page.o
+obj-$(CONFIG_SMP) := tls.o

@@ -7,6 +7,7 @@ obj-y += \
 	process.o \
 	ptrace.o \
 	setup.o \
-	smp.o \
 	stacktrace.o \
 	time.o
+
+obj-$(CONFIG_SMP) += smp.o

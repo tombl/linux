@@ -6,8 +6,10 @@
     packages = nixpkgs.lib.genAttrs
       [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]
       (system:
-        let pkgs = nixpkgs.legacyPackages.${system}; in {
-          default = pkgs.clangStdenv.mkDerivation {
+        let pkgs = nixpkgs.legacyPackages.${system}; 
+           llvm = pkgs.llvmPackages_17;
+        in {
+          default = llvm.stdenv.mkDerivation {
             pname = "linux";
             version = "6.1.69-wasm";
             src = ./.;
@@ -35,8 +37,8 @@
               pkg-config
               ncurses
 
-              lld
-              libllvm
+              llvm.lld
+              llvm.libllvm
               wabt
               esbuild
             ];

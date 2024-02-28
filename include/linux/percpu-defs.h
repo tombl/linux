@@ -220,7 +220,7 @@ do {									\
 	(void)__vpp_verify;						\
 } while (0)
 
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) || defined(CONFIG_USE_PER_CPU_TLS)
 
 /*
  * Add an offset to a pointer but keep the pointer as-is.  Use RELOC_HIDE()

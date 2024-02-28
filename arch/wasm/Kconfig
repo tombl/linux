@@ -1,6 +1,6 @@
 config WASM
 	def_bool y
-	depends on !BINFMT_ELF && !MMU && !MODULES && !COREDUMP && !SECCOMP && !UPROBES && !COMPAT
+	depends on !SMP && !BINFMT_ELF && !MMU && !MODULES && !COREDUMP && !SECCOMP && !UPROBES && !COMPAT
 	select ARCH_HAS_BINFMT_WASM
 	select ARCH_HAS_SYSCALL_WRAPPER
 	select ARCH_NO_SWAP
@@ -8,26 +8,17 @@ config WASM
 	select ARCH_USE_QUEUED_SPINLOCKS
 	select BUG
 	select FLATMEM
-	select FORCE_NR_CPUS
+	select FORCE_NR_CPUS if SMP
 	select GENERIC_ATOMIC64
 	select GENERIC_CSUM
 	select GENERIC_HWEIGHT
 	select OF
 	select OF_EARLY_FLATTREE
 	select PAGE_SIZE_64KB
-	select SMP
+	# select SMP
 	select THREAD_INFO_IN_TASK
 	select UACCESS_MEMCPY if !MMU
 	select USE_PER_CPU_TLS
-
-config ARCH_HAS_BINFMT_WASM
-	bool
-
-menu "Executable file formats"
-	config BINFMT_WASM
-		bool "Kernel support for WASM binaries"
-		depends on ARCH_HAS_BINFMT_WASM
-endmenu
 
 config CMDLINE
 	string "Kernel command string to append"
@@ -40,12 +31,12 @@ config EARLY_PRINTK
 	def_bool y
 
 config SMP
-	def_bool y
+	def_bool n
 
 config NR_CPUS
 	int
 	default 1 if !SMP
-	default 8 if SMP
+	default 16 if SMP
 
 config HZ
 	int

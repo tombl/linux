@@ -1,4 +1,4 @@
-import { unreachable } from "./util.ts";
+import { assert, unreachable } from "./util.ts";
 
 const FDT_MAGIC = 0xd00dfeed;
 const FDT_BEGIN_NODE = 0x00000001;
@@ -84,9 +84,10 @@ function inner(
     pad();
     u32(FDT_BEGIN_NODE);
 
-    if (new TextEncoder().encode(name).byteLength > NODE_NAME_MAX_LEN) {
-      throw new Error("name too long");
-    }
+    assert(
+      new TextEncoder().encode(name).byteLength <= NODE_NAME_MAX_LEN,
+      `property name too long: ${name}`,
+    );
     stringz(name);
     pad();
 
@@ -104,9 +105,10 @@ function inner(
       u32(FDT_PROP);
       const len = u32();
 
-      if (new TextEncoder().encode(name).byteLength > PROPERTY_NAME_MAX_LEN) {
-        throw new Error("name too long");
-      }
+      assert(
+        new TextEncoder().encode(name).byteLength <= PROPERTY_NAME_MAX_LEN,
+        `property name too long: ${name}`,
+      );
       (strings[name] ??= []).push(u32());
 
       let value: ArrayBuffer;

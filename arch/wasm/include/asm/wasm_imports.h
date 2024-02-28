@@ -7,8 +7,6 @@
 #define import(name) __attribute__((import_module("kernel"), import_name(name)))
 
 import("breakpoint") void wasm_breakpoint(void);
-import("relax") void wasm_relax(void);
-import("idle") void wasm_idle(void);
 import("halt") void wasm_halt(void);
 import("restart") void wasm_restart(void);
 
@@ -26,8 +24,6 @@ import("get_dt") void wasm_get_dt(char *buf, size_t size);
 import("get_now_nsec") unsigned long long wasm_get_now_nsec(void);
 
 import("get_stacktrace") void wasm_get_stacktrace(char *buf, size_t size);
-
-import("new_worker") void wasm_new_worker(void* arg, char name[16]);
 
 #undef import
 

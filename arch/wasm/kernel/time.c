@@ -14,10 +14,14 @@ void calibrate_delay(void)
 
 void __delay(unsigned long cycles)
 {
-	cycles_t start = wasm_get_now_nsec();
+	static int zero = 0;
+	int ret = __builtin_wasm_memory_atomic_wait32(&zero, 0, cycles);
+	BUG_ON(ret != 2); // 2 means timeout
+}
 
-	while ((wasm_get_now_nsec() - start) < cycles)
-		cpu_relax();
+void cpu_relax(void)
+{
+	__delay(100);
 }
 
 void __udelay(unsigned long usecs)
@@ -31,6 +35,10 @@ void __ndelay(unsigned long nsecs)
 void __const_udelay(unsigned long xloops)
 {
 	__delay(xloops / 0x10c7ul); /* 2**32 / 1000000 (rounded up) */
+}
+
+unsigned long long sched_clock(void) {
+	return wasm_get_now_nsec();
 }
 
 static u64 clock_read(struct clocksource *cs)
