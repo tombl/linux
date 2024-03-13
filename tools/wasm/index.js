@@ -7,7 +7,7 @@ import Worker from "./worker.mjs";
 globalThis.Worker = Worker;
 
 const machine = start({
-  cmdline: "no_hash_pointers",
+  cmdline: process.argv[2] ?? "no_hash_pointers",
   vmlinux: await WebAssembly.compile(
     await readFile(`${import.meta.dirname}/vmlinux.wasm`),
   ),

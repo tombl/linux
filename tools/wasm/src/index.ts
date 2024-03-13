@@ -75,9 +75,6 @@ export function start({
             // @ts-ignore: reloads browsers, inert on deno/node
             globalThis?.location?.reload?.();
             break;
-          case "error":
-            emit("error", { error: data.err, workerName: name });
-            break;
           default:
             unreachable(
               data,
@@ -86,7 +83,14 @@ export function start({
         }
       },
     );
-    worker.addEventListener("error", (event) => emit("error", event.error));
+    worker.addEventListener(
+      "error",
+      (event) =>
+        emit("error", {
+          error: event.error ?? event.message,
+          workerName: name,
+        }),
+    );
 
     return { postMessage };
   }

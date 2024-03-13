@@ -9,16 +9,17 @@
 #define THREAD_SHIFT (PAGE_SHIFT << THREAD_SIZE_ORDER)
 
 struct thread_info {
-	struct task_struct *task;
 	unsigned long flags;
 	int preempt_count;
 	// struct task_struct *from_sched;
-	unsigned int cpu;
+	// unsigned int cpu;
+	unsigned int instance_id;
+	void* jmpbuf;
 };
 
-#define INIT_THREAD_INFO(tsk)                                                  \
-	{                                                                      \
-		.task = &tsk, .flags = 0, .preempt_count = INIT_PREEMPT_COUNT, \
+#define INIT_THREAD_INFO(tsk)                                    \
+	{                                                        \
+		.flags = 0, .preempt_count = INIT_PREEMPT_COUNT, \
 	}
 
 #define TIF_SYSCALL_TRACE 0 /* syscall trace active */

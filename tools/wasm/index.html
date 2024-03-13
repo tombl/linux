@@ -91,7 +91,7 @@
       machine.bootConsole.pipeTo(
         new WritableStream({
           write(chunk) {
-            term.write(chunk);
+            return new Promise((r) => term.write(chunk, r));
           },
         })
       );

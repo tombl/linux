@@ -6,7 +6,13 @@
 #include <linux/threads.h>
 
 #ifdef CONFIG_USE_PER_CPU_TLS
+
+#ifdef CONFIG_SMP
 #define PER_CPU_ATTRIBUTES _Thread_local
+#else
+#define PER_CPU_ATTRIBUTES
+#endif
+
 #define PER_CPU_BASE_SECTION ""
 
 bool __percpu_is_static(void *ptr);

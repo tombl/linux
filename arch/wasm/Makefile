@@ -2,7 +2,7 @@ LD = wasm-ld
 
 WASM_FEATURES = -matomics -mbulk-memory -mexception-handling -mextended-const -mmultivalue -mmutable-globals -mnontrapping-fptoint -mreference-types -mrelaxed-simd -msign-ext -msimd128
 
-cflags-y += -Wno-incompatible-library-redeclaration '-D__builtin_return_address=wasm_return_address' $(WASM_FEATURES)
+cflags-y += -Wno-incompatible-library-redeclaration '-D__builtin_return_address=wasm_return_address' $(WASM_FEATURES) -mllvm -wasm-enable-sjlj
 ldflags-y += --import-memory --max-memory=4294967296 --shared-memory
 
 KBUILD_CFLAGS += $(cflags-y)

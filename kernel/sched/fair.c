@@ -6076,6 +6076,8 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	int idle_h_nr_running = task_has_idle_policy(p);
 	int task_new = !(flags & ENQUEUE_WAKEUP);
 
+	early_printk("enqueue %u %s\n", p->pid, p->comm);
+	
 	/*
 	 * The code below (indirectly) updates schedutil which looks at
 	 * the cfs_rq utilization to select a frequency.
@@ -6169,6 +6171,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	int task_sleep = flags & DEQUEUE_SLEEP;
 	int idle_h_nr_running = task_has_idle_policy(p);
 	bool was_sched_idle = sched_idle_rq(rq);
+
+	early_printk("dequeue %u %s\n", p->pid, p->comm);
+	wasm_breakpoint();
 
 	util_est_dequeue(&rq->cfs, p);
 

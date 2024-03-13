@@ -25,6 +25,10 @@ import("get_now_nsec") unsigned long long wasm_get_now_nsec(void);
 
 import("get_stacktrace") void wasm_get_stacktrace(char *buf, size_t size);
 
+// import("new_kernel_instance") unsigned int wasm_new_kernel_instance(void);
+// import("poll_kernel_instance") void wasm_poll_kernel_instance(unsigned int id);
+// import("poll_yield") void wasm_poll_yield(void);
+
 #undef import
 
 #endif

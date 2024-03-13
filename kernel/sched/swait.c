@@ -26,6 +26,7 @@ void swake_up_locked(struct swait_queue_head *q)
 		return;
 
 	curr = list_first_entry(&q->task_list, typeof(*curr), task_list);
+	pr_info("curr: %p %p\n", curr, &curr->task);
 	wake_up_process(curr->task);
 	list_del_init(&curr->task_list);
 }

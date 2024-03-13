@@ -8,18 +8,12 @@ export type ToWorkerMessage = {
   vmlinux: WebAssembly.Module;
   memory: WebAssembly.Memory;
   devicetree: Uint8Array;
-} | {
-  type: "start";
-  vmlinux: WebAssembly.Module;
-  memory: WebAssembly.Memory;
-  arg: number;
 };
 
 export type FromWorkerMessage =
   | { type: "boot-console-write"; message: Uint8Array }
   | { type: "boot-console-close" }
   | { type: "restart" }
-  | { type: "error"; err: Error };
 
 function postMessage(
   message: FromWorkerMessage,
@@ -31,7 +25,6 @@ function postMessage(
 interface Instance {
   exports: {
     start(): void;
-    task_entry(worker: number): void;
   };
 }
 
@@ -42,18 +35,15 @@ interface Instance {
 //   return value;
 // }
 
-async function boot(
+function boot(
   module: WebAssembly.Module,
   wasmMemory: WebAssembly.Memory,
-  options: { type: "boot"; devicetree: Uint8Array } | {
-    type: "secondary";
-    task: number;
-  },
+  options: { type: "boot"; devicetree: Uint8Array },
 ) {
   const memory = new Uint8Array(wasmMemory.buffer);
 
   let irqflags = 0;
-  const instance = (await WebAssembly.instantiate(module, {
+  const imports = {
     env: { memory: wasmMemory },
     kernel: {
       breakpoint() {
@@ -90,9 +80,7 @@ async function boot(
       },
       get_irq_enabled() {
         return irqflags;
-      },        // deno-lint-ignore no-debugger
-
-
+      },        
       get_dt(buf: number, size: number) {
         assert(options.type === "boot", "get_dt called on non-boot thread");
         assert(size >= options.devicetree.byteLength, "Device tree truncated");
@@ -126,28 +114,18 @@ async function boot(
         memory.set(trace.slice(0, size), buf);
       },
     },
-  })) as Instance;
+  } satisfies WebAssembly.Imports;
 
-  try {
-    switch (options.type) {
-      case "boot":
-        instance.exports.start();
-        break;
-      case "secondary":
-        instance.exports.task_entry(options.task);
-        break;
-      default:
-        unreachable(options);
-    }
-    console.log(
-      "fin",
-      options.type,
-      options.type === "secondary" ? options.type : "",
-    );
-  } catch (err) {
-    // deno-lint-ignore no-debugger
-    debugger;
-    postMessage({ type: "error", err });
+  const instances = [
+    new WebAssembly.Instance(module, imports) as Instance
+  ];
+
+  switch (options.type) {
+    case "boot":
+      instances[0].exports.start();
+      break;
+    default:
+      unreachable(options.type);
   }
 }
 
@@ -161,15 +139,9 @@ self.addEventListener(
           devicetree: data.devicetree,
         });
         break;
-      case "start":
-        boot(data.vmlinux, data.memory, {
-          type: "secondary",
-          task: data.arg,
-        });
-        break;
       default:
         unreachable(
-          data,
+          data.type,
           `invalid worker message type: ${(data as { type: string }).type}`,
         );
     }
