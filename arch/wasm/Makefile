@@ -1,4 +1,4 @@
-LD = wasm-ld
+LD = wasm-ld$(LLVM_SUFFIX)
 
 WASM_FEATURES = -matomics -mbulk-memory -mexception-handling -mextended-const -mmultivalue -mmutable-globals -mnontrapping-fptoint -mreference-types -mrelaxed-simd -msign-ext -msimd128
 
