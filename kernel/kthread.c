@@ -429,7 +429,6 @@ struct task_struct *__kthread_create_on_node(int (*threadfn)(void *data),
 	create->done = &done;
 
 	spin_lock(&kthread_create_lock);
-	early_printk("adding kthread %p %s\n", threadfn, namefmt);
 	list_add_tail(&create->list, &kthread_create_list);
 	spin_unlock(&kthread_create_lock);
 

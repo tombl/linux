@@ -5,7 +5,8 @@ import { unreachable } from "./util.ts";
 const PAGE_SIZE = 1 << 16; // 64KiB
 
 interface MachineEventMap {
-  error: CustomEvent<{ error: Error; workerName: string }>;
+  restart: CustomEvent<void>;
+  error: CustomEvent<{ error: Error; threadName: string }>;
 }
 
 interface Machine {
@@ -43,7 +44,11 @@ export function start({
     eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
   }
 
-  function newWorker(name: string) {
+  function newWorker(
+    name: string,
+    initMessage: ToWorkerMessage,
+    initTransfer: Transferable[],
+  ) {
     const worker = new Worker(
       new URL(
         (() => {
@@ -53,49 +58,51 @@ export function start({
       ),
       { type: "module", name },
     );
-    function postMessage(
-      message: ToWorkerMessage,
-      transfer: Transferable[] = [],
-    ) {
-      worker.postMessage(message, transfer);
-    }
 
-    worker.addEventListener(
-      "message",
-      async ({ data }: MessageEvent<FromWorkerMessage>) => {
-        switch (data.type) {
-          case "boot-console-write":
-            bootConsoleWriter.write(data.message);
-            break;
-          case "boot-console-close":
-            await bootConsoleWriter.close();
-            await bootConsole.writable.close();
-            break;
-          case "restart":
-            // @ts-ignore: reloads browsers, inert on deno/node
-            globalThis?.location?.reload?.();
-            break;
-          default:
-            unreachable(
-              data,
-              `invalid worker message type: ${(data as { type: string }).type}`,
-            );
-        }
-      },
-    );
-    worker.addEventListener(
-      "error",
-      (event) =>
-        emit("error", {
-          error: event.error ?? event.message,
-          workerName: name,
-        }),
-    );
+    worker.onmessage = async ({ data }: MessageEvent<FromWorkerMessage>) => {
+      switch (data.type) {
+        case "boot-console-write":
+          bootConsoleWriter.write(data.message);
+          break;
+        case "boot-console-close":
+          await bootConsoleWriter.close();
+          await bootConsole.writable.close();
+          break;
+        case "restart":
+          emit("restart", undefined);
+          break;
+        case "spawn":
+          newWorker(data.name, {
+            type: "task",
+            task: data.task,
+            vmlinux,
+            memory,
+          }, []);
+          break;
+        case "error":
+          emit("error", { error: data.error, threadName: name });
+          break;
+        case "bringup-secondary":
+          newWorker(`entry${data.cpu}`, {
+            type: "secondary",
+            cpu: data.cpu,
+            idle: data.idle,
+            vmlinux,
+            memory,
+          }, []);
+          break;
+        default:
+          unreachable(
+            data,
+            `invalid worker message type: ${(data as { type: string }).type}`,
+          );
+      }
+    };
 
-    return { postMessage };
+    worker.postMessage(initMessage, initTransfer);
   }
 
-  const memory: WebAssembly.Memory = new WebAssembly.Memory({
+  const memory = new WebAssembly.Memory({
     initial: memoryPages,
     maximum: memoryPages,
     shared: true,
@@ -113,13 +120,9 @@ export function start({
     },
   });
 
-  newWorker("entry").postMessage(
-    {
-      type: "boot",
-      vmlinux,
-      memory,
-      devicetree,
-    },
+  newWorker(
+    "entry",
+    { type: "boot", devicetree, vmlinux, memory },
     [devicetree.buffer],
   );
 

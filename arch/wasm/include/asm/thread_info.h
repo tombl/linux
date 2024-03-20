@@ -1,6 +1,8 @@
 #ifndef _WASM_THREAD_INFO_H
 #define _WASM_THREAD_INFO_H
 
+#include <linux/types.h>
+
 /* THREAD_SIZE is the size of the task_struct + kernel stack
  * This is asserted in setup, but the stack should be 1 page,
  * and a task_struct should be *way* less than a page big. */
@@ -11,15 +13,14 @@
 struct thread_info {
 	unsigned long flags;
 	int preempt_count;
-	struct task_struct *from_sched;
-	// unsigned int cpu;
-	unsigned int instance_id;
-	void* jmpbuf;
+	int cpu; // this is for the kernel
+	atomic_t running_cpu; // negative means unscheduled
 };
 
 #define INIT_THREAD_INFO(tsk)                                    \
 	{                                                        \
 		.flags = 0, .preempt_count = INIT_PREEMPT_COUNT, \
+		.running_cpu = ATOMIC_INIT(0),                   \
 	}
 
 #define TIF_SYSCALL_TRACE 0 /* syscall trace active */

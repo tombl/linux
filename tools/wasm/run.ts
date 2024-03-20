@@ -10,6 +10,11 @@ const machine = start({
 
 machine.bootConsole.pipeTo(Deno.stdout.writable);
 
-machine.addEventListener("error", ({ detail: { error, workerName } }) => {
-  console.log(`Error in ${workerName}:`, error);
+machine.addEventListener("restart", () => {
+  console.log("reboot requested. halting...");
+  Deno.exit(0);
+});
+
+machine.addEventListener("error", ({ detail: { error, threadName } }) => {
+  console.log(`Error in ${threadName}:`, error);
 });

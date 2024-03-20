@@ -7,7 +7,10 @@
 
 - [x] builds
 - [ ] boots
+  - [ ] port musl
+  - [ ] port busybox
 - [ ] smp
+  - [ ] futex
 - [ ] mmu
 - [ ] highmem
 - [ ] virtio

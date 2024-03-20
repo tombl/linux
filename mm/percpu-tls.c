@@ -19,12 +19,9 @@ bool __percpu_is_static(void *ptr)
 		void *base = __per_cpu_offset[i];
 		if (base != (void *)-1 && ptr >= base &&
 		    ptr < base + __per_cpu_size) {
-			// early_printk("S");
 			return true;
 		}
 	}
-
-	// early_printk("D");
 	return false;
 }
 
@@ -53,7 +50,6 @@ static void __percpu *pcpu_alloc(size_t size, size_t align, bool reserved,
 		kfree(ptr);
 		return NULL;
 	}
-	// early_printk("A");
 	return ptr;
 }
 

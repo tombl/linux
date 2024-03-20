@@ -35,7 +35,7 @@ extern void __heap_end;
 int __init setup_early_printk(char *buf);
 size_t __per_cpu_size;
 
-__attribute__((export_name("start"))) void __init _start(void)
+__attribute__((export_name("boot"))) void __init _start(void)
 {
 	static char wasm_dt[1024];
 	
@@ -51,6 +51,11 @@ __attribute__((export_name("start"))) void __init _start(void)
 	early_init_fdt_scan_reserved_mem();
 
 	memblock_reserve(0, (phys_addr_t)&__heap_base);
+
+	for (int i = 0; i < NR_CPUS; i++) {
+		set_cpu_possible(i, true);
+		set_cpu_present(i, true);
+	}
 
 	start_kernel();
 }
@@ -76,11 +81,6 @@ void __init setup_arch(char **cmdline_p)
 	memblock_dump_all();
 
 	zones_init();
-
-	for (int i = 0; i < NR_CPUS; i++) {
-		set_cpu_possible(i, true);
-		set_cpu_present(i, true);
-	}
 }
 
 void machine_restart(char *cmd)

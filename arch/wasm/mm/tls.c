@@ -1,3 +1,4 @@
+#include <asm/globals.h>
 #include <asm/sysmem.h>
 #include <linux/cpumask.h>
 #include <linux/log2.h>
@@ -44,8 +45,14 @@ void smp_tls_prepare(void)
 #endif
 }
 
-void smp_tls_init(int cpu)
+
+
+void smp_tls_init(int cpu, bool init)
 {
 	BUG_ON(__per_cpu_offset[cpu] == (void *)-1);
-	__wasm_init_tls((void *)__per_cpu_offset[cpu]);
+	if (init) {
+		set_tls_base(__per_cpu_offset[cpu]);
+	} else {
+		__wasm_init_tls((void *)__per_cpu_offset[cpu]);
+	}
 }

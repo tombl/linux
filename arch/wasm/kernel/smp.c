@@ -1,11 +1,39 @@
+#include <asm/globals.h>
+#include <asm/sysmem.h>
 #include <asm/wasm_imports.h>
-#include <linux/cpumask.h>
+#include <linux/cpu.h>
 #include <linux/of_fdt.h>
 #include <linux/sched.h>
 
+int __cpu_up(unsigned int cpu, struct task_struct *idle)
+{
+	BUG();
+	wasm_bringup_secondary(cpu, idle);
+}
+
+__attribute__((export_name("secondary"))) void
+_start_secondary(int cpu, struct task_struct *idle)
+{
+	set_stack_pointer(task_pt_regs(idle) - 1);
+	smp_tls_init(cpu, true);
+
+	BUG_ON(cpu_online(cpu));
+	set_cpu_online(cpu, true);
+
+	current = idle;
+	mmgrab(&init_mm);
+	current->active_mm = &init_mm;
+
+	local_irq_enable();
+
+	notify_cpu_starting(cpu);
+
+	cpu_startup_entry(CPUHP_AP_ONLINE_IDLE);
+}
+
 static struct {
 	unsigned long bits ____cacheline_aligned;
-} ipi_data[NR_CPUS] __cacheline_aligned;
+} ipi_data[NR_CPUS] __cacheline_aligned = { 0 };
 
 enum ipi_message_type {
 	IPI_RESCHEDULE,
@@ -20,20 +48,6 @@ static void send_ipi_message(const struct cpumask *to_whom,
 	mb();
 	for_each_cpu(i, to_whom)
 		set_bit(operation, &ipi_data[i].bits);
-
-	// mb();
-	// for_each_cpu(i, to_whom)
-	// 	BUG(); // TODO(wasm): postMessage interrupt to other worker
-}
-
-int __cpu_up(unsigned int cpu, struct task_struct *idle)
-{
-	BUG();
-}
-
-void __init smp_init_cpus(void)
-{
-	BUG();
 }
 
 /* Called early in main to prepare the boot cpu */
@@ -47,12 +61,13 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 {
 	memset(ipi_data, 0, sizeof(ipi_data));
 
-	pr_info("SMP bringup with %i parallel processes\n", NR_CPUS);
+	early_printk("SMP bringup with %i parallel processes\n", NR_CPUS);
 }
 
 void smp_send_stop(void)
 {
 	cpumask_t to_whom;
+	BUG();
 	cpumask_copy(&to_whom, cpu_online_mask);
 	cpumask_clear_cpu(smp_processor_id(), &to_whom);
 	send_ipi_message(&to_whom, IPI_CPU_STOP);
@@ -106,7 +121,7 @@ void handle_ipi(struct pt_regs *regs)
 			switch (which) {
 			case IPI_CPU_STOP:
 				wasm_halt();
-
+				__builtin_trap();
 			default:
 				printk(KERN_CRIT "Unknown IPI on CPU %d: %lu\n",
 				       this_cpu, which);

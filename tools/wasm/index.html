@@ -94,8 +94,12 @@
         })
       );
 
-      machine.addEventListener("error", ({ detail: { error, workerName } }) => {
-        term.write(`Error in ${workerName}: ${error}\n`);
+      machine.addEventListener("restart", () => {
+        location.reload();
+      });
+
+      machine.addEventListener("error", ({ detail: { error, threadName } }) => {
+        term.write(`${error.name} in ${threadName}: ${error.message}\n`);
       });
     </script>
   </body>
