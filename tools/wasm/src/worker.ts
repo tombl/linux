@@ -108,7 +108,9 @@ self.onmessage = ({ data }: MessageEvent<ToWorkerMessage>) => {
               In server runtimes it has full nanosecond precision, but this code
               rounds to the same 5μs precision.
             */
-          return BigInt(Math.round(performance.now() * 200)) * 5000n;
+          return BigInt(
+            Math.round((performance.now() + performance.timeOrigin) * 200),
+          ) * 5000n;
         },
 
         get_stacktrace(buf: number, size: number) {
