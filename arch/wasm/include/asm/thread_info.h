@@ -11,7 +11,7 @@
 struct thread_info {
 	unsigned long flags;
 	int preempt_count;
-	// struct task_struct *from_sched;
+	struct task_struct *from_sched;
 	// unsigned int cpu;
 	unsigned int instance_id;
 	void* jmpbuf;

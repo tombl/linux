@@ -6511,7 +6511,6 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 			 *
 			 * After this, schedule() must not care about p->state any more.
 			 */
-			pr_info("deactivating %s %lx %u %u\n", prev->comm, prev_state, prev->pid, prev->sched_class->rank);
 			deactivate_task(rq, prev, DEQUEUE_SLEEP | DEQUEUE_NOCLOCK);
 
 			if (prev->in_iowait) {

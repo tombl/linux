@@ -6173,7 +6173,6 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	bool was_sched_idle = sched_idle_rq(rq);
 
 	early_printk("dequeue %u %s\n", p->pid, p->comm);
-	wasm_breakpoint();
 
 	util_est_dequeue(&rq->cfs, p);
 
