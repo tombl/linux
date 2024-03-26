@@ -1,8 +1,10 @@
+use anyhow::Result;
 use clap::Parser;
 use rand::Rng;
 use std::{
     arch::asm,
-    io::{stdout, Write},
+    fs::File,
+    io::{stdout, BufRead, BufReader, Write},
     path::PathBuf,
     time::Instant,
 };
@@ -27,7 +29,7 @@ struct Args {
     #[clap(short, long, default_value_t = 1024)]
     memory: u32,
 
-    /// enable debugging
+    /// enable debug info
     #[clap(short, long)]
     debug: bool,
 }
@@ -41,14 +43,13 @@ struct State {
     instance_pre: Option<InstancePre<State>>,
 }
 
-fn add_imports(linker: &mut Linker<State>, is_debug: bool) -> anyhow::Result<()> {
+fn add_imports(linker: &mut Linker<State>) -> Result<()> {
     linker.func_wrap("kernel", "breakpoint", move || {
-        if !is_debug {
-            return;
-        };
-        unsafe {
-            #[cfg(target_arch = "x86_64")]
-            asm!("int3");
+        if let Ok(true) = is_under_debugger() {
+            unsafe {
+                #[cfg(target_arch = "x86_64")]
+                asm!("int3");
+            }
         }
     })?;
     linker.func_wrap("kernel", "halt", || {
@@ -132,9 +133,7 @@ fn add_imports(linker: &mut Linker<State>, is_debug: bool) -> anyhow::Result<()>
         |mut caller: Caller<'_, State>, buf: u32, len: u32| {
             let memory = caller.data_mut().memory.data();
 
-            let trace = std::backtrace::Backtrace::force_capture()
-                .to_string()
-                .into_bytes();
+            let trace = b"stack traces are unsupported";
 
             let buf = buf as usize;
             let len = (len as usize).min(trace.len());
@@ -217,7 +216,7 @@ fn add_imports(linker: &mut Linker<State>, is_debug: bool) -> anyhow::Result<()>
     Ok(())
 }
 
-fn create_devicetree(cmdline: &str, memory_pages: u32) -> anyhow::Result<Vec<u8>> {
+fn create_devicetree(cmdline: &str, memory_pages: u32) -> Result<Vec<u8>> {
     let mut fdt = FdtWriter::new()?;
     let mut rng_seed = [0u64; 8];
     rand::thread_rng().fill(&mut rng_seed);
@@ -242,7 +241,29 @@ fn create_devicetree(cmdline: &str, memory_pages: u32) -> anyhow::Result<Vec<u8>
     Ok(fdt.finish()?)
 }
 
-fn main() -> anyhow::Result<()> {
+#[cfg(not(target_os = "linux"))]
+fn is_under_debugger() -> Result<bool> {
+    Ok(false)
+}
+
+#[cfg(target_os = "linux")]
+fn is_under_debugger() -> Result<bool> {
+    let file = File::open("/proc/self/status")?;
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with("TracerPid:") {
+            if let Some(pid) = line.split_whitespace().nth(1) {
+                return Ok(pid != "0");
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+fn main() -> Result<()> {
     let args = Args::parse();
 
     let engine = Engine::new(
@@ -272,7 +293,7 @@ fn main() -> anyhow::Result<()> {
     );
 
     let mut linker = Linker::new(&engine);
-    add_imports(&mut linker, args.debug)?;
+    add_imports(&mut linker)?;
     linker.define(&store, "env", "memory", memory)?;
 
     let instance_pre = linker.instantiate_pre(&module)?;
