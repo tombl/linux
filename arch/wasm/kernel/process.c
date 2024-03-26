@@ -22,9 +22,6 @@ struct task_struct *__switch_to(struct task_struct *from,
 	other_cpu = atomic_xchg(&to_info->running_cpu, cpu);
 	BUG_ON(other_cpu >= 0); // new process should not have had a cpu
 
-	pr_info("broken task: %p",
-		&((struct task_struct *)0x00174000)->se.group_node);
-
 	// wake the other worker:
 	pr_info("wake cpu=%i task=%p\n", cpu, to);
 	// memory.atomic.notify returns how many waiters were notified
