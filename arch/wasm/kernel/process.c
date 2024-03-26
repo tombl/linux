@@ -15,30 +15,35 @@ struct task_struct *__switch_to(struct task_struct *from,
 	struct thread_info *to_info = task_thread_info(to);
 	int cpu, other_cpu;
 
-	cpu = atomic_xchg_release(&from_info->running_cpu, -1);
+	cpu = atomic_xchg(&from_info->running_cpu, -1);
 	BUG_ON(cpu < 0); // current process must be scheduled to a cpu
 
 	// give the current cpu to the new worker
-	other_cpu = atomic_xchg_acquire(&to_info->running_cpu, cpu);
+	other_cpu = atomic_xchg(&to_info->running_cpu, cpu);
 	BUG_ON(other_cpu >= 0); // new process should not have had a cpu
 
+	pr_info("broken task: %p",
+		&((struct task_struct *)0x00174000)->se.group_node);
+
 	// wake the other worker:
-	// pr_info("wake cpu=%i task=%p\n", cpu, to);
+	pr_info("wake cpu=%i task=%p\n", cpu, to);
 	// memory.atomic.notify returns how many waiters were notified
 	// 0 is fine, because it means the worker isn't running yet
 	// 1 is great, because it means someone is waiting for this number
 	// 2+ means there's an issue, because I asked for only 1
 	BUG_ON(__builtin_wasm_memory_atomic_notify(
-		       &to_info->running_cpu.counter, 1) > 1);
+		       &to_info->running_cpu.counter,
+		       /* how many to wake up (at most): */ 1) > 1);
 
-	// pr_info("waiting cpu=%i task=%p in switch\n", cpu, from);
+	pr_info("waiting cpu=%i task=%p in switch\n",
+		atomic_read(&from_info->running_cpu), from);
 
 	// sleep this worker:
 	/* memory.atomic.wait32 returns:
 	 * 0 -> the thread blocked and was woken
 		= we slept and were woken
 	 * 1 -> the value at the pointer didn't match the passed value
-	 	= somebody gave us their cpu straight await
+	 	= somebody gave us their cpu straight away
 	 * 2 -> the thread blocked but timed out
 	 	= not possible because we pass an infinite timeout
 	*/
@@ -46,7 +51,7 @@ struct task_struct *__switch_to(struct task_struct *from,
 					    /* block if the value is: */ -1,
 					    /* timeout: */ -1);
 
-	// pr_info("woke up cpu=%i task=%p in switch\n", cpu, from);
+	pr_info("woke up cpu=%i task=%p in switch\n", cpu, from);
 
 	BUG_ON(cpu < 0); // we should be given a new cpu
 
@@ -73,13 +78,11 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	return 0;
 }
 
-__attribute__((export_name("task"))) void _start_task(struct task_struct *task)
+static void noinline_for_stack start_task_inner(struct task_struct *task)
 {
 	struct thread_info *info = task_thread_info(task);
 	struct pt_regs *regs = task_pt_regs(task);
 	int cpu;
-
-	set_stack_pointer(task_pt_regs(task) - 1);
 
 	early_printk("                       waiting cpu=%i task=%p in entry\n",
 		     atomic_read(&info->running_cpu), task);
@@ -105,4 +108,10 @@ __attribute__((export_name("task"))) void _start_task(struct task_struct *task)
 
 	// call into userspace?
 	panic("can't call userspace\n");
+}
+
+__attribute__((export_name("task"))) void _start_task(struct task_struct *task)
+{
+	set_stack_pointer(task_pt_regs(task) - 1);
+	start_task_inner(task);
 }

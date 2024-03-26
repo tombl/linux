@@ -11,10 +11,9 @@ int __cpu_up(unsigned int cpu, struct task_struct *idle)
 	wasm_bringup_secondary(cpu, idle);
 }
 
-__attribute__((export_name("secondary"))) void
-_start_secondary(int cpu, struct task_struct *idle)
+static void noinline_for_stack start_secondary_inner(int cpu,
+						     struct task_struct *idle)
 {
-	set_stack_pointer(task_pt_regs(idle) - 1);
 	smp_tls_init(cpu, true);
 
 	BUG_ON(cpu_online(cpu));
@@ -29,6 +28,13 @@ _start_secondary(int cpu, struct task_struct *idle)
 	notify_cpu_starting(cpu);
 
 	cpu_startup_entry(CPUHP_AP_ONLINE_IDLE);
+}
+
+__attribute__((export_name("secondary"))) void
+_start_secondary(int cpu, struct task_struct *idle)
+{
+	set_stack_pointer(task_pt_regs(idle) - 1);
+	start_secondary_inner(cpu, idle);
 }
 
 static struct {
