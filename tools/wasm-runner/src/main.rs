@@ -170,16 +170,16 @@ fn add_imports(linker: &mut Linker<State>, is_debug: bool) -> anyhow::Result<()>
 
             std::thread::Builder::new()
                 .name(String::from_utf8_lossy(&name).to_string())
-                .spawn(move || -> anyhow::Result<()> {
+                .spawn(move || {
                     let mut store = Store::new(&engine, data);
 
                     instance_pre
-                        .instantiate(&mut store)?
+                        .instantiate(&mut store)
+                        .unwrap()
                         .get_typed_func::<u32, ()>(&mut store, "task")
                         .expect("the function exists")
-                        .call(&mut store, task)?;
-
-                    Ok(())
+                        .call(&mut store, task)
+                        .unwrap();
                 })?;
 
             Ok(())
@@ -198,16 +198,16 @@ fn add_imports(linker: &mut Linker<State>, is_debug: bool) -> anyhow::Result<()>
 
             std::thread::Builder::new()
                 .name(format!("entry{cpu}"))
-                .spawn(move || -> anyhow::Result<()> {
+                .spawn(move || {
                     let mut store = Store::new(&engine, data);
 
                     instance_pre
-                        .instantiate(&mut store)?
+                        .instantiate(&mut store)
+                        .unwrap()
                         .get_typed_func::<(u32, u32), ()>(&mut store, "secondary")
                         .expect("the function exists")
-                        .call(&mut store, (cpu, idle))?;
-
-                    Ok(())
+                        .call(&mut store, (cpu, idle))
+                        .unwrap();
                 })?;
 
             Ok(())
