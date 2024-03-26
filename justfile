@@ -7,6 +7,8 @@ watchrun:
     watchexec -r -w tools/wasm/vmlinux.wasm -w tools/wasm/src --ignore-nothing just run
 watchrunnode:
     watchexec -r -w tools/wasm/vmlinux.wasm -w tools/wasm/dist --ignore-nothing just runnode
+watchrunrust:
+    watchexec -r -w vmlinux --ignore-nothing just runrust
 
 kernel:
     make -j16 tools/wasm/vmlinux.wasm
@@ -17,6 +19,8 @@ run:
     tools/wasm/run.ts
 runnode:
     tools/wasm/index.js
+runrust:
+    ./tools/wasm-runner/target/release/linux_wasm_runner vmlinux --debug
 
 serve:
     miniserve tools/wasm/ --index index.html \
