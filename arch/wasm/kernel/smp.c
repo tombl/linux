@@ -7,8 +7,10 @@
 
 int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
-	BUG();
+	task_thread_info(idle)->cpu = cpu;
 	wasm_bringup_secondary(cpu, idle);
+	while (!cpu_online(cpu)) cpu_relax();
+	return 0;
 }
 
 static void noinline_for_stack start_secondary_inner(int cpu,
@@ -26,6 +28,8 @@ static void noinline_for_stack start_secondary_inner(int cpu,
 	local_irq_enable();
 
 	notify_cpu_starting(cpu);
+
+	pr_info("init %i\n", idle->thread_info.cpu);
 
 	cpu_startup_entry(CPUHP_AP_ONLINE_IDLE);
 }
@@ -66,13 +70,12 @@ void __init smp_prepare_boot_cpu(void)
 void __init smp_prepare_cpus(unsigned int max_cpus)
 {
 	memset(ipi_data, 0, sizeof(ipi_data));
-
-	early_printk("SMP bringup with %i parallel processes\n", NR_CPUS);
 }
 
 void smp_send_stop(void)
 {
 	cpumask_t to_whom;
+	wasm_halt();
 	BUG();
 	cpumask_copy(&to_whom, cpu_online_mask);
 	cpumask_clear_cpu(smp_processor_id(), &to_whom);
