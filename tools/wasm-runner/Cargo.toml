@@ -9,3 +9,9 @@ clap = { version = "4.5.3", features = ["derive"] }
 rand = "0.8.5"
 vm-fdt = "0.3.0"
 wasmtime = "19.0.0"
+
+[profile.release]
+panic = "abort"
+
+[profile.dev]
+panic = "abort"
