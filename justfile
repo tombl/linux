@@ -1,3 +1,5 @@
+j := `nproc`
+
 watchkernel:
     watchexec -r -f '**/*.c' -f '**/*.h' -f '**/Makefile*' just kernel '&&' notify-send -e kernel
 watchjs:
@@ -11,7 +13,7 @@ watchrunrust:
     watchexec -r -w vmlinux --ignore-nothing just runrust
 
 kernel:
-    make -j16 tools/wasm/vmlinux.wasm
+    make -j{{j}} tools/wasm/vmlinux.wasm
 js:
     make tools/wasm
 
@@ -20,7 +22,12 @@ run:
 runnode:
     tools/wasm/index.js
 runrust:
+    cd tools/wasm-runner && cargo build --quiet --release
     ./tools/wasm-runner/target/release/linux_wasm_runner vmlinux --debug
+
+debug:
+    cd tools/wasm-runner && cargo build --quiet
+    rust-lldb -o "breakpoint set --file setup.c --name _start" -o "process launch" -- ./tools/wasm-runner/target/debug/linux_wasm_runner vmlinux --debug
 
 serve:
     miniserve tools/wasm/ --index index.html \

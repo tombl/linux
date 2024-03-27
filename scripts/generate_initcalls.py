@@ -1,5 +1,5 @@
 import collections
-import pathlib
+import os
 import re
 import subprocess
 import sys
@@ -66,7 +66,7 @@ for phase, functions in phases.items():
             print(f"#ifndef will_define_{f}")
         print(f"extern {ty} {f};")
         if f in tricky_items:
-            print(f"#endif")
+            print("#endif")
     print()
 
 for phase, functions in phases.items():
@@ -75,4 +75,4 @@ for phase, functions in phases.items():
         print(f"\tX({f}) \\")
     print()
 
-pathlib.Path("include/linux/initcalls.h").touch()
+os.utime("include/linux/initcalls.h")

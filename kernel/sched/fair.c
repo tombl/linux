@@ -6075,8 +6075,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct sched_entity *se = &p->se;
 	int idle_h_nr_running = task_has_idle_policy(p);
 	int task_new = !(flags & ENQUEUE_WAKEUP);
-
-	pr_info("enqueue %u %s\n", p->pid, p->comm);
 	
 	/*
 	 * The code below (indirectly) updates schedutil which looks at
@@ -6171,8 +6169,6 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	int task_sleep = flags & DEQUEUE_SLEEP;
 	int idle_h_nr_running = task_has_idle_policy(p);
 	bool was_sched_idle = sched_idle_rq(rq);
-
-	pr_info("dequeue %u %s\n", p->pid, p->comm);
 
 	util_est_dequeue(&rq->cfs, p);
 

@@ -85,6 +85,7 @@ void __init setup_arch(char **cmdline_p)
 
 void machine_restart(char *cmd)
 {
+	pr_info("restart %s\n", cmd);
 	wasm_restart();
 }
 
