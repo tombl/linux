@@ -38,17 +38,24 @@ static inline void setup_per_cpu_areas(void) {}
 #define __per_cpu_offset __per_cpu_offset
 extern void* __per_cpu_offset[NR_CPUS];
 
-#define static_per_cpu_offset(cpu) \
-	(__per_cpu_offset[cpu] - __per_cpu_offset[raw_smp_processor_id()])
-#define dynamic_per_cpu_offset(cpu, size) (cpu * size)
+static inline void *__per_cpu_ptr(void *ptr, unsigned int size,
+				  unsigned int this_cpu, unsigned int that_cpu)
+{
+	ptrdiff_t offset;
+	if (__percpu_is_static(ptr)) {
+		offset = (ptrdiff_t)__per_cpu_offset[that_cpu] -
+			 (ptrdiff_t)__per_cpu_offset[this_cpu];
+	} else {
+		offset = that_cpu * size;
+	}
+	return ptr + offset;
+}
 
-#define per_cpu_ptr(ptr, cpu)                                                  \
-	({                                                                     \
-		__verify_pcpu_ptr(ptr);                                        \
-		SHIFT_PERCPU_PTR((ptr), __percpu_is_static(ptr) ?              \
-						static_per_cpu_offset(cpu) :   \
-						dynamic_per_cpu_offset(        \
-							cpu, sizeof(*(ptr)))); \
+#define per_cpu_ptr(ptr, cpu)                                            \
+	({                                                               \
+		__verify_pcpu_ptr(ptr);                                  \
+		(typeof(ptr))__per_cpu_ptr(ptr, sizeof(*ptr),            \
+					   raw_smp_processor_id(), cpu); \
 	})
 
 #define arch_raw_cpu_ptr(ptr) \

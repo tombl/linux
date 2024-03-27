@@ -14,6 +14,8 @@ EXPORT_SYMBOL(__per_cpu_offset);
 
 bool __percpu_is_static(void *ptr)
 {
+	// TODO(wasm): just have a char[10000][NR_CPUS] for all static pcpu.
+	// it'd make bounds checking much cheaper, and eliminate the early kmalloc
 	int i;
 	for_each_possible_cpu(i) {
 		void *base = __per_cpu_offset[i];
@@ -44,6 +46,9 @@ static void __percpu *pcpu_alloc(size_t size, size_t align, bool reserved,
 				 gfp_t gfp)
 {
 	void *ptr;
+	// TODO(wasm): some allocators believe that pcpu_alloc works before
+	// the main allocator is initialized. 
+	// we'll eventually need an early buffer to hand chunks out of.
 	ptr = kmalloc(size * NR_CPUS, gfp);
 	if (((uintptr_t)ptr) & (align - 1)) {
 		pr_warn("alloc_percpu got incorrect alignment");
