@@ -19,21 +19,16 @@ struct task_struct *__switch_to(struct task_struct *from,
 	BUG_ON(cpu < 0); // current process must be scheduled to a cpu
 
 	// give the current cpu to the new worker
-	other_cpu = atomic_xchg(&to_info->running_cpu, cpu);
-	BUG_ON(other_cpu >= 0); // new process should not have had a cpu
+	other_cpu = atomic_cmpxchg(&to_info->running_cpu, -1, cpu);
+	BUG_ON(other_cpu != -1); // new process should not have had a cpu
 
 	// wake the other worker:
 	pr_info("wake cpu=%i task=%p\n", cpu, to);
-	// memory.atomic.notify returns how many waiters were notified
-	// 0 is fine, because it means the worker isn't running yet
-	// 1 is great, because it means someone is waiting for this number
-	// 2+ means there's an issue, because I asked for only 1
 	BUG_ON(__builtin_wasm_memory_atomic_notify(
 		       &to_info->running_cpu.counter,
-		       /* how many to wake up (at most): */ 1) > 1);
+		       /* at most, wake up: */ 1) > 1);
 
-	pr_info("waiting cpu=%i task=%p in switch\n",
-		atomic_read(&from_info->running_cpu), from);
+	pr_info("waiting cpu=%i task=%p in switch\n", cpu, from);
 
 	// sleep this worker:
 	/* memory.atomic.wait32 returns:
@@ -91,15 +86,18 @@ static void noinline_for_stack start_task_inner(struct task_struct *task)
 
 	cpu = atomic_read(&info->running_cpu);
 
-	early_printk("                       woke up cpu=%i task=%p in entry\n",
-		     cpu, task);
+	early_printk(
+		"                       woke up cpu=%i task=%p kcpu=%i in entry\n",
+		cpu, task, info->cpu);
 
 	smp_tls_init(cpu, false);
 
+	pr_info("schedule_tail(%p)\n", current);
 	schedule_tail(current);
 
 	current = task;
 
+	pr_info("fn %p(%p)\n", regs->fn, regs->fn_arg);
 	// callback returns only if the kernel thread execs a process
 	regs->fn(regs->fn_arg);
 
