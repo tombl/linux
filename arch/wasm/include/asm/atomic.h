@@ -3,8 +3,8 @@
 
 #include <asm/cmpxchg.h>
 
-#define arch_atomic_read(v)	READ_ONCE((v)->counter)
-#define arch_atomic_set(v, i)	WRITE_ONCE((v)->counter, (i))
+#define arch_atomic_read(v)		__atomic_load_n(&((v)->counter), __ATOMIC_SEQ_CST)
+#define arch_atomic_set(v, i)		__atomic_store_n(&((v)->counter), (i), __ATOMIC_SEQ_CST)
 
 #define arch_atomic_cmpxchg(v, old, new)	arch_cmpxchg(&((v)->counter), old, new)
 #define arch_atomic_xchg(v, new)		arch_xchg(&((v)->counter), new)
@@ -34,8 +34,8 @@ typedef struct {
 } atomic64_t;
 #define ATOMIC64_INIT(i) { (i) }
 
-#define arch_atomic64_read(v) 	READ_ONCE((v)->counter)
-#define arch_atomic64_set(v, i)	WRITE_ONCE((v)->counter, (i))
+#define arch_atomic64_read(v)		__atomic_load_n(&((v)->counter), __ATOMIC_SEQ_CST)
+#define arch_atomic64_set(v, i)		__atomic_store_n(&((v)->counter), (i), __ATOMIC_SEQ_CST)
 
 #define arch_atomic64_cmpxchg(v, old, new)	arch_cmpxchg(&((v)->counter), old, new)
 #define arch_atomic64_xchg(v, new)		arch_xchg(&((v)->counter), new)
