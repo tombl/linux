@@ -11,7 +11,7 @@ use std::{
 use vm_fdt::FdtWriter;
 use wasmtime::{
     Caller, Config, Engine, InstancePre, Linker, MemoryType, Module, SharedMemory, Store,
-    WasmBacktraceDetails,
+    WasmBacktraceDetails, WasmCoreDump,
 };
 
 const PAGE_SIZE: u32 = 65536;
@@ -167,18 +167,22 @@ fn add_imports(linker: &mut Linker<State>) -> Result<()> {
                 .expect("instance_pre is intialized before the first call");
             let engine = caller.engine().clone();
 
+            let name = String::from_utf8_lossy(&name).into_owned();
             std::thread::Builder::new()
-                .name(String::from_utf8_lossy(&name).to_string())
+                .name(name.clone())
                 .spawn(move || {
                     let mut store = Store::new(&engine, data);
 
-                    instance_pre
-                        .instantiate(&mut store)
-                        .unwrap()
-                        .get_typed_func::<u32, ()>(&mut store, "task")
-                        .expect("the function exists")
-                        .call(&mut store, task)
-                        .unwrap();
+                    handle_result(
+                        instance_pre
+                            .instantiate(&mut store)
+                            .unwrap()
+                            .get_typed_func::<u32, ()>(&mut store, "task")
+                            .expect("the function exists")
+                            .call(&mut store, task),
+                        &name,
+                        &mut store,
+                    );
                 })?;
 
             Ok(())
@@ -195,18 +199,22 @@ fn add_imports(linker: &mut Linker<State>) -> Result<()> {
                 .expect("instance_pre is intialized before the first call");
             let engine = caller.engine().clone();
 
+            let name = format!("entry{cpu}");
             std::thread::Builder::new()
-                .name(format!("entry{cpu}"))
+                .name(name.clone())
                 .spawn(move || {
                     let mut store = Store::new(&engine, data);
 
-                    instance_pre
-                        .instantiate(&mut store)
-                        .unwrap()
-                        .get_typed_func::<(u32, u32), ()>(&mut store, "secondary")
-                        .expect("the function exists")
-                        .call(&mut store, (cpu, idle))
-                        .unwrap();
+                    handle_result(
+                        instance_pre
+                            .instantiate(&mut store)
+                            .unwrap()
+                            .get_typed_func::<(u32, u32), ()>(&mut store, "secondary")
+                            .expect("the function exists")
+                            .call(&mut store, (cpu, idle)),
+                        &name,
+                        &mut store,
+                    );
                 })?;
 
             Ok(())
@@ -263,6 +271,22 @@ fn is_under_debugger() -> Result<bool> {
     Ok(false)
 }
 
+fn handle_result(result: Result<()>, name: &str, store: &mut Store<State>) {
+    let Err(err) = result else {
+        return;
+    };
+
+    if let Some(dump) = err.downcast_ref::<WasmCoreDump>() {
+        let core = dump.serialize(store, name);
+        if let Err(err) = std::fs::write("kernel.coredump", core) {
+            eprintln!("while writing coredump: {err}");
+        }
+    }
+
+    eprintln!("in {name}: {err}");
+    std::process::exit(1);
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -273,7 +297,8 @@ fn main() -> Result<()> {
             .wasm_backtrace_details(match args.debug {
                 true => WasmBacktraceDetails::Enable,
                 false => WasmBacktraceDetails::Disable,
-            }),
+            })
+            .coredump_on_trap(args.debug),
     )?;
 
     let memory = SharedMemory::new(&engine, MemoryType::shared(args.memory, args.memory))?;
@@ -299,11 +324,15 @@ fn main() -> Result<()> {
     let instance_pre = linker.instantiate_pre(&module)?;
     store.data_mut().instance_pre = Some(instance_pre.clone());
 
-    instance_pre
-        .instantiate(&mut store)?
-        .get_typed_func::<(), ()>(&mut store, "boot")
-        .expect("the function exists")
-        .call(&mut store, ())?;
+    handle_result(
+        instance_pre
+            .instantiate(&mut store)?
+            .get_typed_func::<(), ()>(&mut store, "boot")
+            .expect("the function exists")
+            .call(&mut store, ()),
+        "boot",
+        &mut store,
+    );
 
     Ok(())
 }
