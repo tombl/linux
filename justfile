@@ -23,11 +23,16 @@ runnode:
     tools/wasm/index.js
 runrust:
     cd tools/wasm-runner && cargo build --quiet --release
-    ./tools/wasm-runner/target/release/linux_wasm_runner vmlinux --debug
+    ./tools/wasm-runner/target/release/linux_wasm_runner vmlinux
 
 debug:
     cd tools/wasm-runner && cargo build --quiet
-    rust-lldb -o "breakpoint set --file setup.c --name _start" -o "process launch" -- ./tools/wasm-runner/target/debug/linux_wasm_runner vmlinux --debug
+    rust-lldb \
+        -o 'breakpoint set --file setup.c --name _start' \
+        -o 'breakpoint set --name wasm_get_dt --command "p __vmctx->set()"' \
+        -o 'process launch' \
+        -- \
+        ./tools/wasm-runner/target/debug/linux_wasm_runner vmlinux --debug
 
 serve:
     miniserve tools/wasm/ --index index.html \

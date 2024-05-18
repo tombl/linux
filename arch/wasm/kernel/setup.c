@@ -38,7 +38,8 @@ size_t __per_cpu_size;
 __attribute__((export_name("boot"))) void __init _start(void)
 {
 	static char wasm_dt[1024];
-	
+	wasm_get_dt(wasm_dt, ARRAY_SIZE(wasm_dt));
+
 #ifdef CONFIG_SMP
 	early_tls_init();
 #endif
@@ -46,7 +47,6 @@ __attribute__((export_name("boot"))) void __init _start(void)
 
 	setup_early_printk(NULL);
 
-	wasm_get_dt(wasm_dt, ARRAY_SIZE(wasm_dt));
 	early_init_dt_scan(wasm_dt);
 	early_init_fdt_scan_reserved_mem();
 
