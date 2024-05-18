@@ -69,7 +69,11 @@
       term.open(document.body);
       termFit.fit();
       window.onresize = () => termFit.fit();
-      term.loadAddon(new WebglAddon.WebglAddon());
+      try {
+        term.loadAddon(new WebglAddon.WebglAddon());
+      } catch (err) {
+        console.warn(err);
+      }
 
       if (!window.crossOriginIsolated) {
         term.write("Error: not cross origin isolated\n");
