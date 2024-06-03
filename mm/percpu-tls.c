@@ -19,8 +19,8 @@ bool __percpu_is_static(void *ptr)
 	int i;
 	for_each_possible_cpu(i) {
 		void *base = __per_cpu_offset[i];
-		if (base != (void *)-1 && ptr >= base &&
-		    ptr < base + __per_cpu_size) {
+		if (base == (void *)-1) continue;
+		if (ptr >= base && ptr < (base + __per_cpu_size)) {
 			return true;
 		}
 	}
@@ -50,11 +50,7 @@ static void __percpu *pcpu_alloc(size_t size, size_t align, bool reserved,
 	// the main allocator is initialized. 
 	// we'll eventually need an early buffer to hand chunks out of.
 	ptr = kmalloc(size * NR_CPUS, gfp);
-	if (((uintptr_t)ptr) & (align - 1)) {
-		pr_warn("alloc_percpu got incorrect alignment");
-		kfree(ptr);
-		return NULL;
-	}
+	BUG_ON(((uintptr_t)ptr) & (align - 1)); // incorrect alignment
 	return ptr;
 }
 

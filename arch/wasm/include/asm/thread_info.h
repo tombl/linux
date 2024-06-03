@@ -17,10 +17,10 @@ struct thread_info {
 	atomic_t running_cpu; // negative means unscheduled
 };
 
-#define INIT_THREAD_INFO(tsk)                                    \
-	{                                                        \
-		.flags = 0, .preempt_count = INIT_PREEMPT_COUNT, \
-		.running_cpu = ATOMIC_INIT(0),                   \
+#define INIT_THREAD_INFO(tsk)                                              \
+	{                                                                  \
+		.flags = 0, .preempt_count = INIT_PREEMPT_COUNT, .cpu = 0, \
+		.running_cpu = ATOMIC_INIT(0),                             \
 	}
 
 #define TIF_SYSCALL_TRACE 0 /* syscall trace active */

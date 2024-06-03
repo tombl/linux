@@ -1,7 +1,7 @@
 j := `nproc`
 
 watchkernel:
-    watchexec -r -f '**/*.c' -f '**/*.h' -f '**/Makefile*' just kernel '&&' notify-send -e kernel
+    watchexec -r -f '**/*.c' -f '**/*.h' -f '**/Makefile*' just kernel
 watchjs:
     watchexec -w tools/wasm/src just js
 

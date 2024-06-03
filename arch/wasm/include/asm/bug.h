@@ -8,6 +8,7 @@
 	do {                                                                 \
 		pr_crit("BUG: failure at %s:%d/%s()!\n", __FILE__, __LINE__, \
 			__func__);                                           \
+		wasm_breakpoint();                                           \
 		barrier_before_unreachable();                                \
 		__builtin_trap();                                            \
 	} while (0)

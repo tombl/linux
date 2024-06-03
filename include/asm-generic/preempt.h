@@ -13,7 +13,6 @@ static __always_inline int preempt_count(void)
 
 static __always_inline volatile int *preempt_count_ptr(void)
 {
-	early_printk("%i", preempt_count());
 	return &current_thread_info()->preempt_count;
 }
 

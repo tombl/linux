@@ -2,41 +2,37 @@
 #include <asm/sysmem.h>
 #include <linux/cpumask.h>
 #include <linux/log2.h>
+#include <linux/memblock.h>
 #include <linux/slab.h>
 
 extern void __wasm_init_tls(void *location);
-extern size_t __per_cpu_size;
+size_t __per_cpu_size;
 
 void early_tls_init(void)
 {
 	void *tls;
-	__per_cpu_size = __roundup_pow_of_two(__builtin_wasm_tls_size());
-	tls = __builtin_alloca(__per_cpu_size);
-	__per_cpu_offset[0] = tls;
+	__per_cpu_size = __builtin_wasm_tls_size();
+	tls = memblock_alloc(__per_cpu_size, __builtin_wasm_tls_align());
+	early_printk("early: size=%zu align=%zu got=%p\n", __per_cpu_size,
+		     __builtin_wasm_tls_align(), tls);
+	BUG_ON(xchg(&__per_cpu_offset[0], tls) != (void *)-1);
 	__wasm_init_tls(tls);
 }
 
 void smp_tls_prepare(void)
 {
 	int cpu;
-	size_t align = __builtin_wasm_tls_align();
-	size_t size = __per_cpu_size;
-
 	for_each_possible_cpu(cpu) {
 		void *tls;
 		if (cpu == 0)
 			continue;
 
-		tls = kzalloc(size, 0);
+		tls = memblock_alloc(__per_cpu_size,
+				     __builtin_wasm_tls_align());
 		if (!tls)
 			panic("failed to allocate thread local storage: %i\n",
 			      cpu);
-		if (((uintptr_t)tls) & (align - 1))
-			panic("thread local storage is incorrectly aligned: %i\n",
-			      cpu);
-
-		BUG_ON(__per_cpu_offset[cpu] != (void *)-1);
-		__per_cpu_offset[cpu] = tls;
+		BUG_ON(xchg(&__per_cpu_offset[cpu], tls) != (void *)-1);
 	}
 
 #if 0
@@ -45,13 +41,11 @@ void smp_tls_prepare(void)
 #endif
 }
 
-
-
 void smp_tls_init(int cpu, bool init)
 {
 	BUG_ON(__per_cpu_offset[cpu] == (void *)-1);
 	if (init) {
-		__wasm_init_tls((void *)__per_cpu_offset[cpu]);
+		__wasm_init_tls(__per_cpu_offset[cpu]);
 	} else {
 		set_tls_base(__per_cpu_offset[cpu]);
 	}

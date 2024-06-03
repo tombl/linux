@@ -118,7 +118,7 @@ self.onmessage = ({ data }: MessageEvent<ToWorkerMessage>) => {
           const trace = new TextEncoder().encode(
             new Error().stack?.split("\n").slice(5).join("\n"),
           );
-          if (size >= trace.byteLength) {
+          if (trace.byteLength > size) {
             /// 46 = "."
             trace[size - 1] = 46;
             trace[size - 2] = 46;

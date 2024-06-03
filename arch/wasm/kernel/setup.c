@@ -10,9 +10,7 @@
 
 unsigned long volatile jiffies = INITIAL_JIFFIES;
 
-DEFINE_PER_CPU(struct task_struct *, current) = &init_task;
-
-unsigned long init_stack[THREAD_SIZE / sizeof(unsigned long)];
+unsigned long init_stack[THREAD_SIZE / sizeof(unsigned long)] = { 0 };
 unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)] = { 0 };
 
 char __init_begin[0], __init_end[0], __stop___ex_table, __start___ex_table,
@@ -33,12 +31,16 @@ extern void __heap_base;
 extern void __heap_end;
 
 int __init setup_early_printk(char *buf);
-size_t __per_cpu_size;
 
 __attribute__((export_name("boot"))) void __init _start(void)
 {
 	static char wasm_dt[1024];
 	wasm_get_dt(wasm_dt, ARRAY_SIZE(wasm_dt));
+
+	early_init_dt_scan(wasm_dt);
+	early_init_fdt_scan_reserved_mem();
+
+	memblock_reserve(0, (phys_addr_t)&__heap_base);
 
 #ifdef CONFIG_SMP
 	early_tls_init();
@@ -46,11 +48,6 @@ __attribute__((export_name("boot"))) void __init _start(void)
 	__wasm_call_ctors();
 
 	setup_early_printk(NULL);
-
-	early_init_dt_scan(wasm_dt);
-	early_init_fdt_scan_reserved_mem();
-
-	memblock_reserve(0, (phys_addr_t)&__heap_base);
 
 	for (int i = 0; i < NR_CPUS; i++) {
 		set_cpu_possible(i, true);

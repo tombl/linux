@@ -8,6 +8,7 @@
 int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
 	task_thread_info(idle)->cpu = cpu;
+	BUG();
 	wasm_bringup_secondary(cpu, idle);
 	while (!cpu_online(cpu)) cpu_relax();
 	return 0;
@@ -21,6 +22,8 @@ static void noinline_for_stack start_secondary_inner(int cpu,
 	BUG_ON(cpu_online(cpu));
 	set_cpu_online(cpu, true);
 
+	early_printk("== BRINGUP SECONDARY CPU %d ==\n", cpu);
+
 	current = idle;
 	mmgrab(&init_mm);
 	current->active_mm = &init_mm;
@@ -29,7 +32,7 @@ static void noinline_for_stack start_secondary_inner(int cpu,
 
 	notify_cpu_starting(cpu);
 
-	pr_info("init %i\n", idle->thread_info.cpu);
+	pr_info("init %i\n", task_thread_info(idle)->cpu);
 
 	cpu_startup_entry(CPUHP_AP_ONLINE_IDLE);
 }
