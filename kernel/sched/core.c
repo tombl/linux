@@ -531,7 +531,6 @@ void raw_spin_rq_lock_nested(struct rq *rq, int subclass)
 {
 	raw_spinlock_t *lock;
 
-	pr_info("  locking %p\n", rq);
 	/* Matches synchronize_rcu() in __sched_core_enable() */
 	preempt_disable();
 	if (sched_core_disabled()) {
@@ -579,7 +578,6 @@ bool raw_spin_rq_trylock(struct rq *rq)
 
 void raw_spin_rq_unlock(struct rq *rq)
 {
-	pr_info("unlocking %p\n", rq);
 	raw_spin_unlock(rq_lockp(rq));
 }
 

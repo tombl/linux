@@ -76,7 +76,7 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 static void noinline_for_stack start_task_inner(struct task_struct *task)
 {
 	struct thread_info *info = task_thread_info(task);
-	struct task_struct *prev = current;
+	struct task_struct *prev;
 	struct pt_regs *regs = task_pt_regs(task);
 	int cpu;
 
@@ -95,7 +95,8 @@ static void noinline_for_stack start_task_inner(struct task_struct *task)
 		cpu, task, info->cpu);
 
 	smp_tls_init(cpu, false);
-
+	// As a thread local variable, all uses of current should be below tls init:
+	prev = current;
 	current = task;
 
 	if (prev) {
