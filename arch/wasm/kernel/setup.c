@@ -8,8 +8,6 @@
 #include <linux/screen_info.h>
 #include <linux/start_kernel.h>
 
-unsigned long volatile jiffies = INITIAL_JIFFIES;
-
 unsigned long init_stack[THREAD_SIZE / sizeof(unsigned long)] = { 0 };
 unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)] = { 0 };
 
