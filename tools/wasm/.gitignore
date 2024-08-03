@@ -1,3 +1,4 @@
 .wrangler
 vmlinux.wasm
 dist
+sections.json

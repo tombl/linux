@@ -66,6 +66,8 @@
  *   setup the first chunk containing the kernel static percpu area
  */
 
+#include "asm-generic/percpu.h"
+#include "asm/smp.h"
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/bitmap.h>
@@ -2610,6 +2612,9 @@ void __init pcpu_setup_first_chunk(const struct pcpu_alloc_info *ai,
 	}								\
 } while (0)
 
+	pr_info("start:\t%p\n", __per_cpu_start);
+	pr_info("end:\t%p\n", __per_cpu_end);
+
 	/* sanity checks */
 	PCPU_SETUP_BUG_ON(ai->nr_groups <= 0);
 #ifdef CONFIG_SMP
@@ -3371,12 +3376,14 @@ out_free_ar:
  * on the physical linear memory mapping which uses large page
  * mappings on applicable archs.
  */
-unsigned long __per_cpu_offset[NR_CPUS] __read_mostly;
+long __per_cpu_offset[NR_CPUS] __read_mostly;
 EXPORT_SYMBOL(__per_cpu_offset);
+
+DEFINE_PER_CPU(int, foo) = 0xdeadbeef;
 
 void __init setup_per_cpu_areas(void)
 {
-	unsigned long delta;
+	ptrdiff_t delta;
 	unsigned int cpu;
 	int rc;
 
@@ -3389,9 +3396,13 @@ void __init setup_per_cpu_areas(void)
 	if (rc < 0)
 		panic("Failed to initialize percpu areas.");
 
-	delta = (unsigned long)pcpu_base_addr - (unsigned long)__per_cpu_start;
-	for_each_possible_cpu(cpu)
-		__per_cpu_offset[cpu] = delta + pcpu_unit_offsets[cpu];
+	delta = (ptrdiff_t)pcpu_base_addr - (long)__per_cpu_start;
+	early_printk("%p - %p = %lx\n", pcpu_base_addr, __per_cpu_start, delta);
+	early_printk("foo = %p\n", &foo);
+	for_each_possible_cpu(cpu) {
+		__per_cpu_offset[cpu] = delta + (ptrdiff_t)pcpu_unit_offsets[cpu];
+		early_printk("cpu:%d\toffset:%ld\trel:%ld\texample:%p\n", cpu, pcpu_unit_offsets[cpu], __per_cpu_offset[cpu], &foo + __per_cpu_offset[cpu]);
+	}
 }
 #endif	/* CONFIG_HAVE_SETUP_PER_CPU_AREA */
 

@@ -13,7 +13,7 @@ watchrunrust:
     watchexec -r -w vmlinux --ignore-nothing just runrust
 
 kernel:
-    make -j{{j}} tools/wasm/vmlinux.wasm
+    make -j{{j}} tools/wasm/vmlinux.wasm tools/wasm/sections.json
 js:
     make tools/wasm
 
@@ -23,7 +23,7 @@ runnode:
     tools/wasm/index.js
 runrust:
     cd tools/wasm-runner && cargo build --quiet --release
-    ./tools/wasm-runner/target/release/linux_wasm_runner vmlinux
+    ./tools/wasm-runner/target/release/linux_wasm_runner vmlinux tools/wasm/sections.json
 
 debug:
     cd tools/wasm-runner && cargo build --quiet

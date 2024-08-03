@@ -55,7 +55,6 @@
     <details>
       <summary>options</summary>
       <form>
-        <label>path: <input type="text" name="path" /></label>
         <label>cmdline: <input type="text" name="cmdline" /></label>
         <button>reboot</button>
       </form>
@@ -79,14 +78,15 @@
         term.write("Error: not cross origin isolated\n");
       }
 
-      const { path = "vmlinux.wasm", cmdline = "no_hash_pointers" } =
-        Object.fromEntries(new URLSearchParams(location.search));
-      document.querySelector("input[name=path]").value = path;
+      const { cmdline = "no_hash_pointers" } = Object.fromEntries(
+        new URLSearchParams(location.search)
+      );
       document.querySelector("input[name=cmdline]").value = cmdline;
 
       const machine = start({
         cmdline: cmdline.replace(/\+/g, " "),
-        vmlinux: await WebAssembly.compileStreaming(fetch(path)),
+        vmlinux: await WebAssembly.compileStreaming(fetch("/vmlinux.wasm")),
+        sections: await (await fetch("/sections.json")).json(),
       });
 
       machine.bootConsole.pipeTo(

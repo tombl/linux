@@ -80,6 +80,8 @@ struct kernel_param {
 	};
 };
 
+extern const struct kernel_param __start___param[], __stop___param[];
+
 /* Special one for strings we want to copy into */
 struct kparam_string {
 	unsigned int maxlen;
@@ -283,19 +285,13 @@ struct kparam_array
 /* This is the fundamental function for registering boot/module
    parameters. */
 #define __module_param_call(prefix, name, ops, arg, perm, level, flags)	\
-	_Pragma("GCC diagnostic push")	\
-	_Pragma("GCC diagnostic ignored \"-Wincompatible-pointer-types-discards-qualifiers\"") \
 	/* Default value instead of permissions? */			\
 	static const char __param_str_##name[] = prefix #name;		\
-	struct kernel_param __moduleparam_const __param_##name		\
+	static struct kernel_param __moduleparam_const __param_##name	\
 	__used __section("__param")					\
 	__aligned(__alignof__(struct kernel_param))			\
 	= { __param_str_##name, THIS_MODULE, ops,			\
-	    VERIFY_OCTAL_PERMISSIONS(perm), level, flags, { arg } };	\
-	_Pragma("GCC diagnostic pop")					\
-	__asm(								\
-		".section .kdata.param$__param_" #name ",\"\",@\n"	\
-	)
+	    VERIFY_OCTAL_PERMISSIONS(perm), level, flags, { arg } }
 
 /* Obsolete - use module_param_cb() */
 #define module_param_call(name, _set, _get, arg, perm)			\
@@ -388,7 +384,7 @@ extern bool parameqn(const char *name1, const char *name2, size_t n);
 /* Called on module insert or kernel boot */
 extern char *parse_args(const char *name,
 		      char *args,
-		      const struct kernel_param **params,
+		      const struct kernel_param *params,
 		      unsigned num,
 		      s16 level_min,
 		      s16 level_max,

@@ -6,6 +6,7 @@ obj-y += \
 	irq.o \
 	process.o \
 	ptrace.o \
+	sections.o \
 	setup.o \
 	stacktrace.o \
 	time.o

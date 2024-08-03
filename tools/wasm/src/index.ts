@@ -27,10 +27,12 @@ interface Machine {
 export function start({
   cmdline,
   vmlinux,
+  sections,
   memoryPages = 1024, // 64MiB
 }: {
   cmdline: string;
   vmlinux: WebAssembly.Module;
+  sections: Record<string, number[]>;
   memoryPages?: number;
 }) {
   const bootConsole = new TransformStream<Uint8Array, Uint8Array>();
@@ -109,6 +111,8 @@ export function start({
   });
 
   const devicetree = generateDevicetree({
+    "#address-cells": 1,
+    "#size-cells": 1,
     chosen: {
       "rng-seed": crypto.getRandomValues(new Uint8Array(64)),
       bootargs: cmdline,
@@ -118,6 +122,7 @@ export function start({
       device_type: "memory",
       reg: [0, memoryPages * PAGE_SIZE],
     },
+    "data-sections": sections,
   });
 
   newWorker(
@@ -126,7 +131,7 @@ export function start({
     [devicetree.buffer],
   );
 
-  const machine = eventTarget as unknown as Machine;
+  const machine = eventTarget as Partial<Machine>;
   machine.bootConsole = bootConsole.readable;
-  return machine;
+  return machine as Machine;
 }

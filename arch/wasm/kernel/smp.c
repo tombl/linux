@@ -17,7 +17,7 @@ int __cpu_up(unsigned int cpu, struct task_struct *idle)
 static void noinline_for_stack start_secondary_inner(int cpu,
 						     struct task_struct *idle)
 {
-	smp_tls_init(cpu, true);
+	// smp_tls_init(cpu, true);
 
 	BUG_ON(cpu_online(cpu));
 	set_cpu_online(cpu, true);

@@ -37,6 +37,7 @@
               pkg-config
               ncurses
 
+              dtc
               llvm.lld
               llvm.libllvm
               wabt

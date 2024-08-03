@@ -8,15 +8,6 @@ const FDT_END = 0x00000009;
 const NODE_NAME_MAX_LEN = 31;
 const PROPERTY_NAME_MAX_LEN = 31;
 
-function byteswap32(n: number) {
-  return (
-    ((n & 0xff) << 24) |
-    ((n & 0xff00) << 8) |
-    ((n >> 8) & 0xff00) |
-    ((n >> 24) & 0xff)
-  );
-}
-
 interface DeviceTreeNode {
   [key: string]: DeviceTreeNode | DeviceTreeProperty;
 }
@@ -114,7 +105,8 @@ function inner(
       let value: ArrayBuffer;
       switch (typeof prop) {
         case "number":
-          value = new Uint32Array([byteswap32(prop)]).buffer;
+          value = new Uint32Array(1).buffer;
+          new DataView(value).setUint32(0, prop)
           break;
         case "bigint":
           value = new BigUint64Array([prop]).buffer;
@@ -124,7 +116,11 @@ function inner(
           break;
         case "object":
           if (Array.isArray(prop)) {
-            value = new Uint32Array(prop.map(byteswap32)).buffer;
+            value = new Uint32Array(prop.length).buffer;
+            const dv = new DataView(value);
+            for (let i = 0; i < prop.length; i++) {
+              dv.setUint32(i * 4, prop[i]);
+            }
           } else if (
             prop instanceof Uint8Array ||
             prop instanceof Uint16Array ||

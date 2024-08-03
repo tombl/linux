@@ -94,7 +94,7 @@ static void noinline_for_stack start_task_inner(struct task_struct *task)
 		"                       woke up cpu=%i task=%p kcpu=%i in entry\n",
 		cpu, task, info->cpu);
 
-	smp_tls_init(cpu, false);
+	// smp_tls_init(cpu, false);
 	// As a thread local variable, all uses of current should be below tls init:
 	prev = current;
 	current = task;

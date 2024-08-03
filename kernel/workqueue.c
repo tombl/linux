@@ -25,6 +25,7 @@
  * Please read Documentation/core-api/workqueue.rst for details.
  */
 
+#include "asm/sections.h"
 #include <linux/export.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
@@ -906,6 +907,10 @@ void wq_worker_sleeping(struct task_struct *task)
 		return;
 
 	pool = worker->pool;
+	pr_info("pool=%p task=%p %s %p %s %i cpu=%i idle=%i\n", pool, task,
+		     task->comm, current, current->comm, task->pid, pool->cpu,
+		     pool->nr_idle);
+	BUG_ON((void *)pool < &__heap_base || pool->cpu > 10 || pool->cpu < 0);
 
 	/* Return if preempted before wq_worker_running() was reached */
 	if (worker->sleeping)
@@ -1178,6 +1183,7 @@ static void pwq_activate_first_inactive(struct pool_workqueue *pwq)
 	struct work_struct *work = list_first_entry(&pwq->inactive_works,
 						    struct work_struct, entry);
 
+	early_printk("pwq_activate_first_inactive %p %p\n", pwq, work);
 	pwq_activate_inactive_work(work);
 }
 
@@ -3463,6 +3469,8 @@ static int init_worker_pool(struct worker_pool *pool)
 	INIT_LIST_HEAD(&pool->worklist);
 	INIT_LIST_HEAD(&pool->idle_list);
 	hash_init(pool->busy_hash);
+
+	pr_info("init_worker_pool(%p)\n", pool);
 
 	timer_setup(&pool->idle_timer, idle_worker_timeout, TIMER_DEFERRABLE);
 
@@ -6064,6 +6072,7 @@ void __init workqueue_init_early(void)
 	system_freezable_power_efficient_wq = alloc_workqueue("events_freezable_power_efficient",
 					      WQ_FREEZABLE | WQ_POWER_EFFICIENT,
 					      0);
+	early_printk("freezable wq: %p\n", system_freezable_power_efficient_wq );
 	BUG_ON(!system_wq || !system_highpri_wq || !system_long_wq ||
 	       !system_unbound_wq || !system_freezable_wq ||
 	       !system_power_efficient_wq ||

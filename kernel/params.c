@@ -8,7 +8,6 @@
 #include <linux/errno.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
-#include <linux/initcalls.h>
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/slab.h>
@@ -116,7 +115,7 @@ static bool param_check_unsafe(const struct kernel_param *kp)
 static int parse_one(char *param,
 		     char *val,
 		     const char *doing,
-		     const struct kernel_param **params,
+		     const struct kernel_param *params,
 		     unsigned num_params,
 		     s16 min_level,
 		     s16 max_level,
@@ -129,22 +128,22 @@ static int parse_one(char *param,
 
 	/* Find parameter */
 	for (i = 0; i < num_params; i++) {
-		if (parameq(param, params[i]->name)) {
-			if (params[i]->level < min_level
-			    || params[i]->level > max_level)
+		if (parameq(param, params[i].name)) {
+			if (params[i].level < min_level
+			    || params[i].level > max_level)
 				return 0;
 			/* No one handled NULL, so do it here. */
 			if (!val &&
-			    !(params[i]->ops->flags & KERNEL_PARAM_OPS_FL_NOARG))
+			    !(params[i].ops->flags & KERNEL_PARAM_OPS_FL_NOARG))
 				return -EINVAL;
 			pr_debug("handling %s with %p\n", param,
-				params[i]->ops->set);
-			kernel_param_lock(params[i]->mod);
-			if (param_check_unsafe(params[i]))
-				err = params[i]->ops->set(val, params[i]);
+				params[i].ops->set);
+			kernel_param_lock(params[i].mod);
+			if (param_check_unsafe(&params[i]))
+				err = params[i].ops->set(val, &params[i]);
 			else
 				err = -EPERM;
-			kernel_param_unlock(params[i]->mod);
+			kernel_param_unlock(params[i].mod);
 			return err;
 		}
 	}
@@ -161,7 +160,7 @@ static int parse_one(char *param,
 /* Args looks like "foo=bar,bar2 baz=fuz wiz". */
 char *parse_args(const char *doing,
 		 char *args,
-		 const struct kernel_param **params,
+		 const struct kernel_param *params,
 		 unsigned num,
 		 s16 min_level,
 		 s16 max_level,
@@ -830,28 +829,27 @@ static void __init kernel_add_sysfs_param(const char *name,
  */
 static void __init param_sysfs_builtin(void)
 {
-#define X(kp)                                                   \
-	do {                                                    \
-		unsigned int name_len;                          \
-		char modname[MODULE_NAME_LEN];                  \
-		char *dot;                                      \
-                                                                \
-		if (kp.perm == 0)                               \
-			continue;                               \
-                                                                \
-		dot = strchr(kp.name, '.');                     \
-		if (!dot) {                                     \
-			/* This happens for core_param() */     \
-			strcpy(modname, "kernel");              \
-			name_len = 0;                           \
-		} else {                                        \
-			name_len = dot - kp.name + 1;           \
-			strlcpy(modname, kp.name, name_len);    \
-		}                                               \
-		kernel_add_sysfs_param(modname, &kp, name_len); \
-	} while (0);
-	enumerate_param(X)
-#undef X
+	const struct kernel_param *kp;
+	unsigned int name_len;
+	char modname[MODULE_NAME_LEN];
+
+	for (kp = __start___param; kp < __stop___param; kp++) {
+		char *dot;
+
+		if (kp->perm == 0)
+			continue;
+
+		dot = strchr(kp->name, '.');
+		if (!dot) {
+			/* This happens for core_param() */
+			strcpy(modname, "kernel");
+			name_len = 0;
+		} else {
+			name_len = dot - kp->name + 1;
+			strlcpy(modname, kp->name, name_len);
+		}
+		kernel_add_sysfs_param(modname, kp, name_len);
+	}
 }
 
 ssize_t __modver_version_show(struct module_attribute *mattr,
@@ -958,7 +956,6 @@ struct kobj_type module_ktype = {
  */
 static int __init param_sysfs_init(void)
 {
-	early_printk("param_sysfs_init");
 	module_kset = kset_create_and_add("module", &module_uevent_ops, NULL);
 	if (!module_kset) {
 		printk(KERN_WARNING "%s (%d): error creating kset\n",

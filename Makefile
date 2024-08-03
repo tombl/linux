@@ -1358,11 +1358,6 @@ filechk_compile.h = $(srctree)/scripts/mkcompile_h \
 include/generated/compile.h: FORCE
 	$(call filechk,compile.h)
 
-filechk_initcalls.h = $(PYTHON3) $(real-prereqs)
-
-include/generated/initcalls.h: $(srctree)/scripts/generate_initcalls.py vmlinux.o FORCE
-	$(call filechk,initcalls.h)
-
 PHONY += headerdep
 headerdep:
 	$(Q)find $(srctree)/include/ -name '*.h' | xargs --max-args 1 \

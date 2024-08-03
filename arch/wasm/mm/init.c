@@ -20,8 +20,5 @@ void __init zones_init(void)
 
 void __init mem_init(void)
 {
-#ifdef CONFIG_SMP
-	smp_tls_prepare();
-#endif
 	memblock_free_all();
 }

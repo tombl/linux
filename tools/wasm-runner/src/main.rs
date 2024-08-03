@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use anyhow::Result;
 use clap::Parser;
 use rand::Rng;
@@ -20,6 +21,8 @@ const PAGE_SIZE: u32 = 65536;
 struct Args {
     /// path to the wasm file
     module: PathBuf,
+    /// path to the sections json file
+    sections: PathBuf,
 
     /// kernel command line
     #[clap(short, long, default_value_t = String::from("no_hash_pointers"))]
@@ -224,7 +227,9 @@ fn add_imports(linker: &mut Linker<State>) -> Result<()> {
     Ok(())
 }
 
-fn create_devicetree(cmdline: &str, memory_pages: u32) -> Result<Vec<u8>> {
+type Sections = HashMap<String, (u32, u32)>;
+
+fn create_devicetree(cmdline: &str, sections: &Sections, memory_pages: u32) -> Result<Vec<u8>> {
     let mut fdt = FdtWriter::new()?;
     let mut rng_seed = [0u64; 8];
     rand::thread_rng().fill(&mut rng_seed);
@@ -243,6 +248,12 @@ fn create_devicetree(cmdline: &str, memory_pages: u32) -> Result<Vec<u8>> {
     fdt.property_string("device_type", "memory")?;
     fdt.property_array_u32("reg", &[0, memory_pages * PAGE_SIZE])?;
     fdt.end_node(memory)?;
+
+    let data_sections = fdt.begin_node("data-sections")?;
+    for (name, &(start, end)) in sections {
+        fdt.property_array_u32(name, &[start, end])?;
+    }
+    fdt.end_node(data_sections)?;
 
     fdt.end_node(root)?;
 
@@ -290,16 +301,17 @@ fn handle_result(result: Result<()>, name: &str, store: &mut Store<State>) {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let engine = Engine::new(
-        Config::new()
-            .debug_info(args.debug)
-            .native_unwind_info(args.debug)
-            .wasm_backtrace_details(match args.debug {
-                true => WasmBacktraceDetails::Enable,
-                false => WasmBacktraceDetails::Disable,
-            })
-            .coredump_on_trap(args.debug),
-    )?;
+    let sections: Sections = serde_json::from_reader(File::open(&args.sections)?)?;
+
+    let mut config = Config::new();
+    if args.debug {
+        config.debug_info(true);
+        config.native_unwind_info(true);
+        config.wasm_backtrace_details(WasmBacktraceDetails::Enable);
+        config.coredump_on_trap(true);
+        config.cranelift_opt_level(wasmtime::OptLevel::None);
+    }
+    let engine = Engine::new(&config)?;
 
     let memory = SharedMemory::new(&engine, MemoryType::shared(args.memory, args.memory))?;
     debug_assert_eq!(memory.data_size(), (args.memory * PAGE_SIZE) as usize);
@@ -311,7 +323,7 @@ fn main() -> Result<()> {
         State {
             memory: memory.clone(),
             irq: 0,
-            devicetree: create_devicetree(&args.cmdline, args.memory)?,
+            devicetree: create_devicetree(&args.cmdline, &sections, args.memory)?,
             time_origin: Instant::now(),
             instance_pre: None,
         },
