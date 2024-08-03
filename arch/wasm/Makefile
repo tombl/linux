@@ -21,7 +21,7 @@ vmlinux.o.wat: vmlinux.o
 	wasm2wat $< --enable-all -o $@
 
 tools/wasm/sections.json: arch/wasm/scripts/sections.pl vmlinux.o.wat
-	./arch/wasm/scripts/sections.pl <vmlinux.o.wat >$@
+	$(PERL) ./arch/wasm/scripts/sections.pl <vmlinux.o.wat >$@
 
 define archhelp
   echo  '* vmlinux.wasm       - Kernel binary (arch/$(ARCH)/vmlinux.wasm)'
