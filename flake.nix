@@ -46,7 +46,7 @@
 
             enableParallelBuilding = true;
             configurePhase = "make -j$NIX_BUILD_CORES tinyconfig debug.config";
-            buildPhase = "make -j$NIX_BUILD_CORES arch/wasm/vmlinux.wasm tools/wasm";
+            buildPhase = "make -j$NIX_BUILD_CORES arch/wasm/vmlinux.wasm tools/wasm/sections.json tools/wasm";
             installPhase = ''
               mkdir $out
               cp -r tools/wasm/* $out/
