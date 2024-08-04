@@ -17,14 +17,14 @@ int __cpu_up(unsigned int cpu, struct task_struct *idle)
 static void noinline_for_stack start_secondary_inner(int cpu,
 						     struct task_struct *idle)
 {
-	// smp_tls_init(cpu, true);
+	set_current_cpu(cpu);
+	set_current_task(idle);
 
 	BUG_ON(cpu_online(cpu));
 	set_cpu_online(cpu, true);
 
 	early_printk("== BRINGUP SECONDARY CPU %d ==\n", cpu);
 
-	current = idle;
 	mmgrab(&init_mm);
 	current->active_mm = &init_mm;
 

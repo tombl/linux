@@ -10,11 +10,6 @@
 #include <linux/screen_info.h>
 #include <linux/start_kernel.h>
 
-unsigned long init_stack[THREAD_SIZE / sizeof(unsigned long)] = { 0 };
-unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)] = { 0 };
-
-struct screen_info screen_info = {};
-
 void __wasm_call_ctors(void);
 int __init setup_early_printk(char *buf);
 void init_sections(unsigned long node);
@@ -25,6 +20,9 @@ __attribute__((export_name("boot"))) void __init _start(void)
 {
 	static char wasm_dt[1024];
 	int node;
+
+	set_current_cpu(0);
+	set_current_task(&init_task);
 	
 	memblock_reserve(0, (phys_addr_t)&__heap_base);
 

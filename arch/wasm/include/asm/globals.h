@@ -8,11 +8,11 @@ static inline void set_stack_pointer(void *ptr)
 			 "global.set __stack_pointer" ::"r"(ptr));
 }
 
-__asm__(".globaltype __tls_base, i32\n");
-static inline void set_tls_base(void *ptr)
-{
-	__asm__ volatile("local.get %0\n"
-			 "global.set __tls_base" ::"r"(ptr));
-}
+void set_current_cpu(int cpu);
+int get_current_cpu(void);
+
+struct task_struct;
+void set_current_task(struct task_struct *task);
+struct task_struct *get_current_task(void);
 
 #endif

@@ -76,6 +76,7 @@ export function start({
         case "spawn":
           newWorker(data.name, {
             type: "task",
+            cpu: data.cpu,
             task: data.task,
             vmlinux,
             memory,

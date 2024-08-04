@@ -4,6 +4,7 @@
 struct pt_regs {
 	int (*fn)(void*);
 	void* fn_arg;
+	struct task_struct* prev;
 };
 
 struct sigcontext {
