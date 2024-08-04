@@ -150,7 +150,7 @@ self.onmessage = ({ data }: MessageEvent<ToWorkerMessage>) => {
         instance.exports.boot();
         break;
       case "task":
-        instance.exports.task(data.task, data.cpu);
+        instance.exports.task(data.cpu, data.task);
         break;
       case "secondary":
         instance.exports.secondary(data.cpu, data.idle);
