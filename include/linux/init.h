@@ -132,7 +132,7 @@ static inline initcall_t initcall_from_entry(initcall_entry_t *entry)
 }
 #endif
 
-extern initcall_entry_t __con_initcall_start[], __con_initcall_end[];
+extern initcall_entry_t *__con_initcall_start, *__con_initcall_end;
 
 /* Used for constructor calls. */
 typedef void (*ctor_fn_t)(void);

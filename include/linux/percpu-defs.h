@@ -222,13 +222,19 @@ do {									\
 
 #if defined(CONFIG_SMP)
 
+#ifndef arch_remap_percpu_ptr
+#define arch_remap_percpu_ptr(ptr) (ptr)
+#endif
+
 /*
  * Add an offset to a pointer but keep the pointer as-is.  Use RELOC_HIDE()
  * to prevent the compiler from making incorrect assumptions about the
  * pointer value.  The weird cast keeps both GCC and sparse happy.
  */
-#define SHIFT_PERCPU_PTR(__p, __offset)					\
-	RELOC_HIDE((typeof(*(__p)) __kernel __force *)(__p), (__offset))
+#define SHIFT_PERCPU_PTR(__p, __offset)                                       \
+	RELOC_HIDE(                                                           \
+		(typeof(*(__p)) __kernel __force *)(arch_remap_percpu_ptr(__p)), \
+		(__offset))
 
 #ifndef per_cpu_ptr
 #define per_cpu_ptr(ptr, cpu)						\
