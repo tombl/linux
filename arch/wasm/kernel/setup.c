@@ -22,7 +22,7 @@ __attribute__((export_name("boot"))) void __init _start(void)
 	int node;
 
 	set_current_cpu(0);
-	current_tasks[0] = &init_task;
+	set_current_task(&init_task);
 	
 	memblock_reserve(0, (phys_addr_t)&__heap_base);
 

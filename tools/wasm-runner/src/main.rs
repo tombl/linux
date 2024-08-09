@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use anyhow::Result;
 use clap::Parser;
 use rand::Rng;
+use std::collections::HashMap;
 use std::{
     arch::asm,
     fs::File,
@@ -235,6 +235,9 @@ fn create_devicetree(cmdline: &str, sections: &Sections, memory_pages: u32) -> R
     rand::thread_rng().fill(&mut rng_seed);
 
     let root = fdt.begin_node("root")?;
+
+    fdt.property_u32("#address-cells", 1)?;
+    fdt.property_u32("#size-cells", 1)?;
 
     let chosen = fdt.begin_node("chosen")?;
     fdt.property_array_u64("rng-seed", &rng_seed)?;

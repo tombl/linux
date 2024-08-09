@@ -26,8 +26,8 @@ import("get_now_nsec") unsigned long long wasm_get_now_nsec(void);
 import("get_stacktrace") void wasm_get_stacktrace(char *buf, size_t size);
 
 struct task_struct;
-import("new_worker") void wasm_new_worker(int cpu, struct task_struct *task,
-					  char *comm, size_t comm_len);
+import("new_worker") void wasm_new_worker(struct task_struct *task, char *comm,
+					  size_t comm_len);
 
 import("bringup_secondary") void wasm_bringup_secondary(int cpu, struct task_struct *idle);
 

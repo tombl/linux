@@ -9837,8 +9837,6 @@ void __init sched_init(void)
 	 * but because we are the idle thread, we just pick up running again
 	 * when this runqueue becomes "idle".
 	 */
-	early_printk("init idle: %p %s %d\n", current, current->comm,
-		     smp_processor_id());
 	init_idle(current, smp_processor_id());
 
 	calc_load_update = jiffies + LOAD_FREQ;

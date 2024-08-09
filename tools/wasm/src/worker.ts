@@ -10,7 +10,7 @@ export type ToWorkerMessage =
   }
   & (
     | { type: "boot"; devicetree: Uint8Array }
-    | { type: "task"; cpu: number; task: number }
+    | { type: "task"; task: number }
     | { type: "secondary"; cpu: number; idle: number }
   );
 
@@ -18,14 +18,14 @@ export type FromWorkerMessage =
   | { type: "boot-console-write"; message: Uint8Array }
   | { type: "boot-console-close" }
   | { type: "restart" }
-  | { type: "spawn"; cpu: number; task: number; name: string }
+  | { type: "spawn"; task: number; name: string }
   | { type: "error"; error: Error }
   | { type: "bringup-secondary"; cpu: number; idle: number };
 
 interface Instance {
   exports: {
     boot(): void;
-    task(cpu: number, task: number): void;
+    task(task: number): void;
     secondary(cpu: number, idle: number): void;
   };
 }
@@ -127,11 +127,11 @@ self.onmessage = ({ data }: MessageEvent<ToWorkerMessage>) => {
           memory.set(trace.slice(0, size), buf);
         },
 
-        new_worker(cpu: number, task: number, comm: number, commLen: number) {
+        new_worker(task: number, comm: number, commLen: number) {
           const name = new TextDecoder().decode(
             memory.slice(comm, comm + commLen),
           );
-          postMessage({ type: "spawn", cpu, task, name });
+          postMessage({ type: "spawn", task, name });
         },
 
         bringup_secondary(cpu: number, idle: number) {
@@ -150,7 +150,7 @@ self.onmessage = ({ data }: MessageEvent<ToWorkerMessage>) => {
         instance.exports.boot();
         break;
       case "task":
-        instance.exports.task(data.cpu, data.task);
+        instance.exports.task(data.task);
         break;
       case "secondary":
         instance.exports.secondary(data.cpu, data.idle);

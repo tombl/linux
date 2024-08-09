@@ -3470,8 +3470,6 @@ static int init_worker_pool(struct worker_pool *pool)
 	INIT_LIST_HEAD(&pool->idle_list);
 	hash_init(pool->busy_hash);
 
-	pr_info("init_worker_pool(%p)\n", pool);
-
 	timer_setup(&pool->idle_timer, idle_worker_timeout, TIMER_DEFERRABLE);
 
 	timer_setup(&pool->mayday_timer, pool_mayday_timeout, 0);
@@ -6072,7 +6070,6 @@ void __init workqueue_init_early(void)
 	system_freezable_power_efficient_wq = alloc_workqueue("events_freezable_power_efficient",
 					      WQ_FREEZABLE | WQ_POWER_EFFICIENT,
 					      0);
-	early_printk("freezable wq: %p\n", system_freezable_power_efficient_wq );
 	BUG_ON(!system_wq || !system_highpri_wq || !system_long_wq ||
 	       !system_unbound_wq || !system_freezable_wq ||
 	       !system_power_efficient_wq ||

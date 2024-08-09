@@ -18,7 +18,7 @@ static void noinline_for_stack start_secondary_inner(int cpu,
 						     struct task_struct *idle)
 {
 	set_current_cpu(cpu);
-	current_tasks[raw_smp_processor_id()] = idle;
+	set_current_task(idle);
 
 	BUG_ON(cpu_online(cpu));
 	set_cpu_online(cpu, true);
