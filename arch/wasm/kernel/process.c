@@ -64,7 +64,6 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 
 	childregs->fn = args->fn;
 	childregs->fn_arg = args->fn_arg;
-	childregs->prev = current;
 
 	pr_info("spawning task=%p %s %d\n", p, p->comm, *(int *)p->sched_class);
 	wasm_new_worker(raw_smp_processor_id(), p, p->comm, strnlen(p->comm, TASK_COMM_LEN));
@@ -77,9 +76,9 @@ static void noinline_for_stack start_task_inner(int cpu,
 {
 	struct thread_info *info = task_thread_info(task);
 	struct pt_regs *regs = task_pt_regs(task);
+	struct task_struct *prev;
 
 	set_current_cpu(cpu);
-	set_current_task(task);
 
 	early_printk("                       waiting cpu=%i task=%p in entry\n",
 		     atomic_read(&info->running_cpu), task);
@@ -88,6 +87,8 @@ static void noinline_for_stack start_task_inner(int cpu,
 	__builtin_wasm_memory_atomic_wait32(&info->running_cpu.counter,
 					    /* block if the value is: */ -1,
 					    /* timeout: */ -1);
+	prev = current;
+	current_tasks[raw_smp_processor_id()] = task;
 
 	cpu = atomic_read(&info->running_cpu);
 
@@ -95,9 +96,8 @@ static void noinline_for_stack start_task_inner(int cpu,
 		"                       woke up cpu=%i task=%p kcpu=%i in entry\n",
 		cpu, task, info->cpu);
 
-	pr_info("schedule_tail(%p %d %s)\n", regs->prev, regs->prev->pid,
-		regs->prev->comm);
-	schedule_tail(regs->prev);
+	pr_info("schedule_tail(%p %d %s)\n", prev, prev->pid, prev->comm);
+	schedule_tail(prev);
 
 	pr_info("fn %p(%p)\n", regs->fn, regs->fn_arg);
 	// callback returns only if the kernel thread execs a process
