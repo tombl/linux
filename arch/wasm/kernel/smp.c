@@ -8,7 +8,6 @@
 int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
 	task_thread_info(idle)->cpu = cpu;
-	BUG();
 	wasm_bringup_secondary(cpu, idle);
 	while (!cpu_online(cpu)) cpu_relax();
 	return 0;
