@@ -1453,7 +1453,7 @@ static void __init do_pre_smp_initcalls(void)
 	initcall_entry_t *fn;
 
 	trace_initcall_level("early");
-	for (fn = __initcallearly_start; fn < __initcallearly_start; fn++)
+	for (fn = __initcallearly_start; fn < __initcallearly_end; fn++)
 		do_one_initcall(initcall_from_entry(fn));
 }
 
