@@ -3377,11 +3377,9 @@ out_free_ar:
 unsigned long __per_cpu_offset[NR_CPUS] __read_mostly;
 EXPORT_SYMBOL(__per_cpu_offset);
 
-DEFINE_PER_CPU(int, foo) = 0xdeadbeef;
-
 void __init setup_per_cpu_areas(void)
 {
-	ptrdiff_t delta;
+	unsigned int delta;
 	unsigned int cpu;
 	int rc;
 
@@ -3394,13 +3392,9 @@ void __init setup_per_cpu_areas(void)
 	if (rc < 0)
 		panic("Failed to initialize percpu areas.");
 
-	delta = (ptrdiff_t)pcpu_base_addr - (long)__per_cpu_start;
-	early_printk("%p - %p = %lx\n", pcpu_base_addr, __per_cpu_start, delta);
-	for_each_possible_cpu(cpu) {
-		__per_cpu_offset[cpu] = delta + (ptrdiff_t)pcpu_unit_offsets[cpu];
-		early_printk("cpu:%d\toffset:%ld\trel:%ld\texample:%p\n", cpu, pcpu_unit_offsets[cpu], __per_cpu_offset[cpu], &foo + __per_cpu_offset[cpu]);
-	}
-	early_printk("foo = %p -> %p\n", &foo, per_cpu_ptr(&foo, 0));
+	delta = (unsigned long)pcpu_base_addr - (unsigned long)__per_cpu_start;
+	for_each_possible_cpu(cpu)
+		__per_cpu_offset[cpu] = delta + pcpu_unit_offsets[cpu];
 }
 #endif	/* CONFIG_HAVE_SETUP_PER_CPU_AREA */
 
