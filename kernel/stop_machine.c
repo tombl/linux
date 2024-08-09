@@ -556,6 +556,7 @@ void stop_machine_unpark(int cpu)
 }
 
 static struct smp_hotplug_thread cpu_stop_threads = {
+	.store                  = &cpu_stopper.thread,
 	.thread_should_run	= cpu_stop_should_run,
 	.thread_fn		= cpu_stopper_thread,
 	.thread_comm		= "migration/%u",
@@ -567,7 +568,6 @@ static struct smp_hotplug_thread cpu_stop_threads = {
 static int __init cpu_stop_init(void)
 {
 	unsigned int cpu;
-	cpu_stop_threads.store = &cpu_stopper.thread;
 
 	for_each_possible_cpu(cpu) {
 		struct cpu_stopper *stopper = &per_cpu(cpu_stopper, cpu);

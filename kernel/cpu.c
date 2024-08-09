@@ -906,6 +906,7 @@ static int cpuhp_kick_ap_work(unsigned int cpu)
 }
 
 static struct smp_hotplug_thread cpuhp_threads = {
+	.store                  = &cpuhp_state.thread,
 	.thread_should_run	= cpuhp_should_run,
 	.thread_fn		= cpuhp_thread_fun,
 	.thread_comm		= "cpuhp/%u",
@@ -926,7 +927,6 @@ static __init void cpuhp_init_state(void)
 
 void __init cpuhp_threads_init(void)
 {
-	cpuhp_threads.store = &cpuhp_state.thread;
 	cpuhp_init_state();
 	BUG_ON(smpboot_register_percpu_thread(&cpuhp_threads));
 	kthread_unpark(this_cpu_read(cpuhp_state.thread));
@@ -2742,7 +2742,6 @@ void __init boot_cpu_init(void)
  */
 void __init boot_cpu_hotplug_init(void)
 {
-	pr_info("state: %p\n", this_cpu_ptr(&cpuhp_state.state));
 #ifdef CONFIG_SMP
 	cpumask_set_cpu(smp_processor_id(), &cpus_booted_once_mask);
 #endif

@@ -8,7 +8,6 @@
 int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
 	task_thread_info(idle)->cpu = cpu;
-	BUG();
 	wasm_bringup_secondary(cpu, idle);
 	while (!cpu_online(cpu)) cpu_relax();
 	return 0;
@@ -19,11 +18,10 @@ static void noinline_for_stack start_secondary_inner(int cpu,
 {
 	set_current_cpu(cpu);
 	set_current_task(idle);
+	atomic_set(&current_thread_info()->running_cpu, cpu);
 
 	BUG_ON(cpu_online(cpu));
 	set_cpu_online(cpu, true);
-
-	early_printk("== BRINGUP SECONDARY CPU %d ==\n", cpu);
 
 	mmgrab(&init_mm);
 	current->active_mm = &init_mm;
@@ -32,7 +30,7 @@ static void noinline_for_stack start_secondary_inner(int cpu,
 
 	notify_cpu_starting(cpu);
 
-	pr_info("init %i\n", task_thread_info(idle)->cpu);
+	pr_info("Hello from cpu %i!\n", raw_smp_processor_id());
 
 	cpu_startup_entry(CPUHP_AP_ONLINE_IDLE);
 }
@@ -66,7 +64,6 @@ static void send_ipi_message(const struct cpumask *to_whom,
 /* Called early in main to prepare the boot cpu */
 void __init smp_prepare_boot_cpu(void)
 {
-	current_thread_info()->cpu = 0;
 }
 
 /* Called in main to prepare secondary cpus */
@@ -78,8 +75,6 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 void smp_send_stop(void)
 {
 	cpumask_t to_whom;
-	wasm_halt();
-	BUG();
 	cpumask_copy(&to_whom, cpu_online_mask);
 	cpumask_clear_cpu(smp_processor_id(), &to_whom);
 	send_ipi_message(&to_whom, IPI_CPU_STOP);
@@ -87,7 +82,6 @@ void smp_send_stop(void)
 
 void smp_send_reschedule(int cpu)
 {
-	BUG();
 	send_ipi_message(cpumask_of(cpu), IPI_RESCHEDULE);
 }
 
@@ -103,7 +97,7 @@ void arch_send_call_function_ipi_mask(const struct cpumask *mask)
 
 void arch_send_call_function_single_ipi(int cpu)
 {
-	BUG();
+	pr_warn("UNIMPLEMENTED: send_call_function_single_ipi(%i)\n", cpu);
 }
 
 void smp_cpus_done(unsigned int max_cpus)
