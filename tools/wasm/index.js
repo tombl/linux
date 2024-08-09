@@ -11,6 +11,9 @@ const machine = start({
   vmlinux: await WebAssembly.compile(
     await readFile(`${import.meta.dirname}/vmlinux.wasm`),
   ),
+  sections: JSON.parse(
+    await readFile(`${import.meta.dirname}/sections.json`, "utf8"),
+  ),
 });
 
 machine.bootConsole.pipeTo(Writable.toWeb(process.stdout));

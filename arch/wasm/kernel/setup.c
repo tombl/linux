@@ -1,6 +1,8 @@
 #include <asm/bug.h>
+#include <asm/sections.h>
 #include <asm/setup.h>
 #include <asm/sysmem.h>
+#include <linux/libfdt.h>
 #include <linux/memblock.h>
 #include <linux/of_fdt.h>
 #include <linux/percpu.h>
@@ -8,44 +10,33 @@
 #include <linux/screen_info.h>
 #include <linux/start_kernel.h>
 
-unsigned long init_stack[THREAD_SIZE / sizeof(unsigned long)] = { 0 };
-unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)] = { 0 };
-
-char __init_begin[0], __init_end[0], __stop___ex_table, __start___ex_table,
-	__start___ex_table, __stop___ex_table, __start___ex_table,
-	__stop___ex_table, __start___ex_table, __start___ex_table,
-	__stop___ex_table, __start___ex_table, __sched_text_start,
-	__sched_text_end, __cpuidle_text_start, __cpuidle_text_end,
-	__lock_text_start, __lock_text_end, __reservedmem_of_table,
-	__reservedmem_of_table;
-
-struct screen_info screen_info = {};
-
-// https://github.com/llvm/llvm-project/blob/d2e4a725da5b4cbef8b5c1446f29fed1487aeab0/lld/wasm/Symbols.h#L515
-void __init __wasm_call_ctors(void);
-extern void __stack_low;
-extern void __stack_high;
-extern void __heap_base;
-extern void __heap_end;
-
+void __wasm_call_ctors(void);
 int __init setup_early_printk(char *buf);
+void init_sections(unsigned long node);
+extern void *__start___param, *__stop___param;
+extern void *__setup_start, *__setup_end;
 
 __attribute__((export_name("boot"))) void __init _start(void)
 {
 	static char wasm_dt[1024];
-	wasm_get_dt(wasm_dt, ARRAY_SIZE(wasm_dt));
+	int node;
 
-	early_init_dt_scan(wasm_dt);
-	early_init_fdt_scan_reserved_mem();
-
+	set_current_cpu(0);
+	set_current_task(&init_task);
+	
 	memblock_reserve(0, (phys_addr_t)&__heap_base);
 
-#ifdef CONFIG_SMP
-	early_tls_init();
-#endif
-	__wasm_call_ctors();
+	wasm_get_dt(wasm_dt, ARRAY_SIZE(wasm_dt));
+	BUG_ON(!early_init_dt_scan(wasm_dt));
+	early_init_fdt_scan_reserved_mem();
+
+	node = fdt_path_offset(wasm_dt, "/data-sections");
+	if (node < 0)
+		__builtin_trap();
 
 	setup_early_printk(NULL);
+	__wasm_call_ctors();
+	init_sections(node);
 
 	for (int i = 0; i < NR_CPUS; i++) {
 		set_cpu_possible(i, true);
@@ -71,7 +62,7 @@ void __init setup_arch(char **cmdline_p)
 	BUG_ON(THREAD_SIZE <
 	       (&__stack_high - &__stack_low) + sizeof(struct task_struct));
 
-	unflatten_device_tree();
+	unflatten_and_copy_device_tree();
 
 	memblock_dump_all();
 

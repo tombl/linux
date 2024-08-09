@@ -338,6 +338,8 @@ static int kthread(void *_create)
 	struct kthread *self;
 	int ret;
 
+	early_printk("spawned kthread: %p %p(%p)\n", create, threadfn, data);
+
 	self = to_kthread(current);
 
 	/* Release the structure when caller killed by a fatal signal. */
@@ -427,6 +429,8 @@ struct task_struct *__kthread_create_on_node(int (*threadfn)(void *data),
 	create->data = data;
 	create->node = node;
 	create->done = &done;
+
+	early_printk("creating kthread: %p = %p(%p)\n", create, threadfn, data);
 
 	spin_lock(&kthread_create_lock);
 	list_add_tail(&create->list, &kthread_create_list);
@@ -743,6 +747,7 @@ int kthreadd(void *unused)
 			list_del_init(&create->list);
 			spin_unlock(&kthread_create_lock);
 
+			early_printk("spawning kthread: %p = %p(%p)\n", create, create->threadfn ,create->data);
 			create_kthread(create);
 
 			spin_lock(&kthread_create_lock);

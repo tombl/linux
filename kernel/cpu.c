@@ -3,6 +3,7 @@
  *
  * This code is licenced under the GPL.
  */
+#include "asm/wasm_imports.h"
 #include <linux/sched/mm.h>
 #include <linux/proc_fs.h>
 #include <linux/smp.h>
@@ -2741,6 +2742,7 @@ void __init boot_cpu_init(void)
  */
 void __init boot_cpu_hotplug_init(void)
 {
+	pr_info("state: %p\n", this_cpu_ptr(&cpuhp_state.state));
 #ifdef CONFIG_SMP
 	cpumask_set_cpu(smp_processor_id(), &cpus_booted_once_mask);
 #endif

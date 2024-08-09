@@ -18,8 +18,6 @@
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-#define will_define___param_console_suspend
-#define will_define___param_console_no_auto_verbose
 
 #include <linux/kernel.h>
 #include <linux/mm.h>
@@ -27,7 +25,6 @@
 #include <linux/tty_driver.h>
 #include <linux/console.h>
 #include <linux/init.h>
-#include <linux/initcalls.h>
 #include <linux/jiffies.h>
 #include <linux/nmi.h>
 #include <linux/module.h>
@@ -3293,6 +3290,9 @@ EXPORT_SYMBOL(unregister_console);
  */
 void __init console_init(void)
 {
+	int ret;
+	initcall_t call;
+	initcall_entry_t *ce;
 
 	/* Setup the default TTY line discipline. */
 	n_tty_init();
@@ -3301,17 +3301,15 @@ void __init console_init(void)
 	 * set up the console device so that later boot sequences can
 	 * inform about problems etc..
 	 */
+	ce = __con_initcall_start;
 	trace_initcall_level("console");
-#define X(ce)                                               \
-	do {                                                \
-		int ret;                                    \
-		initcall_t call = initcall_from_entry(&ce); \
-		trace_initcall_start(call);                 \
-		ret = call();                               \
-		trace_initcall_finish(call, ret);           \
-	} while (0);
-	enumerate_initcallconsole(X)
-#undef X
+	while (ce < __con_initcall_end) {
+		call = initcall_from_entry(ce);
+		trace_initcall_start(call);
+		ret = call();
+		trace_initcall_finish(call, ret);
+		ce++;
+	}
 }
 
 /*

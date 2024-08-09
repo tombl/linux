@@ -6,8 +6,6 @@
 #include <linux/sched/task_stack.h>
 #include <linux/sched/task.h>
 
-_Thread_local struct task_struct *current = &init_task;
-
 // TODO(wasm): replace __builtin_wasm_memory_atomic with completion?
 
 // noinline for debugging purposes
@@ -16,6 +14,7 @@ struct task_struct *noinline __switch_to(struct task_struct *from,
 {
 	struct thread_info *from_info = task_thread_info(from);
 	struct thread_info *to_info = task_thread_info(to);
+	struct task_struct *prev;
 	int cpu, other_cpu;
 
 	cpu = atomic_xchg(&from_info->running_cpu, -1);
@@ -45,12 +44,15 @@ struct task_struct *noinline __switch_to(struct task_struct *from,
 	__builtin_wasm_memory_atomic_wait32(&from_info->running_cpu.counter,
 					    /* block if the value is: */ -1,
 					    /* timeout: */ -1);
+	cpu = atomic_read(&from_info->running_cpu);
+	BUG_ON(cpu < 0); // we should be given a new cpu
+	set_current_cpu(cpu);
+	prev = get_current_task_on(cpu);
+	set_current_task(current);
 
 	// pr_info("woke up cpu=%i task=%p in switch\n", cpu, from);
 
-	BUG_ON(cpu < 0); // we should be given a new cpu
-
-	return current;
+	return prev;
 }
 
 int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
@@ -76,9 +78,8 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 static void noinline_for_stack start_task_inner(struct task_struct *task)
 {
 	struct thread_info *info = task_thread_info(task);
-	struct task_struct *prev;
 	struct pt_regs *regs = task_pt_regs(task);
-	int cpu;
+	struct task_struct *prev;
 
 	early_printk("                       waiting cpu=%i task=%p in entry\n",
 		     atomic_read(&info->running_cpu), task);
@@ -88,22 +89,18 @@ static void noinline_for_stack start_task_inner(struct task_struct *task)
 					    /* block if the value is: */ -1,
 					    /* timeout: */ -1);
 
-	cpu = atomic_read(&info->running_cpu);
+	set_current_cpu(atomic_read(&info->running_cpu));
+	BUG_ON(raw_smp_processor_id() < 0);
+
+	prev = get_current_task_on(raw_smp_processor_id());
+	set_current_task(task);
 
 	early_printk(
-		"                       woke up cpu=%i task=%p kcpu=%i in entry\n",
-		cpu, task, info->cpu);
+		"                       woke up cpu=%i task=%p prev=%p kcpu=%i in entry\n",
+		raw_smp_processor_id(), task, prev, info->cpu);
 
-	smp_tls_init(cpu, false);
-	// As a thread local variable, all uses of current should be below tls init:
-	prev = current;
-	current = task;
-
-	if (prev) {
-		pr_info("schedule_tail(%p %d %s)\n", prev, prev->pid,
-			prev->comm);
-		schedule_tail(prev);
-	}
+	pr_info("schedule_tail(%p %d %s)\n", prev, prev->pid, prev->comm);
+	schedule_tail(prev);
 
 	pr_info("fn %p(%p)\n", regs->fn, regs->fn_arg);
 	// callback returns only if the kernel thread execs a process
