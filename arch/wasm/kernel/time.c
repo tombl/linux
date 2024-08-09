@@ -21,7 +21,7 @@ void __delay(unsigned long cycles)
 
 void cpu_relax(void)
 {
-	__delay(100);
+	__delay(10 * 1000 * 1000); // 10ms
 }
 
 void __udelay(unsigned long usecs)
