@@ -25,7 +25,6 @@
  * Please read Documentation/core-api/workqueue.rst for details.
  */
 
-#include "asm/sections.h"
 #include <linux/export.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
@@ -907,10 +906,6 @@ void wq_worker_sleeping(struct task_struct *task)
 		return;
 
 	pool = worker->pool;
-	pr_info("pool=%p task=%p %s %p %s %i cpu=%i idle=%i\n", pool, task,
-		     task->comm, current, current->comm, task->pid, pool->cpu,
-		     pool->nr_idle);
-	BUG_ON((void *)pool < &__heap_base || pool->cpu > 10 || pool->cpu < 0);
 
 	/* Return if preempted before wq_worker_running() was reached */
 	if (worker->sleeping)
@@ -1183,7 +1178,6 @@ static void pwq_activate_first_inactive(struct pool_workqueue *pwq)
 	struct work_struct *work = list_first_entry(&pwq->inactive_works,
 						    struct work_struct, entry);
 
-	early_printk("pwq_activate_first_inactive %p %p\n", pwq, work);
 	pwq_activate_inactive_work(work);
 }
 

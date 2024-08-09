@@ -3,7 +3,6 @@
  *
  * This code is licenced under the GPL.
  */
-#include "asm/wasm_imports.h"
 #include <linux/sched/mm.h>
 #include <linux/proc_fs.h>
 #include <linux/smp.h>

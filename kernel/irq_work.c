@@ -301,6 +301,7 @@ static void irq_workd_setup(unsigned int cpu)
 }
 
 static struct smp_hotplug_thread irqwork_threads = {
+	.store			= &irq_workd,
 	.setup			= irq_workd_setup,
 	.thread_should_run      = irq_workd_should_run,
 	.thread_fn              = run_irq_workd,
@@ -309,7 +310,6 @@ static struct smp_hotplug_thread irqwork_threads = {
 
 static __init int irq_work_init_threads(void)
 {
-	irqwork_threads.store = &irq_workd;
 	if (IS_ENABLED(CONFIG_PREEMPT_RT))
 		BUG_ON(smpboot_register_percpu_thread(&irqwork_threads));
 	return 0;

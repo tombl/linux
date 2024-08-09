@@ -813,9 +813,6 @@ config NEED_PER_CPU_PAGE_FIRST_CHUNK
 config USE_PERCPU_NUMA_NODE_ID
 	bool
 
-config USE_PER_CPU_TLS
-	bool
-
 config HAVE_SETUP_PER_CPU_AREA
 	bool
 

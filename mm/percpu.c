@@ -2610,9 +2610,6 @@ void __init pcpu_setup_first_chunk(const struct pcpu_alloc_info *ai,
 	}								\
 } while (0)
 
-	pr_info("start:\t%p\n", __per_cpu_start);
-	pr_info("end:\t%p\n", __per_cpu_end);
-
 	/* sanity checks */
 	PCPU_SETUP_BUG_ON(ai->nr_groups <= 0);
 #ifdef CONFIG_SMP
@@ -3379,7 +3376,7 @@ EXPORT_SYMBOL(__per_cpu_offset);
 
 void __init setup_per_cpu_areas(void)
 {
-	unsigned int delta;
+	unsigned long delta;
 	unsigned int cpu;
 	int rc;
 

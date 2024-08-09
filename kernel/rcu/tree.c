@@ -2626,6 +2626,7 @@ static void rcu_cpu_kthread(unsigned int cpu)
 }
 
 static struct smp_hotplug_thread rcu_cpu_thread_spec = {
+	.store			= &rcu_data.rcu_cpu_kthread_task,
 	.thread_should_run	= rcu_cpu_kthread_should_run,
 	.thread_fn		= rcu_cpu_kthread,
 	.thread_comm		= "rcuc/%u",
@@ -2639,7 +2640,6 @@ static struct smp_hotplug_thread rcu_cpu_thread_spec = {
 static int __init rcu_spawn_core_kthreads(void)
 {
 	int cpu;
-	rcu_cpu_thread_spec.store = &rcu_data.rcu_cpu_kthread_task;
 
 	for_each_possible_cpu(cpu)
 		per_cpu(rcu_data.rcu_cpu_has_work, cpu) = 0;
