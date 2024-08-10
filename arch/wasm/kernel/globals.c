@@ -1,12 +1,13 @@
 #include <asm/smp.h>
 #include <asm/page.h>
 #include <asm/thread_info.h>
+#include <linux/cache.h>
 #include <linux/screen_info.h>
 
 unsigned long init_stack[THREAD_SIZE / sizeof(unsigned long)] = { 0 };
 unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)] = { 0 };
 struct task_struct *current_tasks[NR_CPUS] = { 0 };
-unsigned long wasm_irqflags[NR_CPUS] = { 0 };
+struct __wasm_irqflag wasm_irqflags[NR_CPUS] __cacheline_aligned = { 0 };
 
 struct screen_info screen_info = {};
 

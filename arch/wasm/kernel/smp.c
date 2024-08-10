@@ -10,7 +10,8 @@ int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
 	task_thread_info(idle)->cpu = cpu;
 	wasm_bringup_secondary(cpu, idle);
-	while (!cpu_online(cpu)) cpu_relax();
+	while (!cpu_online(cpu))
+		cpu_relax();
 	return 0;
 }
 
@@ -50,6 +51,7 @@ static struct {
 enum ipi_message_type {
 	IPI_RESCHEDULE,
 	IPI_CPU_STOP,
+	IPI_CALL_FUNC,
 };
 
 static void send_ipi_message(const struct cpumask *to_whom,
@@ -77,7 +79,8 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 			set_cpu_present(i, true);
 }
 
-void __init smp_init_cpus(unsigned int ncpus) {
+void __init smp_init_cpus(unsigned int ncpus)
+{
 	pr_info("Core count: %d\n", ncpus);
 
 	if (ncpus > NR_CPUS) {
@@ -102,30 +105,21 @@ void smp_send_reschedule(int cpu)
 	send_ipi_message(cpumask_of(cpu), IPI_RESCHEDULE);
 }
 
-void arch_smp_send_reschedule(int cpu)
-{
-	BUG();
-}
-
 void arch_send_call_function_ipi_mask(const struct cpumask *mask)
 {
-	BUG();
+	send_ipi_message(mask, IPI_CALL_FUNC);
 }
 
 void arch_send_call_function_single_ipi(int cpu)
 {
-	pr_warn("UNIMPLEMENTED: send_call_function_single_ipi(%i)\n", cpu);
-	BUG();
+	send_ipi_message(cpumask_of(cpu), IPI_CALL_FUNC);
 }
 
-void smp_cpus_done(unsigned int max_cpus)
+void __init smp_cpus_done(unsigned int max_cpus)
 {
-	pr_info("smp_cpus_done(%d)\n", max_cpus);
+	pr_info("SMP: Total of %d processors activated\n", max_cpus);
 }
 
-/* called on enter interrupt
- * TODO(wasm): actually do the call
- */
 void handle_ipi(void)
 {
 	int this_cpu = smp_processor_id();
@@ -143,9 +137,19 @@ void handle_ipi(void)
 			which = __ffs(which);
 
 			switch (which) {
+			case IPI_RESCHEDULE:
+				scheduler_ipi();
+				break;
+
 			case IPI_CPU_STOP:
 				wasm_halt();
 				__builtin_trap();
+				break;
+
+			case IPI_CALL_FUNC:
+				generic_smp_call_function_interrupt();
+				break;
+
 			default:
 				printk(KERN_CRIT "Unknown IPI on CPU %d: %lu\n",
 				       this_cpu, which);
@@ -155,4 +159,10 @@ void handle_ipi(void)
 
 		mb(); /* Order data access and bit testing. */
 	}
+}
+
+void cpu_relax(void)
+{
+	handle_ipi();
+	__delay(10 * 1000 * 1000); // 10ms
 }
