@@ -2,8 +2,8 @@
 #define _WASM_SIGCONTEXT_H
 
 struct pt_regs {
-	int (*fn)(void*);
-	void* fn_arg;
+	long syscall_nr;
+	unsigned long syscall_args[6];
 };
 
 struct sigcontext {

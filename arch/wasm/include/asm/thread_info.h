@@ -1,6 +1,7 @@
 #ifndef _WASM_THREAD_INFO_H
 #define _WASM_THREAD_INFO_H
 
+#include <asm/page.h>
 #include <linux/types.h>
 
 /* THREAD_SIZE is the size of the task_struct + kernel stack
@@ -12,6 +13,7 @@
 
 struct thread_info {
 	unsigned long flags;
+	unsigned long syscall_work;	/* SYSCALL_WORK_ flags */
 	int preempt_count;
 	int cpu; // this is for the kernel
 	atomic_t running_cpu; // negative means unscheduled

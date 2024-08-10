@@ -17,6 +17,7 @@ my %keep = map { $_ => 1 } qw(
     __param
     .con_initcall.init
     .init.setup
+    .data.once
 
     .data..percpu..first
     .data..percpu..page_aligned
@@ -53,7 +54,7 @@ while (<>) {
 
         my $name = $1;
         if (!$keep{$name}) {
-            warn "skipping $name\n";
+            # warn "skipping $name\n";
             next;
         }
 

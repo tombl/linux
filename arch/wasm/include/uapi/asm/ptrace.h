@@ -24,4 +24,13 @@ static inline void ptrace_disable(struct task_struct *child)
 	BUG();
 }
 
+static inline int regs_irqs_disabled(struct pt_regs *regs)
+{
+	BUG();
+	// return arch_irqs_disabled_flags(regs->SOMETHING);
+}
+
+#define PTRACE_SYSEMU		  31
+#define PTRACE_SYSEMU_SINGLESTEP  32
+
 #endif

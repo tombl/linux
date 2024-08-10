@@ -4,6 +4,7 @@
 #include <linux/cpu.h>
 #include <linux/of_fdt.h>
 #include <linux/sched.h>
+#include <asm/delay.h>
 
 int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
@@ -64,12 +65,28 @@ static void send_ipi_message(const struct cpumask *to_whom,
 /* Called early in main to prepare the boot cpu */
 void __init smp_prepare_boot_cpu(void)
 {
+	BUG_ON(smp_processor_id() != 0);
 }
 
 /* Called in main to prepare secondary cpus */
 void __init smp_prepare_cpus(unsigned int max_cpus)
 {
-	memset(ipi_data, 0, sizeof(ipi_data));
+	unsigned int i;
+	for_each_possible_cpu(i)
+		if (i < max_cpus)
+			set_cpu_present(i, true);
+}
+
+void __init smp_init_cpus(unsigned int ncpus) {
+	pr_info("Core count: %d\n", ncpus);
+
+	if (ncpus > NR_CPUS) {
+		ncpus = NR_CPUS;
+		pr_info("Limiting core count to maximum: %d\n", ncpus);
+	}
+
+	for (int i = 0; i < ncpus; i++)
+		set_cpu_possible(i, true);
 }
 
 void smp_send_stop(void)
@@ -98,17 +115,18 @@ void arch_send_call_function_ipi_mask(const struct cpumask *mask)
 void arch_send_call_function_single_ipi(int cpu)
 {
 	pr_warn("UNIMPLEMENTED: send_call_function_single_ipi(%i)\n", cpu);
+	BUG();
 }
 
 void smp_cpus_done(unsigned int max_cpus)
 {
-	BUG();
+	pr_info("smp_cpus_done(%d)\n", max_cpus);
 }
 
 /* called on enter interrupt
  * TODO(wasm): actually do the call
  */
-void handle_ipi(struct pt_regs *regs)
+void handle_ipi(void)
 {
 	int this_cpu = smp_processor_id();
 	unsigned long *pending_ipis = &ipi_data[this_cpu].bits;

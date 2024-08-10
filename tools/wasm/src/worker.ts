@@ -48,7 +48,6 @@ self.onmessage = ({ data }: MessageEvent<ToWorkerMessage>) => {
   try {
     const memory = new Uint8Array(data.memory.buffer);
 
-    let irqflags = 0;
     const imports = {
       env: { memory: data.memory },
       kernel: {
@@ -83,12 +82,6 @@ self.onmessage = ({ data }: MessageEvent<ToWorkerMessage>) => {
         //   return parseInt(match?.[1] ?? "-1");
         // },
 
-        set_irq_enabled(flags: number) {
-          irqflags = flags;
-        },
-        get_irq_enabled() {
-          return irqflags;
-        },
         get_dt(buf: number, size: number) {
           assert(data.type === "boot", "get_dt called on non-boot thread");
           assert(

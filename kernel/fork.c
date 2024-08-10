@@ -2585,6 +2585,7 @@ static inline void init_idle_pids(struct task_struct *idle)
 static int idle_dummy(void *dummy)
 {
 	/* This function is never called */
+	BUG();
 	return 0;
 }
 

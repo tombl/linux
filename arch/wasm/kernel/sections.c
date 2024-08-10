@@ -33,6 +33,7 @@ void *__con_initcall_start, *__con_initcall_end;
 void *__start___param, *__stop___param;
 void *__per_cpu_load, *__per_cpu_start, *__per_cpu_end;
 void *__setup_start, *__setup_end;
+void *__start_once, *__end_once;
 
 struct section {
 	void *start, *end;
@@ -55,7 +56,7 @@ void* __percpu_section_remap(void *addr) {
 	return addr;
 }
 
-void init_sections(unsigned long node)
+void __init init_sections(unsigned long node)
 {
 	const __be32 *prop;
 	u64 base, _, percpu_total_size;
@@ -99,6 +100,7 @@ void init_sections(unsigned long node)
 	SECTION("__param",		__start___param,	_,	__stop___param);
 	SECTION(".con_initcall.init",	__con_initcall_start,	_,	__con_initcall_start);
 	SECTION(".init.setup",		__setup_start,		_,	__setup_end);
+	SECTION(".data.once",		__start_once,		_,	__end_once);
 
 	SECTION_STRUCT(".data..percpu..first",		percpu_first);
 	SECTION_STRUCT(".data..percpu..page_aligned",	percpu_page_aligned);

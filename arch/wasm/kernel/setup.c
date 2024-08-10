@@ -4,6 +4,7 @@
 #include <asm/sysmem.h>
 #include <linux/libfdt.h>
 #include <linux/memblock.h>
+#include <linux/of.h>
 #include <linux/of_fdt.h>
 #include <linux/percpu.h>
 #include <linux/sched.h>
@@ -12,9 +13,8 @@
 
 void __wasm_call_ctors(void);
 int __init setup_early_printk(char *buf);
-void init_sections(unsigned long node);
-extern void *__start___param, *__stop___param;
-extern void *__setup_start, *__setup_end;
+void __init smp_init_cpus(unsigned int ncpus);
+void __init init_sections(unsigned long node);
 
 __attribute__((export_name("boot"))) void __init _start(void)
 {
@@ -38,17 +38,13 @@ __attribute__((export_name("boot"))) void __init _start(void)
 	__wasm_call_ctors();
 	init_sections(node);
 
-	for (int i = 0; i < NR_CPUS; i++) {
-		set_cpu_possible(i, true);
-		set_cpu_present(i, true);
-	}
-
 	start_kernel();
 }
 
 void __init setup_arch(char **cmdline_p)
 {
 	static char command_line[COMMAND_LINE_SIZE];
+	int ret, ncpus;
 	strscpy(command_line, boot_command_line, COMMAND_LINE_SIZE);
 	*cmdline_p = command_line;
 
@@ -63,6 +59,13 @@ void __init setup_arch(char **cmdline_p)
 	       (&__stack_high - &__stack_low) + sizeof(struct task_struct));
 
 	unflatten_and_copy_device_tree();
+
+	ret = of_property_read_u32(of_root, "ncpus", &ncpus);
+	if (ret) {
+		pr_warn("failed to read '/ncpus', defaulting to 1: %d\n", ret);
+		ncpus = 1;
+	}
+	smp_init_cpus(ncpus);
 
 	memblock_dump_all();
 

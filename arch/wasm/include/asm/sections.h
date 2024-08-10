@@ -9,6 +9,7 @@ extern void __stack_low, __stack_high;
 extern void __heap_base, __heap_end;
 
 extern void *__per_cpu_load, *__per_cpu_start, *__per_cpu_end;
+extern void *__start_once, *__end_once;
 
 static inline bool init_section_contains(void *virt, size_t size)
 {

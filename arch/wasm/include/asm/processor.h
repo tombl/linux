@@ -2,6 +2,9 @@
 #define _WASM_PROCESSOR_H
 
 #include <asm/bug.h>
+#include <asm/current.h>
+#include <asm/globals.h>
+#include <asm/thread_info.h>
 #include <asm/wasm_imports.h>
 
 struct task_struct;
@@ -48,5 +51,8 @@ struct thread_struct {};
 
 #define KSTK_EIP(tsk) (0)
 #define KSTK_ESP(tsk) (0)
+
+#define on_thread_stack() \
+	((unsigned long)(current->stack - get_stack_pointer()) < THREAD_SIZE)
 
 #endif

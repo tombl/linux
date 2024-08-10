@@ -40,7 +40,6 @@ struct Args {
 #[derive(Clone)]
 struct State {
     memory: SharedMemory,
-    irq: i32,
     devicetree: Vec<u8>,
     time_origin: Instant,
     instance_pre: Option<InstancePre<State>>,
@@ -94,16 +93,6 @@ fn add_imports(linker: &mut Linker<State>) -> Result<()> {
         println!("console closed");
     })?;
 
-    linker.func_wrap(
-        "kernel",
-        "set_irq_enabled",
-        |mut caller: Caller<'_, State>, enabled: i32| {
-            caller.data_mut().irq = enabled;
-        },
-    )?;
-    linker.func_wrap("kernel", "get_irq_enabled", |caller: Caller<'_, State>| {
-        caller.data().irq
-    })?;
     linker.func_wrap("kernel", "return_address", |_frames: i32| -1)?;
 
     linker.func_wrap(
@@ -238,6 +227,7 @@ fn create_devicetree(cmdline: &str, sections: &Sections, memory_pages: u32) -> R
 
     fdt.property_u32("#address-cells", 1)?;
     fdt.property_u32("#size-cells", 1)?;
+    fdt.property_u32("ncpus", num_cpus::get() as u32)?;
 
     let chosen = fdt.begin_node("chosen")?;
     fdt.property_array_u64("rng-seed", &rng_seed)?;
@@ -325,7 +315,6 @@ fn main() -> Result<()> {
         &engine,
         State {
             memory: memory.clone(),
-            irq: 0,
             devicetree: create_devicetree(&args.cmdline, &sections, args.memory)?,
             time_origin: Instant::now(),
             instance_pre: None,

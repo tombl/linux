@@ -67,18 +67,22 @@ static long syscall_trace_enter(struct pt_regs *regs, long syscall,
 			return -1L;
 	}
 
+#ifdef CONFIG_SECCOMP
 	/* Do seccomp after ptrace, to catch any tracer changes. */
 	if (work & SYSCALL_WORK_SECCOMP) {
 		ret = __secure_computing(NULL);
 		if (ret == -1L)
 			return ret;
 	}
+#endif
 
 	/* Either of the above might have changed the syscall number */
 	syscall = syscall_get_nr(current, regs);
 
+#ifdef CONFIG_HAVE_SYSCALL_TRACEPOINTS
 	if (unlikely(work & SYSCALL_WORK_SYSCALL_TRACEPOINT))
 		trace_sys_enter(regs, syscall);
+#endif
 
 	syscall_enter_audit(regs, syscall);
 
@@ -244,8 +248,10 @@ static void syscall_exit_work(struct pt_regs *regs, unsigned long work)
 
 	audit_syscall_exit(regs);
 
+#ifdef CONFIG_HAVE_SYSCALL_TRACEPOINTS
 	if (work & SYSCALL_WORK_SYSCALL_TRACEPOINT)
 		trace_sys_exit(regs, syscall_get_return_value(current, regs));
+#endif
 
 	step = report_single_step(work);
 	if (step || work & SYSCALL_WORK_SYSCALL_TRACE)

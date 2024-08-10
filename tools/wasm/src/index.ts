@@ -29,11 +29,13 @@ export function start({
   vmlinux,
   sections,
   memoryPages = 1024, // 64MiB
+  cpus = navigator.hardwareConcurrency,
 }: {
   cmdline: string;
   vmlinux: WebAssembly.Module;
   sections: Record<string, number[]>;
   memoryPages?: number;
+  cpus?: number;
 }) {
   const bootConsole = new TransformStream<Uint8Array, Uint8Array>();
   const bootConsoleWriter = bootConsole.writable.getWriter();
@@ -113,6 +115,7 @@ export function start({
   const devicetree = generateDevicetree({
     "#address-cells": 1,
     "#size-cells": 1,
+    ncpus: cpus,
     chosen: {
       "rng-seed": crypto.getRandomValues(new Uint8Array(64)),
       bootargs: cmdline,
