@@ -83,7 +83,7 @@
         term.write("Error: not cross origin isolated\n");
       }
 
-      const { cmdline = "no_hash_pointers", memory = 64 } = Object.fromEntries(
+      const { cmdline = "no_hash_pointers", memory = 128 } = Object.fromEntries(
         new URLSearchParams(location.search)
       );
       document.querySelector("input[name=cmdline]").value = cmdline;
