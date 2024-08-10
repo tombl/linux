@@ -10,10 +10,11 @@ watchrun:
 watchrunnode:
     watchexec -r -w tools/wasm/vmlinux.wasm -w tools/wasm/dist --ignore-nothing just runnode
 watchrunrust:
-    watchexec -r -w vmlinux --ignore-nothing just runrust
+    watchexec -r -w tools/wasm/vmlinux.wasm --ignore-nothing just runrust
 
 kernel:
     make -j{{j}} tools/wasm/vmlinux.wasm tools/wasm/sections.json
+    notify-send -t 1000 build
 js:
     make tools/wasm
 
@@ -23,7 +24,7 @@ runnode:
     tools/wasm/index.js
 runrust:
     cd tools/wasm-runner && cargo build --quiet --release
-    ./tools/wasm-runner/target/release/linux_wasm_runner vmlinux tools/wasm/sections.json
+    ./tools/wasm-runner/target/release/linux_wasm_runner tools/wasm/vmlinux.wasm tools/wasm/sections.json
 
 debug:
     cd tools/wasm-runner && cargo build --quiet
@@ -32,7 +33,7 @@ debug:
         -o 'breakpoint set --name wasm_get_dt --command "p __vmctx->set()"' \
         -o 'process launch' \
         -- \
-        ./tools/wasm-runner/target/debug/linux_wasm_runner vmlinux --debug
+        ./tools/wasm-runner/target/debug/linux_wasm_runner tools/wasm/vmlinux.wasm tools/wasm/sections.json --debug
 
 serve:
     miniserve tools/wasm/ --index index.html \

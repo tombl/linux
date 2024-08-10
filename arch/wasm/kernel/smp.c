@@ -4,12 +4,14 @@
 #include <linux/cpu.h>
 #include <linux/of_fdt.h>
 #include <linux/sched.h>
+#include <asm/delay.h>
 
 int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
 	task_thread_info(idle)->cpu = cpu;
 	wasm_bringup_secondary(cpu, idle);
-	while (!cpu_online(cpu)) cpu_relax();
+	while (!cpu_online(cpu))
+		cpu_relax();
 	return 0;
 }
 
@@ -49,6 +51,7 @@ static struct {
 enum ipi_message_type {
 	IPI_RESCHEDULE,
 	IPI_CPU_STOP,
+	IPI_CALL_FUNC,
 };
 
 static void send_ipi_message(const struct cpumask *to_whom,
@@ -64,12 +67,29 @@ static void send_ipi_message(const struct cpumask *to_whom,
 /* Called early in main to prepare the boot cpu */
 void __init smp_prepare_boot_cpu(void)
 {
+	BUG_ON(smp_processor_id() != 0);
 }
 
 /* Called in main to prepare secondary cpus */
 void __init smp_prepare_cpus(unsigned int max_cpus)
 {
-	memset(ipi_data, 0, sizeof(ipi_data));
+	unsigned int i;
+	for_each_possible_cpu(i)
+		if (i < max_cpus)
+			set_cpu_present(i, true);
+}
+
+void __init smp_init_cpus(unsigned int ncpus)
+{
+	pr_info("Core count: %d\n", ncpus);
+
+	if (ncpus > NR_CPUS) {
+		ncpus = NR_CPUS;
+		pr_info("Limiting core count to maximum: %d\n", ncpus);
+	}
+
+	for (int i = 0; i < ncpus; i++)
+		set_cpu_possible(i, true);
 }
 
 void smp_send_stop(void)
@@ -85,30 +105,22 @@ void smp_send_reschedule(int cpu)
 	send_ipi_message(cpumask_of(cpu), IPI_RESCHEDULE);
 }
 
-void arch_smp_send_reschedule(int cpu)
-{
-	BUG();
-}
-
 void arch_send_call_function_ipi_mask(const struct cpumask *mask)
 {
-	BUG();
+	send_ipi_message(mask, IPI_CALL_FUNC);
 }
 
 void arch_send_call_function_single_ipi(int cpu)
 {
-	pr_warn("UNIMPLEMENTED: send_call_function_single_ipi(%i)\n", cpu);
+	send_ipi_message(cpumask_of(cpu), IPI_CALL_FUNC);
 }
 
-void smp_cpus_done(unsigned int max_cpus)
+void __init smp_cpus_done(unsigned int max_cpus)
 {
-	BUG();
+	pr_info("SMP: Total of %d processors activated\n", max_cpus);
 }
 
-/* called on enter interrupt
- * TODO(wasm): actually do the call
- */
-void handle_ipi(struct pt_regs *regs)
+void handle_IPI(void)
 {
 	int this_cpu = smp_processor_id();
 	unsigned long *pending_ipis = &ipi_data[this_cpu].bits;
@@ -125,9 +137,17 @@ void handle_ipi(struct pt_regs *regs)
 			which = __ffs(which);
 
 			switch (which) {
+			case IPI_RESCHEDULE:
+				scheduler_ipi();
+				break;
+
 			case IPI_CPU_STOP:
-				wasm_halt();
-				__builtin_trap();
+				for (;;) wasm_halt();
+
+			case IPI_CALL_FUNC:
+				generic_smp_call_function_interrupt();
+				break;
+
 			default:
 				printk(KERN_CRIT "Unknown IPI on CPU %d: %lu\n",
 				       this_cpu, which);

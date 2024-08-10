@@ -40,7 +40,7 @@
         position: absolute;
         top: 0;
         right: 0;
-        z-index: 1;
+        z-index: 10;
         background-color: gray;
         form {
           display: flex;
@@ -60,6 +60,7 @@
       <summary>options</summary>
       <form>
         <label>cmdline: <input type="text" name="cmdline" /></label>
+        <label>memory (MiB): <input type="number" name="memory" /></label>
         <button>reboot</button>
       </form>
     </details>
@@ -82,15 +83,18 @@
         term.write("Error: not cross origin isolated\n");
       }
 
-      const { cmdline = "no_hash_pointers" } = Object.fromEntries(
+      const { cmdline = "no_hash_pointers", memory = 128 } = Object.fromEntries(
         new URLSearchParams(location.search)
       );
       document.querySelector("input[name=cmdline]").value = cmdline;
+      document.querySelector("input[name=memory]").value = memory;
+
 
       const machine = start({
         cmdline: cmdline.replace(/\+/g, " "),
         vmlinux: await WebAssembly.compileStreaming(fetch("/vmlinux.wasm")),
         sections: await (await fetch("/sections.json")).json(),
+        memoryMib: memory,
       });
 
       machine.bootConsole.pipeTo(

@@ -21,6 +21,7 @@ void __delay(unsigned long cycles)
 
 void cpu_relax(void)
 {
+	handle_IPI();
 	__delay(10 * 1000 * 1000); // 10ms
 }
 
@@ -58,6 +59,6 @@ static struct clocksource clocksource = {
 
 void __init time_init(void)
 {
-	if (clocksource_register_khz(&clocksource, 1000000))
+	if (clocksource_register_khz(&clocksource, 1000 * 1000))
 		panic("unable to register clocksource\n");
 }

@@ -1,10 +1,9 @@
 import { generateDevicetree } from "./devicetree.ts";
 import type { FromWorkerMessage, ToWorkerMessage } from "./worker.ts";
-import { unreachable } from "./util.ts";
-
-const PAGE_SIZE = 1 << 16; // 64KiB
+import { assert, unreachable } from "./util.ts";
 
 interface MachineEventMap {
+  halt: CustomEvent<void>;
   restart: CustomEvent<void>;
   error: CustomEvent<{ error: Error; threadName: string }>;
 }
@@ -28,12 +27,14 @@ export function start({
   cmdline,
   vmlinux,
   sections,
-  memoryPages = 1024, // 64MiB
+  memoryMib = 128,
+  cpus = navigator.hardwareConcurrency,
 }: {
   cmdline: string;
   vmlinux: WebAssembly.Module;
   sections: Record<string, number[]>;
-  memoryPages?: number;
+  memoryMib?: number;
+  cpus?: number;
 }) {
   const bootConsole = new TransformStream<Uint8Array, Uint8Array>();
   const bootConsoleWriter = bootConsole.writable.getWriter();
@@ -45,6 +46,8 @@ export function start({
   ) {
     eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
   }
+
+  const workers: Worker[] = [];
 
   function newWorker(
     name: string,
@@ -60,6 +63,7 @@ export function start({
       ),
       { type: "module", name },
     );
+    workers.push(worker);
 
     worker.onmessage = async ({ data }: MessageEvent<FromWorkerMessage>) => {
       switch (data.type) {
@@ -69,6 +73,12 @@ export function start({
         case "boot-console-close":
           await bootConsoleWriter.close();
           await bootConsole.writable.close();
+          break;
+        case "halt":
+          emit("halt", undefined);
+          for (const worker of workers) {
+            worker.terminate();
+          }
           break;
         case "restart":
           emit("restart", undefined);
@@ -83,6 +93,9 @@ export function start({
           break;
         case "error":
           emit("error", { error: data.error, threadName: name });
+          for (const worker of workers) {
+            worker.terminate();
+          }
           break;
         case "bringup-secondary":
           newWorker(`entry${data.cpu}`, {
@@ -104,15 +117,22 @@ export function start({
     worker.postMessage(initMessage, initTransfer);
   }
 
+  const PAGES_PER_MIB = 16;
+  const BYTES_PER_MIB = 0x100000;
+  const memoryPages = memoryMib * PAGES_PER_MIB;
+  const memoryBytes = memoryMib * BYTES_PER_MIB;
+
   const memory = new WebAssembly.Memory({
     initial: memoryPages,
     maximum: memoryPages,
     shared: true,
   });
+  assert(memory.buffer.byteLength === memoryBytes);
 
   const devicetree = generateDevicetree({
     "#address-cells": 1,
     "#size-cells": 1,
+    ncpus: cpus,
     chosen: {
       "rng-seed": crypto.getRandomValues(new Uint8Array(64)),
       bootargs: cmdline,
@@ -120,7 +140,7 @@ export function start({
     aliases: {},
     memory: {
       device_type: "memory",
-      reg: [0, memoryPages * PAGE_SIZE],
+      reg: [0, memoryBytes],
     },
     "data-sections": sections,
   });

@@ -1,18 +1,18 @@
 #include <asm/smp.h>
 #include <asm/page.h>
 #include <asm/thread_info.h>
+#include <linux/cache.h>
 #include <linux/screen_info.h>
 
 unsigned long init_stack[THREAD_SIZE / sizeof(unsigned long)] = { 0 };
 unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)] = { 0 };
 struct task_struct *current_tasks[NR_CPUS] = { 0 };
+struct __wasm_irqflag wasm_irqflags[NR_CPUS] __cacheline_aligned = { 0 };
 
 struct screen_info screen_info = {};
 
-__asm__(".globaltype current_cpu, i32\n"
-	"current_cpu:\n"
-	".globaltype current_task, i32\n"
-	"current_task:");
+__asm__(".globaltype current_cpu, i32\ncurrent_cpu:\n"
+	".globaltype current_task, i32\ncurrent_task:\n");
 
 void set_current_cpu(int cpu)
 {
@@ -42,6 +42,7 @@ struct task_struct *get_current_task(void)
 			 : "=r"(task));
 	return task;
 }
-struct task_struct *get_current_task_on(int cpu) {
+struct task_struct *get_current_task_on(int cpu)
+{
 	return current_tasks[raw_smp_processor_id()];
 }

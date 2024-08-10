@@ -439,6 +439,10 @@ void panic(const char *fmt, ...)
 #endif
 	pr_emerg("---[ end Kernel panic - not syncing: %s ]---\n", buf);
 
+#ifdef CONFIG_WASM
+	wasm_breakpoint();
+#endif
+
 	/* Do not scroll important messages printed above */
 	suppress_printk = 1;
 	local_irq_enable();
@@ -729,11 +733,7 @@ EXPORT_SYMBOL(__warn_printk);
 static int clear_warn_once_set(void *data, u64 val)
 {
 	generic_bug_clear_once();
-#ifdef CONFIG_WASM
-	pr_warn("Clearing warning state is unsupported\n");
-#else
 	memset(__start_once, 0, __end_once - __start_once);
-#endif
 	return 0;
 }
 
