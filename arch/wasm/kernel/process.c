@@ -15,9 +15,15 @@ struct task_bootstrap_args {
 	void *fn_arg;
 };
 
-// noinline for debugging purposes
-struct task_struct *noinline __switch_to(struct task_struct *from,
-					 struct task_struct *to)
+int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
+{
+	*dst = *src;
+	atomic_set(&task_thread_info(dst)->running_cpu, -1);
+	return 0;
+}
+
+struct task_struct *__switch_to(struct task_struct *from,
+				struct task_struct *to)
 {
 	struct thread_info *from_info = task_thread_info(from);
 	struct thread_info *to_info = task_thread_info(to);

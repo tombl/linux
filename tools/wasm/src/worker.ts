@@ -17,6 +17,7 @@ export type ToWorkerMessage =
 export type FromWorkerMessage =
   | { type: "boot-console-write"; message: Uint8Array }
   | { type: "boot-console-close" }
+  | { type: "halt" }
   | { type: "restart" }
   | { type: "spawn"; task: number; name: string }
   | { type: "error"; error: Error }
@@ -56,7 +57,7 @@ self.onmessage = ({ data }: MessageEvent<ToWorkerMessage>) => {
           debugger;
         },
         halt() {
-          self.close();
+          postMessage({ type: "halt" });
         },
         restart() {
           postMessage({ type: "restart" });

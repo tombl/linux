@@ -120,7 +120,7 @@ void __init smp_cpus_done(unsigned int max_cpus)
 	pr_info("SMP: Total of %d processors activated\n", max_cpus);
 }
 
-void handle_ipi(void)
+void handle_IPI(void)
 {
 	int this_cpu = smp_processor_id();
 	unsigned long *pending_ipis = &ipi_data[this_cpu].bits;
@@ -159,10 +159,4 @@ void handle_ipi(void)
 
 		mb(); /* Order data access and bit testing. */
 	}
-}
-
-void cpu_relax(void)
-{
-	handle_ipi();
-	__delay(10 * 1000 * 1000); // 10ms
 }
