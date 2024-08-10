@@ -12,6 +12,11 @@ const machine = start({
 
 machine.bootConsole.pipeTo(Deno.stdout.writable);
 
+machine.addEventListener("halt", () => {
+  console.log("halting...");
+  Deno.exit(1);
+});
+
 machine.addEventListener("restart", () => {
   console.log("reboot requested. halting...");
   Deno.exit(0);

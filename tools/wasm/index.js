@@ -18,6 +18,11 @@ const machine = start({
 
 machine.bootConsole.pipeTo(Writable.toWeb(process.stdout));
 
+machine.addEventListener("halt", () => {
+  console.log("halting...");
+  process.exit(1);
+});
+
 machine.addEventListener("restart", () => {
   console.log("reboot requested. halting...");
   process.exit(0);

@@ -3,6 +3,7 @@ import type { FromWorkerMessage, ToWorkerMessage } from "./worker.ts";
 import { assert, unreachable } from "./util.ts";
 
 interface MachineEventMap {
+  halt: CustomEvent<void>;
   restart: CustomEvent<void>;
   error: CustomEvent<{ error: Error; threadName: string }>;
 }
@@ -74,7 +75,7 @@ export function start({
           await bootConsole.writable.close();
           break;
         case "halt":
-          console.log("halt");
+          emit("halt", undefined);
           for (const worker of workers) {
             worker.terminate();
           }

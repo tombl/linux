@@ -142,9 +142,7 @@ void handle_IPI(void)
 				break;
 
 			case IPI_CPU_STOP:
-				wasm_halt();
-				__builtin_trap();
-				break;
+				for (;;) wasm_halt();
 
 			case IPI_CALL_FUNC:
 				generic_smp_call_function_interrupt();
