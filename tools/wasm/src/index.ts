@@ -130,9 +130,12 @@ export function start({
   });
   assert(memory.buffer.byteLength === memoryBytes);
 
+  const PHANDLE_INTC = 1;
+
   const devicetree = generateDevicetree({
     "#address-cells": 1,
     "#size-cells": 1,
+    "interrupt-parent": PHANDLE_INTC,
     chosen: {
       "rng-seed": crypto.getRandomValues(new Uint8Array(64)),
       bootargs: cmdline,
@@ -144,10 +147,23 @@ export function start({
       device_type: "memory",
       reg: [0, memoryBytes],
     },
-    viorng: {
+    "interrupt-controller": {
+      phandle: PHANDLE_INTC,
+      compatible: "wasm,intc",
+      "#interrupt-cells": 1,
+      "interrupt-controller": undefined,
+    },
+    disk: {
+      compatible: "virtio,wasm",
+      "host-id": 0x7777,
+      "virtio-id": 2, // blk
+      interrupts: 31,
+    },
+    rng: {
       compatible: "virtio,wasm",
       "host-id": 0x4321,
       "virtio-id": Entropy.DEVICE_ID,
+      interrupts: 32,
     },
   });
 

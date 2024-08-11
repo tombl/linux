@@ -171,7 +171,6 @@ void arch_send_call_function_single_ipi(int cpu)
 
 void __init smp_cpus_done(unsigned int max_cpus)
 {
-	pr_info("SMP: Total of %d processors activated\n", max_cpus);
 }
 
 static irqreturn_t handle_ipi(int irq, void *dev)
@@ -214,7 +213,10 @@ void __init setup_smp_ipi(void)
 	static int dummy_dev;
 	int err;
 
-	err = request_irq(IPI_IRQ, handle_ipi, 0, "ipi", &dummy_dev);
+	int irq = irq_find_mapping(NULL, IPI_IRQ);
+	BUG_ON(!irq);
+
+	err = request_irq(irq, handle_ipi, 0, "ipi", &dummy_dev);
 	if (err)
-		panic("Failed to request irq %u (ipi): %d\n", IPI_IRQ, err);
+		panic("Failed to request irq %u (ipi): %d\n", irq, err);
 }

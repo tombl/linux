@@ -3,13 +3,14 @@
 #include <linux/hardirq.h>
 #include <linux/init.h>
 #include <linux/irq.h>
+#include <linux/irqchip.h>
 #include <linux/irqdomain.h>
 #include <linux/processor.h>
 
 static DEFINE_PER_CPU(unsigned long, irqflags);
 static DEFINE_PER_CPU(unsigned long, irq_status[NR_IRQS / BITS_PER_LONG]);
 
-static void run_irq(int irq)
+static void run_irq(irq_hw_number_t hwirq)
 {
 	static struct pt_regs dummy;
 	unsigned long flags;
@@ -18,7 +19,7 @@ static void run_irq(int irq)
 	/* interrupt handlers need to run with interrupts disabled */
 	local_irq_save(flags);
 	irq_enter();
-	generic_handle_irq(irq);
+	generic_handle_domain_irq(NULL, hwirq);
 	irq_exit();
 	set_irq_regs(old_regs);
 	local_irq_restore(flags);
@@ -72,19 +73,13 @@ void arch_local_irq_restore(unsigned long flags)
 
 void __init init_IRQ(void)
 {
-	struct irq_domain *root_domain;
-	int irq;
+	// int irq;
 
-	root_domain = irq_domain_add_linear(NULL, NR_IRQS,
-					    &irq_domain_simple_ops, NULL);
-	if (!root_domain)
-		panic("root irq domain not available\n");
+	irqchip_init();
 
-	irq_set_default_host(root_domain);
-
-	for_each_irq_nr(irq)
-		irq_set_chip_and_handler(irq, &dummy_irq_chip,
-					 handle_simple_irq);
+	// for_each_irq_nr(irq)
+	// 	irq_set_chip_and_handler(irq, &dummy_irq_chip,
+	// 				 handle_simple_irq);
 
 #ifdef CONFIG_SMP
 	setup_smp_ipi();

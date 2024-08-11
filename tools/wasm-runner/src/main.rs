@@ -88,8 +88,8 @@ fn add_imports(linker: &mut Linker<State>) -> Result<()> {
     linker.func_wrap("kernel", "return_address", |_frames: i32| -1)?;
 
     linker.func_wrap(
-        "kernel",
-        "get_dt",
+        "boot",
+        "get_devicetree",
         |mut caller: Caller<'_, State>, buf: u32, len: u32| {
             let State {
                 ref mut memory,

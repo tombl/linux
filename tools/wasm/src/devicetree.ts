@@ -20,7 +20,8 @@ type DeviceTreeProperty =
   | Uint16Array
   | Uint32Array
   | BigUint64Array
-  | ArrayBuffer;
+  | ArrayBuffer
+  | undefined;
 
 function inner(
   tree: DeviceTreeNode,
@@ -109,7 +110,8 @@ function inner(
           new DataView(value).setUint32(0, prop);
           break;
         case "bigint":
-          value = new BigUint64Array([prop]).buffer;
+          value = new BigUint64Array(1).buffer;
+          new DataView(value).setBigUint64(0, prop);
           break;
         case "string":
           value = new TextEncoder().encode(`${prop}\0`).buffer;

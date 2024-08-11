@@ -18,6 +18,7 @@ config WASM
 	select IRQ_DOMAIN
 	select OF
 	select OF_EARLY_FLATTREE
+	select OF_IRQ
 	select PAGE_SIZE_64KB
 	select SMP
 	select THREAD_INFO_IN_TASK
@@ -39,7 +40,7 @@ config SMP
 config NR_CPUS
 	int
 	default 1 if !SMP
-	default 16 if SMP
+	default 64 if SMP
 
 config HZ
 	int
