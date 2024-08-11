@@ -1,0 +1,3 @@
+config VIRTIO_WASM
+        def_bool y
+        depends on VIRTIO

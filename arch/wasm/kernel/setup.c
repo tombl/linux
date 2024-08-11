@@ -18,7 +18,7 @@ void __init init_sections(unsigned long node);
 
 __attribute__((export_name("boot"))) void __init _start(void)
 {
-	static char wasm_dt[1024];
+	static char wasm_dt[2048];
 	int node;
 
 	set_current_cpu(0);
@@ -58,11 +58,11 @@ void __init setup_arch(char **cmdline_p)
 	BUG_ON(THREAD_SIZE <
 	       (&__stack_high - &__stack_low) + sizeof(struct task_struct));
 
-	unflatten_and_copy_device_tree();
+	unflatten_device_tree();
 
-	ret = of_property_read_u32(of_root, "ncpus", &ncpus);
+	ret = of_property_read_u32(of_chosen, "ncpus", &ncpus);
 	if (ret) {
-		pr_warn("failed to read '/ncpus', defaulting to 1: %d\n", ret);
+		pr_warn("failed to read '/chosen/ncpus', defaulting to 1: %d\n", ret);
 		ncpus = 1;
 	}
 	smp_init_cpus(ncpus);

@@ -219,11 +219,11 @@ fn create_devicetree(cmdline: &str, sections: &Sections, memory_bytes: u32) -> R
 
     fdt.property_u32("#address-cells", 1)?;
     fdt.property_u32("#size-cells", 1)?;
-    fdt.property_u32("ncpus", num_cpus::get() as u32)?;
-
+    
     let chosen = fdt.begin_node("chosen")?;
     fdt.property_array_u64("rng-seed", &rng_seed)?;
     fdt.property_string("bootargs", cmdline)?;
+    fdt.property_u32("ncpus", num_cpus::get() as u32)?;
     fdt.end_node(chosen)?;
 
     let aliases = fdt.begin_node("aliases")?;

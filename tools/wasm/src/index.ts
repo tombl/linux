@@ -132,10 +132,10 @@ export function start({
   const devicetree = generateDevicetree({
     "#address-cells": 1,
     "#size-cells": 1,
-    ncpus: cpus,
     chosen: {
       "rng-seed": crypto.getRandomValues(new Uint8Array(64)),
       bootargs: cmdline,
+      ncpus: cpus,
     },
     aliases: {},
     memory: {

@@ -89,3 +89,5 @@ config DEFAULT_MEM_START
 	  in noMMU configurations.
 
 	  If unsure, leave the default value here.
+
+source "arch/wasm/drivers/Kconfig"

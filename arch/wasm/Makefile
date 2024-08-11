@@ -9,6 +9,8 @@ KBUILD_CFLAGS += $(cflags-y)
 KBUILD_AFLAGS += $(aflags-y)
 KBUILD_LDFLAGS += $(ldflags-y)
 
+drivers-y += arch/wasm/drivers/
+
 all: arch/wasm/vmlinux.wasm tools/wasm/sections.json
 
 arch/wasm/vmlinux.wasm: vmlinux.o
