@@ -9,7 +9,12 @@
 
 struct task_struct;
 
-void cpu_relax(void);
+static inline void cpu_relax(void)
+{
+	unsigned long flags;
+	local_irq_save(flags);
+	local_irq_restore(flags);
+}
 
 #define current_text_addr() wasm_kernel_return_address(-1)
 

@@ -19,12 +19,6 @@ void __delay(unsigned long cycles)
 	BUG_ON(ret != 2); // 2 means timeout
 }
 
-void cpu_relax(void)
-{
-	handle_IPI();
-	__delay(10 * 1000 * 1000); // 10ms
-}
-
 void __udelay(unsigned long usecs)
 {
 	__delay(usecs * 1000);

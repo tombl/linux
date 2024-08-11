@@ -12,17 +12,16 @@ config WASM
 	select GENERIC_CSUM
 	select GENERIC_ENTRY
 	select GENERIC_HWEIGHT
-	select GENERIC_IRQ_INJECTION
 	select GENERIC_IRQ_MIGRATION
-	select GENERIC_IRQ_SHOW
+	select GENERIC_IRQ_PROBE
 	select GENERIC_SMP_IDLE_THREAD
+	select IRQ_DOMAIN
 	select OF
 	select OF_EARLY_FLATTREE
 	select PAGE_SIZE_64KB
 	select SMP
 	select THREAD_INFO_IN_TASK
 	select UACCESS_MEMCPY if !MMU
-	select USE_PER_CPU_TLS
 
 config CMDLINE
 	string "Kernel command string to append"

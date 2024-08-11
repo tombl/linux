@@ -2,16 +2,28 @@
 #include <asm/sysmem.h>
 #include <asm/wasm_imports.h>
 #include <linux/cpu.h>
+#include <linux/delay.h>
+#include <linux/interrupt.h>
+#include <linux/irq_work.h>
+#include <linux/irqdomain.h>
+#include <linux/irqreturn.h>
 #include <linux/of_fdt.h>
 #include <linux/sched.h>
-#include <asm/delay.h>
+#include <linux/seq_file.h>
+
+void arch_cpu_idle_enter(void)
+{
+	__delay(10 * 1000 * 1000); // 10ms
+}
 
 int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
 	task_thread_info(idle)->cpu = cpu;
+	pr_info("bringing up cpu %d\n", cpu);
 	wasm_kernel_bringup_secondary(cpu, idle);
 	while (!cpu_online(cpu))
 		cpu_relax();
+	pr_info("cpu %d online\n", cpu);
 	return 0;
 }
 
@@ -28,6 +40,7 @@ static void noinline_for_stack start_secondary_inner(int cpu,
 	mmgrab(&init_mm);
 	current->active_mm = &init_mm;
 
+	// enable_percpu_irq(IPI_IRQ, 0);
 	local_irq_enable();
 
 	notify_cpu_starting(cpu);
@@ -35,6 +48,8 @@ static void noinline_for_stack start_secondary_inner(int cpu,
 	pr_info("Hello from cpu %i!\n", raw_smp_processor_id());
 
 	cpu_startup_entry(CPUHP_AP_ONLINE_IDLE);
+
+	BUG(); // should never get here
 }
 
 __attribute__((export_name("secondary"))) void
@@ -44,24 +59,59 @@ _start_secondary(int cpu, struct task_struct *idle)
 	start_secondary_inner(cpu, idle);
 }
 
-static struct {
-	unsigned long bits ____cacheline_aligned;
-} ipi_data[NR_CPUS] __cacheline_aligned = { 0 };
-
 enum ipi_message_type {
+	IPI_EMPTY,
 	IPI_RESCHEDULE,
 	IPI_CPU_STOP,
+	IPI_IRQ_WORK,
 	IPI_CALL_FUNC,
+	IPI_MAX,
 };
+
+struct ipi_data_struct {
+	unsigned long bits ____cacheline_aligned;
+	unsigned long stats[IPI_MAX] ____cacheline_aligned;
+};
+static DEFINE_PER_CPU(struct ipi_data_struct, ipi_data);
+
+void trigger_irq_for_cpu(unsigned int cpu, unsigned int irq);
 
 static void send_ipi_message(const struct cpumask *to_whom,
 			     enum ipi_message_type operation)
 {
 	int i;
 
-	mb();
 	for_each_cpu(i, to_whom)
-		set_bit(operation, &ipi_data[i].bits);
+		set_bit(operation, &per_cpu_ptr(&ipi_data, i)->bits);
+
+	smp_mb();
+
+	for_each_cpu(i, to_whom)
+		trigger_irq_for_cpu(i, IPI_IRQ);
+}
+
+static const char *const ipi_names[] = {
+	[IPI_EMPTY] = "Empty interrupts",
+	[IPI_RESCHEDULE] = "Rescheduling interrupts",
+	[IPI_CPU_STOP] = "CPU stop interrupts",
+	[IPI_CALL_FUNC] = "Function call interrupts",
+	[IPI_IRQ_WORK] = "Irq work interrupts",
+};
+
+int arch_show_interrupts(struct seq_file *p, int prec)
+{
+	unsigned int cpu, i;
+
+	for (i = 0; i < IPI_MAX; i++) {
+		seq_printf(p, "%*s%u:%s", prec - 1, "IPI", i,
+			   prec >= 4 ? " " : "");
+		for_each_online_cpu(cpu)
+			seq_printf(p, "%10lu ",
+				   per_cpu_ptr(&ipi_data, cpu)->stats[i]);
+		seq_printf(p, " %s\n", ipi_names[i]);
+	}
+
+	return 0;
 }
 
 /* Called early in main to prepare the boot cpu */
@@ -94,16 +144,23 @@ void __init smp_init_cpus(unsigned int ncpus)
 
 void smp_send_stop(void)
 {
-	cpumask_t to_whom;
-	cpumask_copy(&to_whom, cpu_online_mask);
-	cpumask_clear_cpu(smp_processor_id(), &to_whom);
-	send_ipi_message(&to_whom, IPI_CPU_STOP);
+	struct cpumask targets;
+	cpumask_copy(&targets, cpu_online_mask);
+	cpumask_clear_cpu(smp_processor_id(), &targets);
+	send_ipi_message(&targets, IPI_CPU_STOP);
 }
 
 void smp_send_reschedule(int cpu)
 {
 	send_ipi_message(cpumask_of(cpu), IPI_RESCHEDULE);
 }
+
+#ifdef CONFIG_IRQ_WORK
+void arch_irq_work_raise(void)
+{
+	send_ipi_message(cpumask_of(smp_processor_id()), IPI_IRQ_WORK);
+}
+#endif
 
 void arch_send_call_function_ipi_mask(const struct cpumask *mask)
 {
@@ -120,41 +177,47 @@ void __init smp_cpus_done(unsigned int max_cpus)
 	pr_info("SMP: Total of %d processors activated\n", max_cpus);
 }
 
-void handle_IPI(void)
+static irqreturn_t handle_ipi(int irq, void *dev)
 {
-	int this_cpu = smp_processor_id();
-	unsigned long *pending_ipis = &ipi_data[this_cpu].bits;
-	unsigned long ops;
+	unsigned long *stats = this_cpu_ptr(&ipi_data)->stats;
 
-	mb(); /* Order interrupt and bit testing. */
-	while ((ops = xchg(pending_ipis, 0)) != 0) {
-		mb(); /* Order bit clearing and data access. */
-		do {
-			unsigned long which;
+	for (;;) {
+		unsigned long ops = xchg(&this_cpu_ptr(&ipi_data)->bits, 0);
 
-			which = ops & -ops;
-			ops &= ~which;
-			which = __ffs(which);
+		if (ops == 0)
+			return IRQ_HANDLED;
 
-			switch (which) {
-			case IPI_RESCHEDULE:
-				scheduler_ipi();
-				break;
+		if (ops & (1 << IPI_RESCHEDULE)) {
+			stats[IPI_RESCHEDULE]++;
+			scheduler_ipi();
+		}
 
-			case IPI_CPU_STOP:
-				for (;;) wasm_kernel_halt();
+		if (ops & (1 << IPI_CPU_STOP)) {
+			stats[IPI_CPU_STOP]++;
+			// TODO: should only stop the current CPU
+			wasm_kernel_halt();
+		}
 
-			case IPI_CALL_FUNC:
-				generic_smp_call_function_interrupt();
-				break;
+		if (ops & (1 << IPI_CALL_FUNC)) {
+			stats[IPI_CALL_FUNC]++;
+			generic_smp_call_function_interrupt();
+		}
 
-			default:
-				printk(KERN_CRIT "Unknown IPI on CPU %d: %lu\n",
-				       this_cpu, which);
-				break;
-			}
-		} while (ops);
+		if (ops & (1 << IPI_IRQ_WORK)) {
+			stats[IPI_IRQ_WORK]++;
+			irq_work_run();
+		}
 
-		mb(); /* Order data access and bit testing. */
+		BUG_ON((ops >> IPI_MAX) != 0);
 	}
+}
+
+void __init setup_smp_ipi(void)
+{
+	static int dummy_dev;
+	int err;
+
+	err = request_irq(IPI_IRQ, handle_ipi, 0, "ipi", &dummy_dev);
+	if (err)
+		panic("Failed to request irq %u (ipi): %d\n", IPI_IRQ, err);
 }
