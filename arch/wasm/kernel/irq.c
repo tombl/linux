@@ -15,8 +15,6 @@ static void run_irq(int irq)
 	unsigned long flags;
 	struct pt_regs *old_regs = set_irq_regs((struct pt_regs *)&dummy);
 
-	pr_info("running irq %d\n", irq);
-
 	/* interrupt handlers need to run with interrupts disabled */
 	local_irq_save(flags);
 	irq_enter();

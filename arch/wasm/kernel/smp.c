@@ -19,11 +19,9 @@ void arch_cpu_idle_enter(void)
 int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
 	task_thread_info(idle)->cpu = cpu;
-	pr_info("bringing up cpu %d\n", cpu);
 	wasm_kernel_bringup_secondary(cpu, idle);
 	while (!cpu_online(cpu))
 		cpu_relax();
-	pr_info("cpu %d online\n", cpu);
 	return 0;
 }
 
@@ -40,7 +38,6 @@ static void noinline_for_stack start_secondary_inner(int cpu,
 	mmgrab(&init_mm);
 	current->active_mm = &init_mm;
 
-	// enable_percpu_irq(IPI_IRQ, 0);
 	local_irq_enable();
 
 	notify_cpu_starting(cpu);
