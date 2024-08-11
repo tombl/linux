@@ -97,7 +97,7 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 
 	name_len = snprintf(name, ARRAY_SIZE(name), "%s (%d)", p->comm, p->pid);
 
-	wasm_new_worker(bootstrap_args, name, name_len);
+	wasm_kernel_new_worker(bootstrap_args, name, name_len);
 
 	return 0;
 }

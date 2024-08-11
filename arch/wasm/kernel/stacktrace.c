@@ -14,7 +14,7 @@ void show_stack(struct task_struct *task, unsigned long *sp, const char *loglvl)
 	else
 		printk("%sStack:\n", loglvl);
 
-	wasm_get_stacktrace(trace, 1024);
+	wasm_kernel_get_stacktrace(trace, 1024);
 	printk("%s%s", loglvl, trace);
 	kfree(trace);
 }

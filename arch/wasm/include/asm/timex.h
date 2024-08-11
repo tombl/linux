@@ -6,7 +6,7 @@
 typedef unsigned long long cycles_t;
 static inline cycles_t get_cycles(void)
 {
-	return wasm_get_now_nsec();
+	return wasm_kernel_get_now_nsec();
 }
 
 #define jiffies (*(unsigned long *)(&jiffies_64))

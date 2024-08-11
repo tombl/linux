@@ -40,8 +40,8 @@ void __const_udelay(unsigned long xloops)
 
 unsigned long long sched_clock(void) {
 	static u64 origin = 0;
-	if (!origin) origin = wasm_get_now_nsec();
-	return wasm_get_now_nsec() - origin;
+	if (!origin) origin = wasm_kernel_get_now_nsec();
+	return wasm_kernel_get_now_nsec() - origin;
 }
 
 static u64 clock_read(struct clocksource *cs)

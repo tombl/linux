@@ -440,7 +440,7 @@ void panic(const char *fmt, ...)
 	pr_emerg("---[ end Kernel panic - not syncing: %s ]---\n", buf);
 
 #ifdef CONFIG_WASM
-	wasm_breakpoint();
+	wasm_kernel_breakpoint();
 #endif
 
 	/* Do not scroll important messages printed above */

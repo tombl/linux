@@ -1,4 +1,4 @@
-import { assert, unreachable } from "./util.ts";
+import { assert, type u32, type u64, unreachable } from "./util.ts";
 
 const FDT_MAGIC = 0xd00dfeed;
 const FDT_BEGIN_NODE = 0x00000001;
@@ -106,7 +106,7 @@ function inner(
       switch (typeof prop) {
         case "number":
           value = new Uint32Array(1).buffer;
-          new DataView(value).setUint32(0, prop)
+          new DataView(value).setUint32(0, prop);
           break;
         case "bigint":
           value = new BigUint64Array([prop]).buffer;
@@ -202,12 +202,12 @@ function inner(
 
 export function generateDevicetree(tree: DeviceTreeNode, {
   memoryReservations = [],
-  bootCpuId = 0,
+  bootCpuId = 0 as u32,
 }: {
   memoryReservations?: Array<
-    { address: number | bigint; size: number | bigint }
+    { address: u64; size: u64 }
   >;
-  bootCpuId?: number;
+  bootCpuId?: u32;
 } = {}) {
   return inner(tree, memoryReservations, bootCpuId, 1024);
 }

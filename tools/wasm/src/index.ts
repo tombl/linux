@@ -1,6 +1,12 @@
 import { generateDevicetree } from "./devicetree.ts";
-import type { FromWorkerMessage, ToWorkerMessage } from "./worker.ts";
-import { assert, unreachable } from "./util.ts";
+import {
+  type FromWorkerMessage,
+  FromWorkerMessageType,
+  type ToWorkerMessage,
+  ToWorkerMessageType,
+} from "./worker/messages.ts";
+import { assert, getScriptPath, unreachable } from "./util.ts";
+import { Entropy } from "./worker/virtio.ts";
 
 interface MachineEventMap {
   halt: CustomEvent<void>;
@@ -55,51 +61,46 @@ export function start({
     initTransfer: Transferable[],
   ) {
     const worker = new Worker(
-      new URL(
-        (() => {
-          import("./worker.ts");
-        }).toString().match(/import\("(.*)"\)/)![1],
-        import.meta.url,
-      ),
+      getScriptPath(() => import("./worker/worker.ts"), import.meta),
       { type: "module", name },
     );
     workers.push(worker);
 
     worker.onmessage = async ({ data }: MessageEvent<FromWorkerMessage>) => {
       switch (data.type) {
-        case "boot-console-write":
+        case FromWorkerMessageType.BOOT_CONSOLE_WRITE:
           bootConsoleWriter.write(data.message);
           break;
-        case "boot-console-close":
+        case FromWorkerMessageType.BOOT_CONSOLE_CLOSE:
           await bootConsoleWriter.close();
           await bootConsole.writable.close();
           break;
-        case "halt":
+        case FromWorkerMessageType.HALT:
           emit("halt", undefined);
           for (const worker of workers) {
             worker.terminate();
           }
           break;
-        case "restart":
+        case FromWorkerMessageType.RESTART:
           emit("restart", undefined);
           break;
-        case "spawn":
+        case FromWorkerMessageType.SPAWN:
           newWorker(data.name, {
-            type: "task",
+            type: ToWorkerMessageType.TASK,
             task: data.task,
             vmlinux,
             memory,
           }, []);
           break;
-        case "error":
+        case FromWorkerMessageType.ERROR:
           emit("error", { error: data.error, threadName: name });
           for (const worker of workers) {
             worker.terminate();
           }
           break;
-        case "bringup-secondary":
+        case FromWorkerMessageType.BRINGUP_SECONDARY:
           newWorker(`entry${data.cpu}`, {
-            type: "secondary",
+            type: ToWorkerMessageType.SECONDARY,
             cpu: data.cpu,
             idle: data.idle,
             vmlinux,
@@ -136,18 +137,23 @@ export function start({
       "rng-seed": crypto.getRandomValues(new Uint8Array(64)),
       bootargs: cmdline,
       ncpus: cpus,
+      sections,
     },
     aliases: {},
     memory: {
       device_type: "memory",
       reg: [0, memoryBytes],
     },
-    "data-sections": sections,
+    viorng: {
+      compatible: "virtio,wasm",
+      "host-id": 0x4321,
+      "virtio-id": Entropy.DEVICE_ID,
+    },
   });
 
   newWorker(
     "entry",
-    { type: "boot", devicetree, vmlinux, memory },
+    { type: ToWorkerMessageType.BOOT, devicetree, vmlinux, memory },
     [devicetree.buffer],
   );
 

@@ -9,7 +9,7 @@
 int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
 	task_thread_info(idle)->cpu = cpu;
-	wasm_bringup_secondary(cpu, idle);
+	wasm_kernel_bringup_secondary(cpu, idle);
 	while (!cpu_online(cpu))
 		cpu_relax();
 	return 0;
@@ -142,7 +142,7 @@ void handle_IPI(void)
 				break;
 
 			case IPI_CPU_STOP:
-				for (;;) wasm_halt();
+				for (;;) wasm_kernel_halt();
 
 			case IPI_CALL_FUNC:
 				generic_smp_call_function_interrupt();

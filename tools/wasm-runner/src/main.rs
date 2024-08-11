@@ -5,7 +5,7 @@ use rand::Rng;
 use std::collections::HashMap;
 use std::{
     fs::File,
-    io::{stdout,  Write},
+    io::{stdout, Write},
     path::PathBuf,
     time::Instant,
 };
@@ -219,11 +219,18 @@ fn create_devicetree(cmdline: &str, sections: &Sections, memory_bytes: u32) -> R
 
     fdt.property_u32("#address-cells", 1)?;
     fdt.property_u32("#size-cells", 1)?;
-    
+
     let chosen = fdt.begin_node("chosen")?;
     fdt.property_array_u64("rng-seed", &rng_seed)?;
     fdt.property_string("bootargs", cmdline)?;
     fdt.property_u32("ncpus", num_cpus::get() as u32)?;
+
+    let data_sections = fdt.begin_node("sections")?;
+    for (name, &(start, end)) in sections {
+        fdt.property_array_u32(name, &[start, end])?;
+    }
+    fdt.end_node(data_sections)?;
+
     fdt.end_node(chosen)?;
 
     let aliases = fdt.begin_node("aliases")?;
@@ -233,12 +240,6 @@ fn create_devicetree(cmdline: &str, sections: &Sections, memory_bytes: u32) -> R
     fdt.property_string("device_type", "memory")?;
     fdt.property_array_u32("reg", &[0, memory_bytes])?;
     fdt.end_node(memory)?;
-
-    let data_sections = fdt.begin_node("data-sections")?;
-    for (name, &(start, end)) in sections {
-        fdt.property_array_u32(name, &[start, end])?;
-    }
-    fdt.end_node(data_sections)?;
 
     fdt.end_node(root)?;
 
