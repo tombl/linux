@@ -1,3 +1,5 @@
+#define pr_fmt(fmt) "wasm/irq: " fmt
+
 #include <asm/smp.h>
 #include <linux/cpu.h>
 #include <linux/bitops.h>
@@ -14,22 +16,25 @@ static DEFINE_PER_CPU(atomic64_t, irq_pending);
 void __cpuidle arch_cpu_idle(void)
 {
 	atomic64_t *pending = this_cpu_ptr(&irq_pending);
-	pr_info("cpu %i idle: %p %lli\n", raw_smp_processor_id(), pending,
-		pending->counter);
+	pr_info("%i idle\n", raw_smp_processor_id());
 	__builtin_wasm_memory_atomic_wait64(&pending->counter, 0, -1);
-	pr_info("cpu %i wake: %p %lli\n", raw_smp_processor_id(), pending,
-		pending->counter);
+	pr_info("%i wake\n", raw_smp_processor_id());
 	raw_local_irq_enable();
 }
 
 void cpu_relax(void)
 {
+	// static bool dumping = false;
 	unsigned long flags;
 	atomic64_t *pending;
 	local_irq_save(flags);
 	pending = this_cpu_ptr(&irq_pending);
-	pr_info("cpu %i relax: %p %llu\n", raw_smp_processor_id(), pending,
-		pending->counter);
+	// pr_info("%i relax: %llx\n", raw_smp_processor_id(), pending->counter);
+	// if (!dumping) {
+	// 	dumping = true;
+	// 	dump_stack();
+	// 	dumping = false;
+	// }
 	__builtin_wasm_memory_atomic_wait64(&pending->counter, 0,
 					    10 * 1000 * 1000);
 	local_irq_restore(flags);
@@ -41,7 +46,7 @@ static void run_irq(irq_hw_number_t hwirq)
 	unsigned long flags;
 	struct pt_regs *old_regs = set_irq_regs((struct pt_regs *)&dummy);
 
-	pr_info("running irq %lu on cpu %i\n", hwirq, raw_smp_processor_id());
+	pr_info("%i: handling\n", raw_smp_processor_id());
 
 	/* interrupt handlers need to run with interrupts disabled */
 	local_irq_save(flags);
@@ -61,9 +66,6 @@ static void run_irqs(void)
 {
 	int irq;
 	atomic64_t *pending = this_cpu_ptr(&irq_pending);
-
-	if (pending->counter != 0)
-		pr_info("run irqs: %p %llu\n", pending, pending->counter);
 
 	for_each_irq_nr(irq)
 		if (atomic64_fetch_andnot(1 << irq, pending) & (1 << irq))
@@ -91,8 +93,7 @@ trigger_irq_for_cpu(unsigned int cpu, irq_hw_number_t irq)
 
 	atomic64_fetch_or(1 << irq, pending);
 
-	pr_info("trigger irq %lu for cpu %d, from %d: %p\n", irq, cpu,
-		raw_smp_processor_id(), per_cpu_ptr(&irq_pending, cpu));
+	pr_info("%i: triggering %i\n", raw_smp_processor_id(), cpu);
 
 	__builtin_wasm_memory_atomic_notify((void *)&pending->counter,
 					    /* at most, wake up: */ 1);
@@ -100,8 +101,7 @@ trigger_irq_for_cpu(unsigned int cpu, irq_hw_number_t irq)
 
 void arch_local_irq_restore(unsigned long flags)
 {
-	if (flags == ARCH_IRQ_ENABLED && arch_irqs_disabled() &&
-	    !in_interrupt())
+	if (flags == ARCH_IRQ_ENABLED && !in_interrupt())
 		run_irqs();
 	__this_cpu_write(irqflags, flags);
 }

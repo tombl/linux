@@ -24,7 +24,7 @@ __attribute__((export_name("boot"))) void __init _start(void)
 
 	set_current_cpu(0);
 	set_current_task(&init_task);
-	
+
 	memblock_reserve(0, (phys_addr_t)&__heap_base);
 
 	wasm_boot_get_devicetree(devicetree, ARRAY_SIZE(devicetree));

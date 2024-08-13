@@ -49,6 +49,7 @@ fn add_imports(linker: &mut Linker<State>) -> Result<()> {
     })?;
     linker.func_wrap("kernel", "halt", || {
         println!("halt");
+        // TODO: this should just kill this thread
         std::process::exit(1);
     })?;
     linker.func_wrap("kernel", "restart", || {

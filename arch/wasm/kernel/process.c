@@ -7,8 +7,6 @@
 #include <linux/sched/task_stack.h>
 #include <linux/sched/task.h>
 
-// TODO(wasm): replace __builtin_wasm_memory_atomic with completion?
-
 struct task_bootstrap_args {
 	struct task_struct *task;
 	int (*fn)(void *);
