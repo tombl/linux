@@ -2,7 +2,6 @@
 #include <asm/sysmem.h>
 #include <asm/wasm_imports.h>
 #include <linux/cpu.h>
-#include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/irq_work.h>
 #include <linux/irqdomain.h>
@@ -11,17 +10,13 @@
 #include <linux/sched.h>
 #include <linux/seq_file.h>
 
-void arch_cpu_idle_enter(void)
-{
-	__delay(10 * 1000 * 1000); // 10ms
-}
+DECLARE_COMPLETION(cpu_starting);
 
 int __cpu_up(unsigned int cpu, struct task_struct *idle)
 {
 	task_thread_info(idle)->cpu = cpu;
 	wasm_kernel_bringup_secondary(cpu, idle);
-	while (!cpu_online(cpu))
-		cpu_relax();
+	wait_for_completion(&cpu_starting);
 	return 0;
 }
 
@@ -41,6 +36,7 @@ static void noinline_for_stack start_secondary_inner(int cpu,
 	local_irq_enable();
 
 	notify_cpu_starting(cpu);
+	complete(&cpu_starting);
 
 	pr_info("Hello from cpu %i!\n", raw_smp_processor_id());
 

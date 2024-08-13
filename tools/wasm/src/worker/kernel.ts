@@ -15,7 +15,7 @@ export class KernelImports {
     debugger;
   };
   halt = (): void => {
-    postMessage({ type: FromWorkerMessageType.HALT });
+    self.close();
   };
   restart = (): void => {
     postMessage({ type: FromWorkerMessageType.RESTART });

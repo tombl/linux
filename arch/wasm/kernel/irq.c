@@ -1,4 +1,5 @@
 #include <asm/smp.h>
+#include <linux/cpu.h>
 #include <linux/bitops.h>
 #include <linux/hardirq.h>
 #include <linux/init.h>
@@ -8,13 +9,39 @@
 #include <linux/processor.h>
 
 static DEFINE_PER_CPU(unsigned long, irqflags);
-static DEFINE_PER_CPU(unsigned long, irq_status[NR_IRQS / BITS_PER_LONG]);
+static DEFINE_PER_CPU(atomic64_t, irq_pending);
+
+void __cpuidle arch_cpu_idle(void)
+{
+	atomic64_t *pending = this_cpu_ptr(&irq_pending);
+	pr_info("cpu %i idle: %p %lli\n", raw_smp_processor_id(), pending,
+		pending->counter);
+	__builtin_wasm_memory_atomic_wait64(&pending->counter, 0, -1);
+	pr_info("cpu %i wake: %p %lli\n", raw_smp_processor_id(), pending,
+		pending->counter);
+	raw_local_irq_enable();
+}
+
+void cpu_relax(void)
+{
+	unsigned long flags;
+	atomic64_t *pending;
+	local_irq_save(flags);
+	pending = this_cpu_ptr(&irq_pending);
+	pr_info("cpu %i relax: %p %llu\n", raw_smp_processor_id(), pending,
+		pending->counter);
+	__builtin_wasm_memory_atomic_wait64(&pending->counter, 0,
+					    10 * 1000 * 1000);
+	local_irq_restore(flags);
+}
 
 static void run_irq(irq_hw_number_t hwirq)
 {
 	static struct pt_regs dummy;
 	unsigned long flags;
 	struct pt_regs *old_regs = set_irq_regs((struct pt_regs *)&dummy);
+
+	pr_info("running irq %lu on cpu %i\n", hwirq, raw_smp_processor_id());
 
 	/* interrupt handlers need to run with interrupts disabled */
 	local_irq_save(flags);
@@ -33,36 +60,42 @@ unsigned long arch_local_save_flags(void)
 static void run_irqs(void)
 {
 	int irq;
-	unsigned long(*status)[NR_IRQS / BITS_PER_LONG] =
-		this_cpu_ptr(&irq_status);
+	atomic64_t *pending = this_cpu_ptr(&irq_pending);
+
+	if (pending->counter != 0)
+		pr_info("run irqs: %p %llu\n", pending, pending->counter);
 
 	for_each_irq_nr(irq)
-		if (test_and_clear_bit(irq % BITS_PER_LONG,
-				       status[irq / BITS_PER_LONG]))
+		if (atomic64_fetch_andnot(1 << irq, pending) & (1 << irq))
 			run_irq(irq);
 }
 
-__attribute__((export_name("trigger_irq"))) void trigger_irq(irq_hw_number_t irq)
+// __attribute__((export_name("trigger_irq"))) void
+// trigger_irq(irq_hw_number_t irq)
+// {
+// 	unsigned long(*pending)[NR_IRQS / BITS_PER_LONG] =
+// 		this_cpu_ptr(&irq_pending);
+
+// 	if (arch_irqs_disabled()) {
+// 		set_bit(irq % BITS_PER_LONG, pending[irq / BITS_PER_LONG]);
+// 		return;
+// 	}
+
+// 	run_irq(irq);
+// }
+
+__attribute__((export_name("trigger_irq_for_cpu"))) void
+trigger_irq_for_cpu(unsigned int cpu, irq_hw_number_t irq)
 {
-	unsigned long(*status)[NR_IRQS / BITS_PER_LONG] =
-		this_cpu_ptr(&irq_status);
+	atomic64_t *pending = per_cpu_ptr(&irq_pending, cpu);
 
-	if (arch_irqs_disabled()) {
-		set_bit(irq % BITS_PER_LONG, status[irq / BITS_PER_LONG]);
-		return;
-	}
+	atomic64_fetch_or(1 << irq, pending);
 
-	run_irq(irq);
-}
+	pr_info("trigger irq %lu for cpu %d, from %d: %p\n", irq, cpu,
+		raw_smp_processor_id(), per_cpu_ptr(&irq_pending, cpu));
 
-void trigger_irq_for_cpu(unsigned int cpu, irq_hw_number_t irq)
-{
-	unsigned long(*status)[NR_IRQS / BITS_PER_LONG] =
-		per_cpu_ptr(&irq_status, cpu);
-
-	pr_info("trigger irq %lu for cpu %d\n", irq, cpu);
-
-	set_bit(irq % BITS_PER_LONG, status[irq / BITS_PER_LONG]);
+	__builtin_wasm_memory_atomic_notify((void *)&pending->counter,
+					    /* at most, wake up: */ 1);
 }
 
 void arch_local_irq_restore(unsigned long flags)
@@ -97,23 +130,16 @@ void __init init_IRQ(void)
 {
 	struct irq_domain *root_domain;
 
-        pr_info("init wasm irq\n");
+	root_domain = irq_domain_add_linear(NULL, NR_IRQS, &wasm_irq_ops, NULL);
+	if (!root_domain)
+		panic("root irq domain not available\n");
 
-        root_domain = irq_domain_add_linear(NULL, NR_IRQS, &wasm_irq_ops, NULL);
-        if (!root_domain)
-                panic("root irq domain not available\n");
-
-        irq_set_default_host(root_domain);
+	irq_set_default_host(root_domain);
 
 #ifdef CONFIG_SMP
-        irq_create_mapping(root_domain, IPI_IRQ);
+	irq_create_mapping(root_domain, IPI_IRQ);
 	setup_smp_ipi();
 #endif
 
 	pr_info("IRQs enabled\n");
-}
-
-void cpu_yield_to_irqs(void)
-{
-	cpu_relax();
 }

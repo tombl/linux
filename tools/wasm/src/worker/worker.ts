@@ -16,7 +16,12 @@ interface Instance extends WebAssembly.Instance {
     boot(): void;
     task(task: ptr): void;
     secondary(cpu: u32, idle: ptr): void;
+    trigger_irq_for_cpu(cpu: u32, irq: u32): void;
   };
+}
+
+declare global {
+  function interrupt(cpu: u32, irq: u32): void;
 }
 
 // const BACKTRACE_ADDRESS_RE = /wasm:.*:((?:0x)?[0-9a-f]+)\)$/gm;
@@ -67,6 +72,8 @@ self.onmessage = ({ data }: MessageEvent<ToWorkerMessage>) => {
       imports,
     ) as Instance;
 
+    globalThis.interrupt = instance.exports.trigger_irq_for_cpu;
+
     switch (data.type) {
       case ToWorkerMessageType.BOOT:
         instance.exports.boot();
@@ -78,7 +85,12 @@ self.onmessage = ({ data }: MessageEvent<ToWorkerMessage>) => {
         instance.exports.secondary(data.cpu, data.idle);
         break;
       default:
-        unreachable(data);
+        unreachable(
+          data,
+          `invalid worker->main message type: ${
+            (data as { type: unknown }).type
+          }`,
+        );
     }
   } catch (error) {
     console.error(error);

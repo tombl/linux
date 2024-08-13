@@ -20,7 +20,6 @@ export type ToWorkerMessage =
 export const enum FromWorkerMessageType {
   BOOT_CONSOLE_WRITE,
   BOOT_CONSOLE_CLOSE,
-  HALT,
   RESTART,
   SPAWN,
   ERROR,
@@ -33,7 +32,6 @@ export type FromWorkerMessage =
     message: Uint8Array;
   }
   | { type: FromWorkerMessageType.BOOT_CONSOLE_CLOSE }
-  | { type: FromWorkerMessageType.HALT }
   | { type: FromWorkerMessageType.RESTART }
   | { type: FromWorkerMessageType.SPAWN; task: ptr; name: string }
   | { type: FromWorkerMessageType.ERROR; error: Error }
