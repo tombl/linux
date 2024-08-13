@@ -214,7 +214,8 @@ void __init setup_smp_ipi(void)
 	int err;
 
 	int irq = irq_find_mapping(NULL, IPI_IRQ);
-	BUG_ON(!irq);
+	if (!irq)
+		panic("no mapping for IPI_IRQ\n");
 
 	err = request_irq(irq, handle_ipi, 0, "ipi", &dummy_dev);
 	if (err)

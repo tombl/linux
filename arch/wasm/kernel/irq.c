@@ -42,7 +42,7 @@ static void run_irqs(void)
 			run_irq(irq);
 }
 
-__attribute__((export_name("trigger_irq"))) void trigger_irq(unsigned int irq)
+__attribute__((export_name("trigger_irq"))) void trigger_irq(irq_hw_number_t irq)
 {
 	unsigned long(*status)[NR_IRQS / BITS_PER_LONG] =
 		this_cpu_ptr(&irq_status);
@@ -55,10 +55,12 @@ __attribute__((export_name("trigger_irq"))) void trigger_irq(unsigned int irq)
 	run_irq(irq);
 }
 
-void trigger_irq_for_cpu(unsigned int cpu, unsigned int irq)
+void trigger_irq_for_cpu(unsigned int cpu, irq_hw_number_t irq)
 {
 	unsigned long(*status)[NR_IRQS / BITS_PER_LONG] =
 		per_cpu_ptr(&irq_status, cpu);
+
+	pr_info("trigger irq %lu for cpu %d\n", irq, cpu);
 
 	set_bit(irq % BITS_PER_LONG, status[irq / BITS_PER_LONG]);
 }
@@ -71,17 +73,40 @@ void arch_local_irq_restore(unsigned long flags)
 	__this_cpu_write(irqflags, flags);
 }
 
+static int wasm_irq_map(struct irq_domain *d, unsigned int irq,
+			irq_hw_number_t hw)
+{
+	pr_info("wasm_irq_map: %d -> %lu\n", irq, hw);
+
+	// if (hw < FIRST_EXT_IRQ) {
+	// 	irq_set_percpu_devid(irq);
+	// 	irq_set_chip_and_handler(irq, &dummy_irq_chip, handle_percpu_irq);
+	// } else {
+	irq_set_chip_and_handler(irq, &dummy_irq_chip, handle_simple_irq);
+	// }
+
+	return 0;
+}
+
+static const struct irq_domain_ops wasm_irq_ops = {
+	.xlate = irq_domain_xlate_onecell,
+	.map = wasm_irq_map,
+};
+
 void __init init_IRQ(void)
 {
-	// int irq;
+	struct irq_domain *root_domain;
 
-	irqchip_init();
+        pr_info("init wasm irq\n");
 
-	// for_each_irq_nr(irq)
-	// 	irq_set_chip_and_handler(irq, &dummy_irq_chip,
-	// 				 handle_simple_irq);
+        root_domain = irq_domain_add_linear(NULL, NR_IRQS, &wasm_irq_ops, NULL);
+        if (!root_domain)
+                panic("root irq domain not available\n");
+
+        irq_set_default_host(root_domain);
 
 #ifdef CONFIG_SMP
+        irq_create_mapping(root_domain, IPI_IRQ);
 	setup_smp_ipi();
 #endif
 
