@@ -6,7 +6,6 @@ obj-y += \
 	globals.o \
 	idle.o \
 	irq.o \
-	irqchip.o \
 	process.o \
 	ptrace.o \
 	sections.o \
