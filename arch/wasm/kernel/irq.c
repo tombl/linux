@@ -111,12 +111,7 @@ static int wasm_irq_map(struct irq_domain *d, unsigned int irq,
 {
 	pr_info("wasm_irq_map: %d -> %lu\n", irq, hw);
 
-	// if (hw < FIRST_EXT_IRQ) {
-	// 	irq_set_percpu_devid(irq);
-	// 	irq_set_chip_and_handler(irq, &dummy_irq_chip, handle_percpu_irq);
-	// } else {
-	irq_set_chip_and_handler(irq, &dummy_irq_chip, handle_simple_irq);
-	// }
+	irq_set_chip_and_handler(irq, &dummy_irq_chip, handle_percpu_irq);
 
 	return 0;
 }
