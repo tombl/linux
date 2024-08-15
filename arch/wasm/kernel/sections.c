@@ -12,7 +12,6 @@ char __start___ex_table, __stop___ex_table;
 char __sched_text_start, __sched_text_end;
 char __cpuidle_text_start, __cpuidle_text_end;
 char __lock_text_start, __lock_text_end;
-char __reservedmem_of_table, __reservedmem_of_table;
 
 #define INITCALL_LEVEL(n) void *__initcall##n##_start, *__initcall##n##_end;
 

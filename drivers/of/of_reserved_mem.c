@@ -176,9 +176,10 @@ static const struct of_device_id __rmem_of_table_sentinel
  */
 static int __init __reserved_mem_init_node(struct reserved_mem *rmem)
 {
+	int ret = -ENOENT;
+#ifndef CONFIG_WASM
 	extern const struct of_device_id __reservedmem_of_table[];
 	const struct of_device_id *i;
-	int ret = -ENOENT;
 
 	for (i = __reservedmem_of_table; i < &__rmem_of_table_sentinel; i++) {
 		reservedmem_of_init_fn initfn = i->data;
@@ -194,6 +195,7 @@ static int __init __reserved_mem_init_node(struct reserved_mem *rmem)
 			break;
 		}
 	}
+#endif
 	return ret;
 }
 

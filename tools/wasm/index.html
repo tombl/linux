@@ -106,6 +106,10 @@
         })
       );
 
+      machine.addEventListener("halt", () => {
+        term.write("halting...");
+      });
+
       machine.addEventListener("restart", () => {
         location.reload();
       });

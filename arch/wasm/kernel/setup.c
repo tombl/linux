@@ -15,22 +15,23 @@ void __wasm_call_ctors(void);
 int __init setup_early_printk(char *buf);
 void __init smp_init_cpus(unsigned int ncpus);
 void __init init_sections(unsigned long node);
+void wasm_import(boot, get_devicetree)(char *buf, size_t size);
 
 __attribute__((export_name("boot"))) void __init _start(void)
 {
-	static char wasm_dt[1024];
+	static char devicetree[2048];
 	int node;
 
 	set_current_cpu(0);
 	set_current_task(&init_task);
-	
+
 	memblock_reserve(0, (phys_addr_t)&__heap_base);
 
-	wasm_get_dt(wasm_dt, ARRAY_SIZE(wasm_dt));
-	BUG_ON(!early_init_dt_scan(wasm_dt));
+	wasm_boot_get_devicetree(devicetree, ARRAY_SIZE(devicetree));
+	BUG_ON(!early_init_dt_scan(devicetree));
 	early_init_fdt_scan_reserved_mem();
 
-	node = fdt_path_offset(wasm_dt, "/data-sections");
+	node = fdt_path_offset(devicetree, "/chosen/sections");
 	if (node < 0)
 		__builtin_trap();
 
@@ -58,11 +59,11 @@ void __init setup_arch(char **cmdline_p)
 	BUG_ON(THREAD_SIZE <
 	       (&__stack_high - &__stack_low) + sizeof(struct task_struct));
 
-	unflatten_and_copy_device_tree();
+	unflatten_device_tree();
 
-	ret = of_property_read_u32(of_root, "ncpus", &ncpus);
+	ret = of_property_read_u32(of_chosen, "ncpus", &ncpus);
 	if (ret) {
-		pr_warn("failed to read '/ncpus', defaulting to 1: %d\n", ret);
+		pr_warn("failed to read '/chosen/ncpus', defaulting to 1: %d\n", ret);
 		ncpus = 1;
 	}
 	smp_init_cpus(ncpus);
@@ -75,7 +76,7 @@ void __init setup_arch(char **cmdline_p)
 void machine_restart(char *cmd)
 {
 	pr_info("restart %s\n", cmd);
-	wasm_restart();
+	wasm_kernel_restart();
 }
 
 void machine_halt(void)

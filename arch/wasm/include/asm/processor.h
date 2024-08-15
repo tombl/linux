@@ -11,7 +11,7 @@ struct task_struct;
 
 void cpu_relax(void);
 
-#define current_text_addr() wasm_return_address(-1)
+#define current_text_addr() wasm_kernel_return_address(-1)
 
 static inline unsigned long thread_saved_pc(struct task_struct *tsk)
 {

@@ -1,6 +1,7 @@
 #ifndef _WASM_SMP_H
 #define _WASM_SMP_H
 
+#include <linux/init.h>
 #include "globals.h"
 
 #ifdef CONFIG_SMP
@@ -11,7 +12,7 @@ struct cpumask;
 void arch_send_call_function_ipi_mask(const struct cpumask *mask);
 void arch_send_call_function_single_ipi(int cpu);
 
-void handle_IPI(void);
+void __init setup_smp_ipi(void);
 
 #endif
 
