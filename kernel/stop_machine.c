@@ -7,8 +7,6 @@
  * Copyright (C) 2010		SUSE Linux Products GmbH
  * Copyright (C) 2010		Tejun Heo <tj@kernel.org>
  */
-#define pr_fmt(fmt) "stop_machine: " fmt
-
 #include <linux/compiler.h>
 #include <linux/completion.h>
 #include <linux/cpu.h>
@@ -192,8 +190,7 @@ static void set_state(struct multi_stop_data *msdata,
 /* Last one to ack a state moves to the next state. */
 static void ack_state(struct multi_stop_data *msdata)
 {
-	int v = atomic_dec_return(&msdata->thread_ack);
-	if (v == 0)
+	if (atomic_dec_and_test(&msdata->thread_ack))
 		set_state(msdata, msdata->state + 1);
 }
 
@@ -427,6 +424,7 @@ static int __stop_cpus(const struct cpumask *cpumask,
 		       cpu_stop_fn_t fn, void *arg)
 {
 	struct cpu_stop_done done;
+
 	cpu_stop_init_done(&done, cpumask_weight(cpumask));
 	if (!queue_stop_cpus_work(cpumask, fn, arg, &done))
 		return -ENOENT;
