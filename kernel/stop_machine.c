@@ -187,14 +187,12 @@ static void set_state(struct multi_stop_data *msdata,
 	atomic_set(&msdata->thread_ack, msdata->num_threads);
 	smp_wmb();
 	WRITE_ONCE(msdata->state, newstate);
-	pr_info("set: %d\n", msdata->num_threads);
 }
 
 /* Last one to ack a state moves to the next state. */
 static void ack_state(struct multi_stop_data *msdata)
 {
 	int v = atomic_dec_return(&msdata->thread_ack);
-	pr_info("%d, ack: %p->%d\n", raw_smp_processor_id(), msdata, v);
 	if (v == 0)
 		set_state(msdata, msdata->state + 1);
 }
@@ -356,8 +354,6 @@ int stop_two_cpus(unsigned int cpu1, unsigned int cpu2, cpu_stop_fn_t fn, void *
 		.caller = _RET_IP_,
 	};
 
-	pr_info("%s(%d, %d)\n", __func__, cpu1, cpu2);
-
 	cpu_stop_init_done(&done, 2);
 	set_state(&msdata, MULTI_STOP_PREPARE);
 
@@ -431,7 +427,6 @@ static int __stop_cpus(const struct cpumask *cpumask,
 		       cpu_stop_fn_t fn, void *arg)
 {
 	struct cpu_stop_done done;
-	pr_info("%s(%*pb, %p)\n", __func__, cpumask_pr_args(cpumask), fn);
 	cpu_stop_init_done(&done, cpumask_weight(cpumask));
 	if (!queue_stop_cpus_work(cpumask, fn, arg, &done))
 		return -ENOENT;
@@ -623,7 +618,6 @@ int stop_machine_cpuslocked(cpu_stop_fn_t fn, void *data,
 
 	/* Set the initial state and stop all online cpus. */
 	set_state(&msdata, MULTI_STOP_PREPARE);
-	pr_info("%s(%p) %p\n", __func__, fn, &msdata);
 	return stop_cpus(cpu_online_mask, multi_cpu_stop, &msdata);
 }
 
@@ -697,8 +691,6 @@ int stop_machine_from_inactive_cpu(cpu_stop_fn_t fn, void *data,
 	/* No proper task established and can't sleep - busy wait for lock. */
 	while (!mutex_trylock(&stop_cpus_mutex))
 		cpu_relax();
-
-	pr_info("%s(%*pb)\n", __func__, cpumask_pr_args(cpus));
 
 	/* Schedule work on other CPUs and execute directly for local CPU */
 	set_state(&msdata, MULTI_STOP_PREPARE);

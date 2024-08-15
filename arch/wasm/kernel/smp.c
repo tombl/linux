@@ -186,7 +186,6 @@ static irqreturn_t handle_ipi(int irq, void *dev)
 
 		if (ops & (1 << IPI_CPU_STOP)) {
 			stats[IPI_CPU_STOP]++;
-			// TODO: should only stop the current CPU
 			wasm_kernel_halt();
 		}
 
