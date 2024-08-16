@@ -45,7 +45,8 @@ struct section_mapping {
 
 static struct section_mapping percpu_sections[5];
 
-void* __percpu_section_remap(void *addr) {
+void *__percpu_section_remap(void __percpu *addr)
+{
 	for (int i = 0; i < ARRAY_SIZE(percpu_sections); i++) {
 		struct section_mapping *map = &percpu_sections[i];
 		if (map->start <= addr && addr < map->end){
