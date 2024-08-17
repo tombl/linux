@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run --allow-read
-import { start } from "./src/index.ts";
+import { Machine } from "./src/index.ts";
 import sections from "./sections.json" with { type: "json" };
 import { parseArgs } from "jsr:@std/cli@1/parse-args";
 import { assert } from "./src/util.ts";
@@ -30,7 +30,7 @@ options:
 assert(typeof args.cpus === "number", "cpus must be a number");
 assert(typeof args.memory === "number", "memory must be a number");
 
-const machine = start({
+const machine = new Machine({
   cmdline: args.cmdline,
   memoryMib: args.memory,
   cpus: args.cpus,
@@ -43,16 +43,18 @@ const machine = start({
 
 machine.bootConsole.pipeTo(Deno.stdout.writable);
 
-machine.addEventListener("halt", () => {
+machine.on("halt", () => {
   console.log("halting...");
   Deno.exit(1);
 });
 
-machine.addEventListener("restart", () => {
+machine.on("restart", () => {
   console.log("reboot requested. halting...");
   Deno.exit(0);
 });
 
-machine.addEventListener("error", ({ detail: { error, threadName } }) => {
+machine.on("error", ({ error, threadName }) => {
   console.log(`Error in ${threadName}:`, error);
 });
+
+machine.boot();

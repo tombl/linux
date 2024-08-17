@@ -18,9 +18,22 @@ export type u64 = Branded<bigint, "u64">;
 export type ptr = Branded<number, "ptr">;
 export const NULL = 0 as ptr;
 
-export function getScriptPath(fn: () => void, meta: ImportMeta) {
+export function getScriptPath(fn: () => void, importMeta: ImportMeta) {
   return new URL(
     fn.toString().match(/import\("(.*)"\)/)![1],
-    meta.url,
+    importMeta.url,
   );
+}
+
+export class EventEmitter<Events> {
+  #subscribers: { [K in keyof Events]?: Set<(data: Events[K]) => void> } = {};
+  on<K extends keyof Events>(event: K, handler: (data: Events[K]) => void) {
+    (this.#subscribers[event] ??= new Set()).add(handler);
+  }
+  off<K extends keyof Events>(event: K, handler: (data: Events[K]) => void) {
+    this.#subscribers[event]?.delete(handler);
+  }
+  protected emit<K extends keyof Events>(event: K, data: Events[K]) {
+    this.#subscribers[event]?.forEach((handler) => handler(data));
+  }
 }

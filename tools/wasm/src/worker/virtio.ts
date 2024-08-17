@@ -1,14 +1,13 @@
 // corrosponds to arch/wasm/drivers/virtio_wasm.c
 
 import { assert, ptr, u32, u64, u8 } from "../util.ts";
-
-const VIRTIO_F_VERSION_1 = 1 << 32;
+import { F_VERSION_1 } from "../virtio.ts";
 
 export abstract class Device {
   config = new Uint8Array();
   configGeneration = 0 as u32;
   status = 0 as u8;
-  features = BigInt(VIRTIO_F_VERSION_1) as u64;
+  features = BigInt(F_VERSION_1) as u64;
 
   abstract readonly DEVICE_ID: u32;
 
@@ -25,7 +24,7 @@ export class Entropy extends Device {
   }
 }
 
-export class VirtioImports {
+export class Imports {
   #memory: Uint8Array;
   #devices: Map<u32, Device>;
   constructor(memory: Uint8Array, devices: Map<u32, Device>) {

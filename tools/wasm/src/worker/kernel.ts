@@ -1,8 +1,8 @@
 // corrosponds to arch/wasm/kernel/wasm_imports.h
 
-import { FromWorkerMessageType } from "./messages.ts";
+import { transfer } from "../rpc.ts";
 import { NULL, ptr, u32, u64 } from "../util.ts";
-import { postMessage } from "./worker.ts";
+import { main } from "./worker.ts";
 
 export class KernelImports {
   #memory: Uint8Array;
@@ -18,24 +18,18 @@ export class KernelImports {
     self.close();
   };
   restart = (): void => {
-    postMessage({ type: FromWorkerMessageType.RESTART });
+    main.restart();
   };
 
   boot_console_write = (msg: ptr, len: u32): void => {
     const message = this.#memory.slice(msg, msg + len);
-    postMessage({ type: FromWorkerMessageType.BOOT_CONSOLE_WRITE, message }, [
-      message.buffer,
-    ]);
+    main.bootConsoleWrite(transfer(message.buffer));
   };
   boot_console_close = (): void => {
-    postMessage({ type: FromWorkerMessageType.BOOT_CONSOLE_CLOSE });
+    main.bootConsoleClose();
   };
 
   return_address = (_level: u32): ptr => {
-    // const matches = new Error().stack?.matchAll(BACKTRACE_ADDRESS_RE);
-    // if (!matches) return -1;
-    // const match = iteratorNth(matches, level + 1);
-    // return parseInt(match?.[1] ?? "-1");
     return NULL;
   };
 
@@ -74,10 +68,10 @@ export class KernelImports {
     const name = new TextDecoder().decode(
       this.#memory.slice(comm, comm + commLen),
     );
-    postMessage({ type: FromWorkerMessageType.SPAWN, task, name });
+    main.spawnTask(task, name);
   };
 
   bringup_secondary = (cpu: u32, idle: ptr) => {
-    postMessage({ type: FromWorkerMessageType.BRINGUP_SECONDARY, cpu, idle });
+    main.bringupSecondary(cpu, idle);
   };
 }

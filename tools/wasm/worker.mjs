@@ -15,144 +15,62 @@
  * limitations under the License.
  */
 
-import URL from "url";
-import VM from "vm";
-import threads from "worker_threads";
-
-const WORKER = Symbol.for("worker");
-const EVENTS = Symbol.for("events");
-
-class EventTarget {
-  constructor() {
-    Object.defineProperty(this, EVENTS, {
-      value: new Map(),
-    });
-  }
-  dispatchEvent(event) {
-    event.target = event.currentTarget = this;
-    if (this["on" + event.type]) {
-      try {
-        this["on" + event.type](event);
-      } catch (err) {
-        console.error(err);
-      }
-    }
-    const list = this[EVENTS].get(event.type);
-    if (list == null) return;
-    list.forEach((handler) => {
-      try {
-        handler.call(this, event);
-      } catch (err) {
-        console.error(err);
-      }
-    });
-  }
-  addEventListener(type, fn) {
-    let events = this[EVENTS].get(type);
-    if (!events) this[EVENTS].set(type, events = []);
-    events.push(fn);
-  }
-  removeEventListener(type, fn) {
-    let events = this[EVENTS].get(type);
-    if (events) {
-      const index = events.indexOf(fn);
-      if (index !== -1) events.splice(index, 1);
-    }
-  }
-}
-
-function Event(type, target) {
-  this.type = type;
-  this.timeStamp = Date.now();
-  this.target = this.currentTarget = this.data = null;
-}
+import { fileURLToPath } from "node:url";
+import * as threads from "node:worker_threads";
 
 // this module is used self-referentially on both sides of the
 // thread boundary, but behaves differently in each context.
 export default threads.isMainThread ? mainThread() : workerThread();
 
-const baseUrl = URL.pathToFileURL(process.cwd() + "/");
-
 function mainThread() {
-  /**
-   * A web-compatible Worker implementation atop Node's worker_threads.
-   *  - uses DOM-style events (Event.data, Event.type, etc)
-   *  - supports event handler properties (worker.onmessage)
-   *  - Worker() constructor accepts a module URL
-   *  - accepts the {type:'module'} option
-   *  - emulates WorkerGlobalScope within the worker
-   * @param {string} url  The URL or module specifier to load
-   * @param {object} [options]  Worker construction options
-   * @param {string} [options.name]  Available as `self.name` within the Worker
-   * @param {string} [options.type="classic"]  Pass "module" to create a Module Worker.
-   */
   class Worker extends EventTarget {
-    constructor(url, options) {
+    #worker;
+    constructor(url, { name } = {}) {
       super();
-      const { name, type } = options || {};
-      url += "";
-      let mod;
-      if (/^data:/.test(url)) {
-        mod = url;
-      } else {
-        mod = URL.fileURLToPath(new URL.URL(url, baseUrl));
-      }
+      const mod = fileURLToPath(url);
       const worker = new threads.Worker(
         import.meta.filename,
-        { workerData: { mod, name, type } },
+        { workerData: { mod, name }, name },
       );
-      Object.defineProperty(this, WORKER, {
-        value: worker,
-      });
+      this.#worker = worker;
       worker.on("message", (data) => {
         const event = new Event("message");
         event.data = data;
         this.dispatchEvent(event);
       });
       worker.on("error", (error) => {
-        error.type = "error";
-        this.dispatchEvent(error);
+        const event = new Event("error");
+        event.error = error;
+        this.dispatchEvent(event);
       });
       worker.on("exit", () => {
         this.dispatchEvent(new Event("close"));
       });
     }
     postMessage(data, transferList) {
-      this[WORKER].postMessage(data, transferList);
+      this.#worker.postMessage(data, transferList);
     }
     terminate() {
-      this[WORKER].terminate();
+      this.#worker.terminate();
     }
   }
-  Worker.prototype.onmessage =
-    Worker.prototype.onerror =
-    Worker.prototype
-      .onclose =
-      null;
+  Worker.prototype.onmessage = null;
+  Worker.prototype.onerror = null;
+  Worker.prototype.onclose = null;
   return Worker;
 }
 
 function workerThread() {
-  let { mod, name, type } = threads.workerData;
+  const { mod, name } = threads.workerData;
   if (!mod) return mainThread();
 
   // turn global into a mock WorkerGlobalScope
   const self = global.self = global;
 
-  // enqueue messages to dispatch after modules are loaded
-  let q = [];
-  function flush() {
-    const buffered = q;
-    q = null;
-    buffered.forEach((event) => {
-      self.dispatchEvent(event);
-    });
-  }
   threads.parentPort.on("message", (data) => {
     const event = new Event("message");
     event.data = data;
-    if (q == null) self.dispatchEvent(event);
-    else q.push(event);
+    self.dispatchEvent(event);
   });
   threads.parentPort.on("error", (err) => {
     err.type = "Error";
@@ -178,52 +96,5 @@ function workerThread() {
     });
   global.name = name;
 
-  const isDataUrl = /^data:/.test(mod);
-  if (type === "module") {
-    import(mod)
-      .catch((err) => {
-        if (isDataUrl && err.message === "Not supported") {
-          console.warn(
-            "Worker(): Importing data: URLs requires Node 12.10+. Falling back to classic worker.",
-          );
-          return evaluateDataUrl(mod, name);
-        }
-        console.error(err);
-      })
-      .then(flush);
-  } else {
-    try {
-      if (/^data:/.test(mod)) {
-        evaluateDataUrl(mod, name);
-      } else {
-        require(mod);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-    Promise.resolve().then(flush);
-  }
-}
-
-function evaluateDataUrl(url, name) {
-  const { data } = parseDataUrl(url);
-  return VM.runInThisContext(data, {
-    filename: "worker.<" + (name || "data:") + ">",
-  });
-}
-
-function parseDataUrl(url) {
-  let [m, type, encoding, data] =
-    url.match(/^data: *([^;,]*)(?: *; *([^,]*))? *,(.*)$/) || [];
-  if (!m) throw Error("Invalid Data URL.");
-  if (encoding) {
-    switch (encoding.toLowerCase()) {
-      case "base64":
-        data = Buffer.from(data, "base64").toString();
-        break;
-      default:
-        throw Error('Unknown Data URL encoding "' + encoding + '"');
-    }
-  }
-  return { type, data };
+  import(mod);
 }

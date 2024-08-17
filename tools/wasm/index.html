@@ -65,7 +65,7 @@
       </form>
     </details>
     <script type="module">
-      import { start } from "./dist/index.js";
+      import { Machine } from "./dist/index.js";
 
       const term = new Terminal({ convertEol: true, disableStdin: true });
       const termFit = new FitAddon.FitAddon();
@@ -89,8 +89,7 @@
       document.querySelector("input[name=cmdline]").value = cmdline;
       document.querySelector("input[name=memory]").value = memory;
 
-
-      const machine = start({
+      const machine = new Machine({
         cmdline: cmdline.replace(/\+/g, " "),
         vmlinux: await WebAssembly.compileStreaming(fetch("/vmlinux.wasm")),
         sections: await (await fetch("/sections.json")).json(),
@@ -106,17 +105,19 @@
         })
       );
 
-      machine.addEventListener("halt", () => {
+      machine.on("halt", () => {
         term.write("halting...");
       });
 
-      machine.addEventListener("restart", () => {
+      machine.on("restart", () => {
         location.reload();
       });
 
-      machine.addEventListener("error", ({ detail: { error, threadName } }) => {
+      machine.on("error", ({ error, threadName }) => {
         term.write(`${error.name} in ${threadName}: ${error.message}\n`);
       });
+
+      machine.boot();
     </script>
   </body>
 </html>
