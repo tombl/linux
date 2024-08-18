@@ -1,7 +1,7 @@
 // corrosponds to arch/wasm/kernel/wasm_imports.h
 
 import { transfer } from "../rpc.ts";
-import { NULL, ptr, u32, u64 } from "../util.ts";
+import { NULL, type ptr, type u32, type u64 } from "../util.ts";
 import { main } from "./worker.ts";
 
 export class KernelImports {

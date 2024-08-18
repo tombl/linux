@@ -1,9 +1,15 @@
-import { DeviceTreeNode, generateDevicetree } from "./devicetree.ts";
+import sections from "./build/sections.json" with { type: "json" };
+import vmlinuxUrl from "./build/vmlinux.wasm";
+import { type DeviceTreeNode, generateDevicetree } from "./devicetree.ts";
 import { sendBootstrap, transfer } from "./rpc.ts";
-import { assert, EventEmitter, getScriptPath, u32 } from "./util.ts";
+import { assert, EventEmitter, getScriptPath, type u32 } from "./util.ts";
 import * as virtio from "./virtio.ts";
 import { Entropy } from "./worker/virtio.ts";
 import type { MainExposed, WorkerExposed } from "./worker/worker.ts";
+
+const vmlinux = WebAssembly.compileStreaming(
+  fetch(new URL(vmlinuxUrl, import.meta.url)),
+);
 
 export class Machine extends EventEmitter<{
   halt: void;
@@ -13,7 +19,6 @@ export class Machine extends EventEmitter<{
   #bootConsole: TransformStream<Uint8Array, Uint8Array>;
   #bootConsoleWriter: WritableStreamDefaultWriter<Uint8Array>;
   #workers: Worker[] = [];
-  #vmlinux: WebAssembly.Module;
   #memory: WebAssembly.Memory;
   #Worker: typeof globalThis.Worker;
 
@@ -26,8 +31,6 @@ export class Machine extends EventEmitter<{
 
   constructor(options: {
     cmdline?: string;
-    vmlinux: WebAssembly.Module;
-    sections: Record<string, number[]>;
     memoryMib?: number;
     cpus?: number;
     Worker?: typeof globalThis.Worker;
@@ -35,7 +38,6 @@ export class Machine extends EventEmitter<{
     super();
     this.#bootConsole = new TransformStream<Uint8Array, Uint8Array>();
     this.#bootConsoleWriter = this.#bootConsole.writable.getWriter();
-    this.#vmlinux = options.vmlinux;
     this.#Worker = options.Worker ?? globalThis.Worker;
 
     const PAGE_SIZE = 0x10000;
@@ -57,7 +59,7 @@ export class Machine extends EventEmitter<{
     const mmioAlloc = (size: number) => {
       const ptr = mmioBase;
       mmioBase += size;
-      return [ptr, size];
+      return [ptr, size] as const;
     };
 
     const RNG_REG = mmioAlloc(0x100);
@@ -78,7 +80,7 @@ export class Machine extends EventEmitter<{
         "rng-seed": crypto.getRandomValues(new Uint8Array(64)),
         bootargs: options.cmdline ?? "no_hash_pointers",
         ncpus: options.cpus ?? navigator.hardwareConcurrency,
-        sections: options.sections,
+        sections,
       },
       aliases: {},
       memory: {
@@ -115,11 +117,8 @@ export class Machine extends EventEmitter<{
 
   async boot() {
     const devicetree = generateDevicetree(this.devicetree);
-    await (await this.#spawn("entry")).boot(
-      this.#vmlinux,
-      this.#memory,
-      transfer(devicetree.buffer),
-    );
+    const worker = await this.#spawn("entry");
+    await worker.boot(await vmlinux, this.#memory, transfer(devicetree.buffer));
   }
 
   #spawn(name: string) {
@@ -142,18 +141,15 @@ export class Machine extends EventEmitter<{
         this.emit("restart", undefined);
       },
       spawnTask: async (task, name) => {
-        await (await this.#spawn(name)).task(this.#vmlinux, this.#memory, task);
+        const worker = await this.#spawn(name);
+        await worker.task(await vmlinux, this.#memory, task);
       },
       error: (error) => {
         this.emit("error", { error, threadName: name });
       },
       bringupSecondary: async (cpu, idle) => {
-        await (await this.#spawn(`entry${cpu}`)).secondary(
-          this.#vmlinux,
-          this.#memory,
-          cpu,
-          idle,
-        );
+        const worker = await this.#spawn(`entry${cpu}`);
+        await worker.secondary(await vmlinux, this.#memory, cpu, idle);
       },
     });
   }

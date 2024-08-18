@@ -1,1 +1,2 @@
-vmlinux.wasm
+vmlinux.*
+sections.json

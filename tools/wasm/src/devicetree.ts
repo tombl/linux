@@ -15,7 +15,7 @@ type DeviceTreeProperty =
   | string
   | number
   | bigint
-  | number[]
+  | readonly number[]
   | Uint8Array
   | Uint16Array
   | Uint32Array
@@ -117,13 +117,7 @@ function inner(
           value = new TextEncoder().encode(`${prop}\0`).buffer;
           break;
         case "object":
-          if (Array.isArray(prop)) {
-            value = new Uint32Array(prop.length).buffer;
-            const dv = new DataView(value);
-            for (let i = 0; i < prop.length; i++) {
-              dv.setUint32(i * 4, prop[i]);
-            }
-          } else if (
+          if (
             prop instanceof Uint8Array ||
             prop instanceof Uint16Array ||
             prop instanceof Uint32Array ||
@@ -133,10 +127,11 @@ function inner(
           } else if (prop instanceof ArrayBuffer) {
             value = prop;
           } else {
-            unreachable(
-              prop,
-              `unsupported prop type: ${(prop as object)?.constructor.name}`,
-            );
+            value = new Uint32Array(prop.length).buffer;
+            const dv = new DataView(value);
+            for (const [i, n] of prop.entries()) {
+              dv.setUint32(i * 4, n);
+            }
           }
           break;
         case "undefined":

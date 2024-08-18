@@ -1,6 +1,5 @@
 #!/usr/bin/env -S deno run --allow-read
-import { Machine } from "./src/index.ts";
-import sections from "./sections.json" with { type: "json" };
+import { Machine } from "./dist/index.js";
 import { parseArgs } from "jsr:@std/cli@1/parse-args";
 import { assert } from "./src/util.ts";
 
@@ -34,11 +33,6 @@ const machine = new Machine({
   cmdline: args.cmdline,
   memoryMib: args.memory,
   cpus: args.cpus,
-
-  vmlinux: await WebAssembly.compileStreaming(
-    await fetch(new URL("vmlinux.wasm", import.meta.url)),
-  ),
-  sections,
 });
 
 machine.bootConsole.pipeTo(Deno.stdout.writable);

@@ -1,4 +1,3 @@
-.wrangler
-vmlinux.wasm
-dist
-sections.json
+/.wrangler
+/dist
+/src/build

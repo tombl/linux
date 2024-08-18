@@ -1,8 +1,5 @@
-/// <reference no-default-lib="true" />
-/// <reference lib="deno.worker" />
-
 import { bootstrapWorker } from "../rpc.ts";
-import { assert, ptr, u32 } from "../util.ts";
+import { assert, type ptr, type u32 } from "../util.ts";
 import { KernelImports } from "./kernel.ts";
 import * as virtio from "./virtio.ts";
 

@@ -11,20 +11,20 @@ KBUILD_LDFLAGS += $(ldflags-y)
 
 drivers-y += arch/wasm/drivers/
 
-all: arch/wasm/vmlinux.wasm tools/wasm/sections.json
-
-arch/wasm/vmlinux.wasm: vmlinux.o
-	$(Q)cp vmlinux.o $@
-
-tools/wasm/vmlinux.wasm: vmlinux.o
-	$(Q)cp vmlinux.o $@
-
-vmlinux.o.wat: vmlinux.o
+arch/wasm/vmlinux.wat: vmlinux.o
 	$(Q)wasm2wat $< --enable-all -o $@
 
-tools/wasm/sections.json: arch/wasm/scripts/sections.pl vmlinux.o.wat
-	$(Q)$(PERL) ./arch/wasm/scripts/sections.pl <vmlinux.o.wat >$@
+arch/wasm/sections.json: arch/wasm/scripts/sections.pl arch/wasm/vmlinux.wat
+	$(Q)$(PERL) arch/wasm/scripts/sections.pl <arch/wasm/vmlinux.wat >$@
+
+tools/wasm/src/build/vmlinux.wasm: vmlinux.o
+	$(Q)mkdir -p tools/wasm/src/build
+	$(Q)cp $< $@
+
+tools/wasm/src/build/sections.json: arch/wasm/sections.json
+	$(Q)mkdir -p tools/wasm/src/build
+	$(Q)cp $< $@
 
 define archhelp
-  echo  '* vmlinux.wasm       - Kernel binary (arch/$(ARCH)/vmlinux.wasm)'
+  echo  '* tools/wasm       - WebAssembly host library'
 endef

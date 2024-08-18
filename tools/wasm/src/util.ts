@@ -19,10 +19,9 @@ export type ptr = Branded<number, "ptr">;
 export const NULL = 0 as ptr;
 
 export function getScriptPath(fn: () => void, importMeta: ImportMeta) {
-  return new URL(
-    fn.toString().match(/import\("(.*)"\)/)![1],
-    importMeta.url,
-  );
+  const match = fn.toString().match(/import\("(.*)"\)/)?.[1];
+  assert(match, "Could not find imported path");
+  return new URL(match, importMeta.url);
 }
 
 export class EventEmitter<Events> {

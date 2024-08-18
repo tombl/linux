@@ -1,6 +1,6 @@
 // corrosponds to arch/wasm/drivers/virtio_wasm.c
 
-import { assert, ptr, u32, u64, u8 } from "../util.ts";
+import { assert, type ptr, type u32, type u64, type u8 } from "../util.ts";
 import { F_VERSION_1 } from "../virtio.ts";
 
 export abstract class Device {
