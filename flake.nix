@@ -53,7 +53,7 @@
                   llvm.libllvm
                   wabt
                   esbuild
-                  # typescript
+                  typescript
                 ];
 
                 enableParallelBuilding = true;
