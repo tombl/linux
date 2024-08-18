@@ -20,5 +20,5 @@ _kernel:
 dist/index.js: _kernel $(shell find src -type f)
 	$(Q)$(ESBUILD) --bundle src/index.ts --outdir=dist --format=esm --splitting --sourcemap --loader:.wasm=file
 
-dist/index.d.ts: $(shell find src -type f -name '*.ts')
+dist/index.d.ts: _kernel $(shell find src -type f -name '*.ts')
 	$(Q)$(TSC)
