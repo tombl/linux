@@ -61,7 +61,7 @@
 
                 enableParallelBuilding = true;
                 configurePhase = "make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES defconfig";
-                buildPhase = "make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES tools/wasm";
+                buildPhase = "make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES -C tools/wasm";
                 installPhase = ''
                   mkdir $out
                   rm tools/wasm/public/dist
