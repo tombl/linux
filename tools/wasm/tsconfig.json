@@ -7,7 +7,7 @@
     "allowImportingTsExtensions": true,
 
     "target": "es2022",
-    "lib": ["es2022", "dom", "dom.iterable"],
+    "lib": ["es2022", "webworker"],
     "skipLibCheck": true,
 
     "declaration": true,

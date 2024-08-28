@@ -1,5 +1,7 @@
 import type { u32, u64 } from "./util.ts";
 
+export const DEVICE_ID_ENTROPY = 4 as u32;
+
 export const CONFIG_S_ACKNOWLEDGE = 1 as u32;
 export const CONFIG_S_DRIVER = 2 as u32;
 export const CONFIG_S_DRIVER_OK = 4 as u32;

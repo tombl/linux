@@ -1,7 +1,7 @@
+import type { WorkerContext, WorkerDefault } from "../device.ts";
 import { bootstrapWorker } from "../rpc.ts";
 import { assert, type ptr, type u32 } from "../util.ts";
 import { KernelImports } from "./kernel.ts";
-import * as virtio from "./virtio.ts";
 
 interface Instance extends WebAssembly.Instance {
   exports: {
@@ -10,10 +10,6 @@ interface Instance extends WebAssembly.Instance {
     secondary(cpu: u32, idle: ptr): void;
     trigger_irq_for_cpu(cpu: u32, irq: u32): void;
   };
-}
-
-declare global {
-  function interrupt(cpu: u32, irq: u32): void;
 }
 
 export interface MainExposed {
@@ -25,26 +21,28 @@ export interface MainExposed {
   bringupSecondary(cpu: u32, idle: ptr): void;
 }
 
-const virtioDevices = new Map<u32, virtio.Device>();
-virtioDevices.set(0x4321 as u32, new virtio.Entropy());
-
 export class WorkerExposed {
   // deno-lint-ignore no-explicit-any
   #imports: any = {};
+  #wasmMemory!: WebAssembly.Memory;
   #memory!: Uint8Array;
 
   #setup(
     memory: WebAssembly.Memory,
   ) {
+    this.#wasmMemory = memory;
     this.#memory = new Uint8Array(memory.buffer);
     Object.assign(this.#imports, {
       env: { memory },
       kernel: new KernelImports(this.#memory),
-      virtio: new virtio.Imports(this.#memory, virtioDevices),
       boot: {
         get_devicetree: () => {
           throw new Error("not available on this thread");
         },
+      },
+      mmio: {
+        pre_read: (addr: ptr) => {},
+        post_write: (addr: ptr) => {},
       },
     });
   }
@@ -86,6 +84,16 @@ export class WorkerExposed {
   ) {
     this.#setup(memory);
     this.#instantiate(vmlinux).exports.secondary(cpu, idle);
+  }
+
+  async import(name: string, url: string) {
+    const mod = (await import(url)) as { default: WorkerDefault<any> };
+    const ctx: WorkerContext = { memory: this.#wasmMemory };
+    const added = await mod.default(ctx, main);
+    if (added.imports) {
+      assert(!(name in this.#imports));
+      this.#imports[name] = added.imports;
+    }
   }
 }
 

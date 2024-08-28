@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run --allow-read
-import { Machine } from "./dist/index.js";
+import { Machine, mmio } from "./dist/index.js";
 import { parseArgs } from "jsr:@std/cli@1/parse-args";
 import { assert } from "./src/util.ts";
 
@@ -33,6 +33,8 @@ const machine = new Machine({
   cmdline: args.cmdline,
   memoryMib: args.memory,
   cpus: args.cpus,
+
+  devices: [mmio("mmio", 0x1000, console.log)],
 });
 
 machine.bootConsole.pipeTo(Deno.stdout.writable);

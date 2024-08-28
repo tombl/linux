@@ -19,7 +19,7 @@ void wasm_import(boot, get_devicetree)(char *buf, size_t size);
 
 __attribute__((export_name("boot"))) void __init _start(void)
 {
-	static char devicetree[2048];
+	static char devicetree[0x1000];
 	int node;
 
 	set_current_cpu(0);

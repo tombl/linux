@@ -54,7 +54,7 @@ export function expose<T>(port: MessagePort, handlers: T): void {
   };
 }
 
-type RemoteOf<T> = {
+export type RemoteOf<T> = {
   // deno-lint-ignore no-explicit-any
   [K in keyof T as T[K] extends (...args: any[]) => any ? K : never]:
     T[K] extends (...args: infer Args) => infer Return
