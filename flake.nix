@@ -60,8 +60,8 @@
                 HOSTCC = "${llvm.clang}/bin/clang";
 
                 enableParallelBuilding = true;
-                configurePhase = "make -j$NIX_BUILD_CORES defconfig";
-                buildPhase = "make -j$NIX_BUILD_CORES tools/wasm";
+                configurePhase = "make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES defconfig";
+                buildPhase = "make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES tools/wasm";
                 installPhase = ''
                   mkdir $out
                   rm tools/wasm/public/dist
