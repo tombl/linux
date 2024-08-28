@@ -67,7 +67,11 @@
     <script type="module">
       import { Machine } from "./dist/index.js";
 
-      const term = new Terminal({ convertEol: true, disableStdin: true });
+      const term = new Terminal({
+        convertEol: true,
+        disableStdin: true,
+        fontFamily: "monospace",
+      });
       const termFit = new FitAddon.FitAddon();
       term.loadAddon(termFit);
       term.open(document.body);
