@@ -20,7 +20,7 @@
               llvm = pkgs.llvmPackages_17;
             in
             {
-              default = llvm.stdenv.mkDerivation {
+              default = pkgs.stdenvNoCC.mkDerivation {
                 pname = "linux";
                 version = "6.1.69-wasm";
                 src = ./.;
@@ -49,12 +49,15 @@
                   ncurses
 
                   dtc
+                  llvm.clang-unwrapped
                   llvm.lld
                   llvm.libllvm
                   wabt
                   esbuild
                   typescript
                 ];
+
+                HOSTCC = "${llvm.clang}/bin/clang";
 
                 enableParallelBuilding = true;
                 configurePhase = "make -j$NIX_BUILD_CORES defconfig";

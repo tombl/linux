@@ -1,15 +1,15 @@
 j := `nproc`
 
 build:
-    make -j{{j}} -C tools/wasm
+    make HOSTCC=$HOSTCC -j{{j}} -C tools/wasm
 
 watch:
-    watchexec -r -f '**/*.c' -f '**/*.h' -f '**/Makefile*' -f '**/*.ts' just build
+    watchexec -r -f '**/*.c' -f '**/*.h' -f '**/Makefile*' -f 'tools/wasm/src/**/*.ts' just build
 
 run:
     tools/wasm/run.js -j4
 watchrun:
-    watchexec -r -w tools/wasm/dist --ignore-nothing just run
+    watchexec -r -w tools/wasm/dist --ignore-nothing --debounce=200ms just run
 
 runrust:
     cd tools/wasm-runner && cargo build --quiet --release
