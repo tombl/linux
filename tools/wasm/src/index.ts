@@ -7,9 +7,10 @@ import * as virtio from "./virtio.ts";
 import { Entropy } from "./worker/virtio.ts";
 import type { MainExposed, WorkerExposed } from "./worker/worker.ts";
 
-const vmlinux = WebAssembly.compileStreaming(
-  fetch(new URL(vmlinuxUrl, import.meta.url)),
-);
+const vmlinuxResponse = fetch(new URL(vmlinuxUrl, import.meta.url));
+const vmlinux = "compileStreaming" in WebAssembly
+  ? WebAssembly.compileStreaming(vmlinuxResponse)
+  : vmlinuxResponse.then((r) => r.arrayBuffer()).then(WebAssembly.compile);
 
 export class Machine extends EventEmitter<{
   halt: void;
