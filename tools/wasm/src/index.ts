@@ -20,7 +20,6 @@ export class Machine extends EventEmitter<{
   #bootConsoleWriter: WritableStreamDefaultWriter<Uint8Array>;
   #workers: Worker[] = [];
   #memory: WebAssembly.Memory;
-  #Worker: typeof globalThis.Worker;
 
   memory: Uint8Array;
   devicetree: DeviceTreeNode;
@@ -33,12 +32,10 @@ export class Machine extends EventEmitter<{
     cmdline?: string;
     memoryMib?: number;
     cpus?: number;
-    Worker?: typeof globalThis.Worker;
   }) {
     super();
     this.#bootConsole = new TransformStream<Uint8Array, Uint8Array>();
     this.#bootConsoleWriter = this.#bootConsole.writable.getWriter();
-    this.#Worker = options.Worker ?? globalThis.Worker;
 
     const PAGE_SIZE = 0x10000;
     const BYTES_PER_MIB = 0x100000;
@@ -122,7 +119,7 @@ export class Machine extends EventEmitter<{
   }
 
   #spawn(name: string) {
-    const worker = new this.#Worker(
+    const worker = new Worker(
       getScriptPath(() => import("./worker/worker.ts"), import.meta),
       { type: "module", name },
     );
