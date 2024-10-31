@@ -14,9 +14,10 @@ import type { MainExposed, WorkerExposed } from "./worker/worker.ts";
 
 export { mmio } from "./devices/mmio/index.ts";
 
-const vmlinux = WebAssembly.compileStreaming(
-  fetch(new URL(vmlinuxUrl, import.meta.url)),
-);
+const vmlinuxResponse = fetch(new URL(vmlinuxUrl, import.meta.url));
+const vmlinux = "compileStreaming" in WebAssembly
+  ? WebAssembly.compileStreaming(vmlinuxResponse)
+  : vmlinuxResponse.then((r) => r.arrayBuffer()).then(WebAssembly.compile);
 
 export class Machine extends EventEmitter<{
   halt: void;
@@ -50,7 +51,6 @@ export class Machine extends EventEmitter<{
     cmdline?: string;
     memoryMib?: number;
     cpus?: number;
-    Worker?: typeof globalThis.Worker;
     devices?: Device<any>[];
   }) {
     super();

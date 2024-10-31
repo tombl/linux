@@ -24,46 +24,99 @@
     <style>
       :root {
         color-scheme: light dark;
+        font-family: system-ui, sans-serif;
       }
       html {
         height: 100%;
         body {
           margin: 0;
           height: 100%;
+          display: flex;
+          flex-direction: column;
           .terminal {
-            height: 100%;
+            flex: 1;
           }
         }
       }
       details {
-        font-family: monospace;
-        position: absolute;
-        top: 0;
-        right: 0;
-        z-index: 10;
-        background-color: gray;
+        font-size: 1.2rem;
+        margin: 1rem;
+        summary {
+          user-select: none;
+        }
         form {
-          display: flex;
-          flex-direction: column;
-          label {
-            display: flex;
-            input {
-              flex: 1;
-            }
+          display: grid;
+          grid-template-columns: 15ch 1fr;
+          grid-column: 2;
+          input {
+            font-family: monospace;
+          }
+          button {
+            grid-column: span 2;
           }
         }
       }
     </style>
   </head>
   <body>
-    <details>
-      <summary>options</summary>
+    <details open>
+      <summary>info & options</summary>
+
+      <p>Welcome to Linux 6.1 running natively in your browser!</p>
+
+      <p>
+        There's no x86_64/RISC-V emulation going on here, instead this is a port
+        of the kernel to WebAssembly.
+      </p>
+
+      <p>
+        It's only early days for this port, and it doesn't make it all the way
+        through boot yet, but we're getting close, and all the fundamentals are
+        there.
+      </p>
+
+      <p>
+        (context switching was particularly painful to implement in such a
+        constrained environment, but I think the solution ended up being quite
+        elegant.)
+      </p>
+
+      <p>All that's left to implement before we can boot BusyBox is:</p>
+      <ul>
+        <li>the ability to load binaries</li>
+        <li>somewhere to load them from (virtio in the browser?)</li>
+        <li>external syscall dispatch</li>
+        <li>and the ability to jump into userspace</li>
+      </ul>
+
+      <p>
+        If this sounds interesting, you can check out the source at
+        <a href="https://github.com/tombl/linux">github.com/tombl/linux</a>
+      </p>
+
       <form>
-        <label>cmdline: <input type="text" name="cmdline" /></label>
-        <label>memory (MiB): <input type="number" name="memory" /></label>
-        <button>reboot</button>
+        <label for="cmdline">
+          <a
+            href="https://www.kernel.org/doc/html/v6.1/admin-guide/kernel-parameters.html"
+          >
+            Kernel parameters
+          </a>
+        </label>
+        <input type="text" name="cmdline" id="cmdline" />
+        <label for="memory">Memory (in MiB)</label>
+        <input type="number" name="memory" id="memory" />
+        <button type="submit">Reboot</button>
       </form>
     </details>
+    <script>
+      const details = document.querySelector("details");
+      if (localStorage.getItem("detailsOpen") !== null) {
+        details.open = localStorage.getItem("detailsOpen") === "true";
+      }
+      details.addEventListener("toggle", () => {
+        localStorage.setItem("detailsOpen", details.open.toString());
+      });
+    </script>
     <script type="module">
       import { Machine } from "./dist/index.js";
 

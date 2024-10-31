@@ -47,7 +47,7 @@ export class WorkerExposed {
     });
   }
   #instantiate(vmlinux: WebAssembly.Module) {
-    return new WebAssembly.Instance(vmlinux, this.#imports) as Instance;
+    return WebAssembly.instantiate(vmlinux, this.#imports) as Promise<Instance>;
   }
 
   boot(
@@ -68,12 +68,14 @@ export class WorkerExposed {
       },
     };
 
-    this.#instantiate(vmlinux).exports.boot();
+    this.#instantiate(vmlinux)
+      .then((instance) => instance.exports.boot());
   }
 
   task(vmlinux: WebAssembly.Module, memory: WebAssembly.Memory, task: ptr) {
     this.#setup(memory);
-    this.#instantiate(vmlinux).exports.task(task);
+    this.#instantiate(vmlinux)
+      .then((instance) => instance.exports.task(task));
   }
 
   secondary(
@@ -83,7 +85,8 @@ export class WorkerExposed {
     idle: ptr,
   ) {
     this.#setup(memory);
-    this.#instantiate(vmlinux).exports.secondary(cpu, idle);
+    this.#instantiate(vmlinux)
+      .then((instance) => instance.exports.secondary(cpu, idle));
   }
 
   async import(name: string, url: string) {
