@@ -12,17 +12,9 @@
 
 DECLARE_COMPLETION(cpu_starting);
 
-int __cpu_up(unsigned int cpu, struct task_struct *idle)
+static void noinline_for_stack secondary_entry_inner(struct task_struct *idle)
 {
-	task_thread_info(idle)->cpu = cpu;
-	wasm_kernel_bringup_secondary(cpu, idle);
-	wait_for_completion(&cpu_starting);
-	return 0;
-}
-
-static void noinline_for_stack start_secondary_inner(int cpu,
-						     struct task_struct *idle)
-{
+	int cpu = task_thread_info(idle)->cpu;
 	set_current_cpu(cpu);
 	set_current_task(idle);
 	atomic_set(&current_thread_info()->running_cpu, cpu);
@@ -45,11 +37,20 @@ static void noinline_for_stack start_secondary_inner(int cpu,
 	BUG(); // should never get here
 }
 
-__attribute__((export_name("secondary"))) void
-_start_secondary(int cpu, struct task_struct *idle)
+static void secondary_entry(void *idle)
 {
-	set_stack_pointer(task_pt_regs(idle) - 1);
-	start_secondary_inner(cpu, idle);
+	set_stack_pointer(task_pt_regs(((struct task_struct *)idle)) - 1);
+	secondary_entry_inner(idle);
+}
+
+int __cpu_up(unsigned int cpu, struct task_struct *idle)
+{
+	char name[8] = { 0 };
+	int name_len = snprintf(name, ARRAY_SIZE(name), "entry%d", cpu);
+	task_thread_info(idle)->cpu = cpu;
+	wasm_kernel_spawn_worker(secondary_entry, idle, "entry", name_len);
+	wait_for_completion(&cpu_starting);
+	return 0;
 }
 
 enum ipi_message_type {

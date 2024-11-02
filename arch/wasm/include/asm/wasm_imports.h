@@ -20,11 +20,7 @@ unsigned long long wasm_import(kernel, get_now_nsec)(void);
 
 void wasm_import(kernel, get_stacktrace)(char *buf, size_t size);
 
-struct task_bootstrap_args;
-struct task_struct;
-void wasm_import(kernel, new_worker)(struct task_bootstrap_args *task,
-				     char *comm, size_t comm_len);
-
-void wasm_import(kernel, bringup_secondary)(int cpu, struct task_struct *idle);
+void wasm_import(kernel, spawn_worker)(void (*fn)(void *), void *arg,
+				       char *name, size_t name_len);
 
 #endif

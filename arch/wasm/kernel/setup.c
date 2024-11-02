@@ -17,6 +17,19 @@ void __init smp_init_cpus(unsigned int ncpus);
 void __init init_sections(unsigned long node);
 void wasm_import(boot, get_devicetree)(char *buf, size_t size);
 
+__attribute__((export_name("worker_entry"))) void
+wasm_worker_entry(void (*fn)(void *), void *arg)
+{
+	fn(arg);
+}
+
+static void do_start_kernel(void *unused)
+{
+	set_current_cpu(0);
+	set_current_task(&init_task);
+	start_kernel();
+}
+
 __attribute__((export_name("boot"))) void __init _start(void)
 {
 	static char devicetree[2048];
@@ -39,7 +52,7 @@ __attribute__((export_name("boot"))) void __init _start(void)
 	__wasm_call_ctors();
 	init_sections(node);
 
-	start_kernel();
+	wasm_kernel_spawn_worker(do_start_kernel, NULL, "boot", 4);
 }
 
 void __init setup_arch(char **cmdline_p)

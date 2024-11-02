@@ -1,24 +1,24 @@
 import sections from "./build/sections.json" with { type: "json" };
 import vmlinuxUrl from "./build/vmlinux.wasm";
-import { type DeviceTreeNode, generateDevicetree } from "./devicetree.ts";
-import { sendBootstrap, transfer } from "./rpc.ts";
-import { assert, EventEmitter, getScriptPath, type u32 } from "./util.ts";
-import * as virtio from "./virtio.ts";
-import { Entropy } from "./worker/virtio.ts";
-import type { MainExposed, WorkerExposed } from "./worker/worker.ts";
+import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
+import { assert, EventEmitter, get_script_path, unreachable } from "./util.ts";
+import { type Imports, type Instance, kernel_imports } from "./wasm.ts";
+import type { InitMessage, WorkerMessage } from "./worker.ts";
 
-const vmlinuxResponse = fetch(new URL(vmlinuxUrl, import.meta.url));
-const vmlinux = "compileStreaming" in WebAssembly
-  ? WebAssembly.compileStreaming(vmlinuxResponse)
-  : vmlinuxResponse.then((r) => r.arrayBuffer()).then(WebAssembly.compile);
+const worker_url = get_script_path(() => import("./worker.ts"), import.meta);
+
+const vmlinux_response = fetch(new URL(vmlinuxUrl, import.meta.url));
+const vmlinux_promise = "compileStreaming" in WebAssembly
+  ? WebAssembly.compileStreaming(vmlinux_response)
+  : vmlinux_response.then((r) => r.arrayBuffer()).then(WebAssembly.compile);
 
 export class Machine extends EventEmitter<{
   halt: void;
   restart: void;
   error: { error: Error; threadName: string };
 }> {
-  #bootConsole: TransformStream<Uint8Array, Uint8Array>;
-  #bootConsoleWriter: WritableStreamDefaultWriter<Uint8Array>;
+  #boot_console: TransformStream<Uint8Array, Uint8Array>;
+  #boot_console_writer: WritableStreamDefaultWriter<Uint8Array>;
   #workers: Worker[] = [];
   #memory: WebAssembly.Memory;
 
@@ -26,7 +26,7 @@ export class Machine extends EventEmitter<{
   devicetree: DeviceTreeNode;
 
   get bootConsole() {
-    return this.#bootConsole.readable;
+    return this.#boot_console.readable;
   }
 
   constructor(options: {
@@ -35,8 +35,8 @@ export class Machine extends EventEmitter<{
     cpus?: number;
   }) {
     super();
-    this.#bootConsole = new TransformStream<Uint8Array, Uint8Array>();
-    this.#bootConsoleWriter = this.#bootConsole.writable.getWriter();
+    this.#boot_console = new TransformStream<Uint8Array, Uint8Array>();
+    this.#boot_console_writer = this.#boot_console.writable.getWriter();
 
     const PAGE_SIZE = 0x10000;
     const BYTES_PER_MIB = 0x100000;
@@ -49,27 +49,6 @@ export class Machine extends EventEmitter<{
     });
     assert(this.#memory.buffer.byteLength === bytes);
     this.memory = new Uint8Array(this.#memory.buffer);
-
-    // this is a slightly arbitrary choice, but as long as this is
-    // less than the number of pages the module requests, there will be
-    // no overlap
-    let mmioBase = PAGE_SIZE * 32;
-    const mmioAlloc = (size: number) => {
-      const ptr = mmioBase;
-      mmioBase += size;
-      return [ptr, size] as const;
-    };
-
-    const RNG_REG = mmioAlloc(0x100);
-    const rng = new virtio.Registers(
-      this.memory.subarray(RNG_REG[0], RNG_REG[0] + RNG_REG[1]),
-    );
-
-    rng.magic = 0x74726976 as u32; // "virt" in ascii
-    rng.version = 2 as u32;
-    rng.deviceId = Entropy.DEVICE_ID;
-    rng.vendorId = 0x7761736d as u32; // "wasm" in ascii
-    rng.driverFeatures = virtio.F_VERSION_1;
 
     this.devicetree = {
       "#address-cells": 1,
@@ -89,66 +68,66 @@ export class Machine extends EventEmitter<{
         "#address-cells": 1,
         "#size-cells": 1,
         ranges: undefined,
-        rng: {
-          reg: RNG_REG,
-        },
-      },
-      // disk: {
-      //   compatible: "virtio,wasm",
-      //   "host-id": 0x7777,
-      //   "virtio-id": 2, // blk
-      //   interrupts: 31,
-      // },
-      // rng: {
-      //   compatible: "virtio,wasm",
-      //   "host-id": 0x4321,
-      //   "virtio-id": Entropy.DEVICE_ID,
-      //   interrupts: 32,
-      // },
-      rng: {
-        compatible: "virtio,mmio",
-        reg: RNG_REG,
-        interrupts: [42],
       },
     };
   }
 
   async boot() {
-    const devicetree = generateDevicetree(this.devicetree);
-    const worker = await this.#spawn("entry");
-    await worker.boot(await vmlinux, this.#memory, transfer(devicetree.buffer));
-  }
+    const devicetree = generate_devicetree(this.devicetree);
+    const vmlinux = await vmlinux_promise;
 
-  #spawn(name: string) {
-    const worker = new Worker(
-      getScriptPath(() => import("./worker/worker.ts"), import.meta),
-      { type: "module", name },
-    );
-    this.#workers.push(worker);
-    return sendBootstrap<MainExposed, WorkerExposed>(worker, {
-      bootConsoleWrite: async (message) => {
-        await this.#bootConsoleWriter.write(new Uint8Array(message));
+    const boot_console_write = (message: ArrayBuffer) => {
+      this.#boot_console_writer.write(new Uint8Array(message));
+    };
+    const boot_console_close = () => {
+      this.#boot_console_writer.close();
+    };
+
+    const spawn_worker = (fn: number, arg: number, name: string) => {
+      const worker = new Worker(worker_url, { type: "module", name });
+      this.#workers.push(worker);
+      worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+        switch (event.data.type) {
+          case "spawn_worker":
+            spawn_worker(event.data.fn, event.data.arg, event.data.name);
+            break;
+          case "boot_console_write":
+            boot_console_write(event.data.message);
+            break;
+          case "boot_console_close":
+            boot_console_close();
+            break;
+          default:
+            unreachable(event.data);
+        }
+      };
+      worker.postMessage(
+        { fn, arg, vmlinux, memory: this.#memory } satisfies InitMessage,
+      );
+    };
+
+    const imports = {
+      env: { memory: this.#memory },
+      boot: {
+        get_devicetree: (buf: number, size: number) => {
+          assert(
+            size >= devicetree.byteLength,
+            "Device tree truncated",
+          );
+          this.memory.set(devicetree.slice(0, size), buf);
+        },
       },
-      bootConsoleClose: async () => {
-        await Promise.all([
-          this.#bootConsoleWriter.close(),
-          this.#bootConsole.writable.close(),
-        ]);
-      },
-      restart: () => {
-        this.emit("restart", undefined);
-      },
-      spawnTask: async (task, name) => {
-        const worker = await this.#spawn(name);
-        await worker.task(await vmlinux, this.#memory, task);
-      },
-      error: (error) => {
-        this.emit("error", { error, threadName: name });
-      },
-      bringupSecondary: async (cpu, idle) => {
-        const worker = await this.#spawn(`entry${cpu}`);
-        await worker.secondary(await vmlinux, this.#memory, cpu, idle);
-      },
-    });
+      kernel: kernel_imports({
+        is_worker: false,
+        memory: this.#memory,
+        spawn_worker,
+        boot_console_write,
+        boot_console_close,
+      }),
+    } satisfies Imports;
+
+    const instance =
+      (await WebAssembly.instantiate(vmlinux, imports)) as Instance;
+    instance.exports.boot();
   }
 }

@@ -1,4 +1,4 @@
-import { assert, type u32, type u64, unreachable } from "./util.ts";
+import { assert, unreachable } from "./util.ts";
 
 const FDT_MAGIC = 0xd00dfeed;
 const FDT_BEGIN_NODE = 0x00000001;
@@ -25,13 +25,13 @@ type DeviceTreeProperty =
 
 function inner(
   tree: DeviceTreeNode,
-  memoryReservations: Array<
+  memory_reservations: Array<
     { address: number | bigint; size: number | bigint }
   >,
-  bootCpuId: number,
-  maxSize: number,
+  boot_cpu_id: number,
+  max_size: number,
 ): Uint8Array {
-  const arr = new Uint8Array(maxSize);
+  const arr = new Uint8Array(max_size);
   const dv = new DataView(arr.buffer);
   let i = 0;
 
@@ -71,7 +71,7 @@ function inner(
     }
   }
 
-  function walkTree(node: DeviceTreeNode, name: string) {
+  function walk_tree(node: DeviceTreeNode, name: string) {
     const startOffset = i;
     pad();
     u32(FDT_BEGIN_NODE);
@@ -144,7 +144,7 @@ function inner(
       bytes(value);
       pad();
     }
-    for (const [name, child] of children) walkTree(child, name);
+    for (const [name, child] of children) walk_tree(child, name);
 
     pad();
     u32(FDT_END_NODE);
@@ -160,13 +160,13 @@ function inner(
     const off_mem_rsvmap = u32();
     u32(17); // version
     u32(16); // last compatible version
-    u32(bootCpuId); // boot cpuid phys
+    u32(boot_cpu_id); // boot cpuid phys
     const size_dt_strings = u32();
     const size_dt_struct = u32();
 
     pad(8);
     dv.setUint32(off_mem_rsvmap, i);
-    for (const { address, size } of memoryReservations) {
+    for (const { address, size } of memory_reservations) {
       u64(address);
       u64(size);
     }
@@ -175,7 +175,7 @@ function inner(
 
     const begin_dt_struct = i;
     dv.setUint32(off_dt_struct, begin_dt_struct);
-    walkTree(tree, "");
+    walk_tree(tree, "");
     u32(FDT_END);
     dv.setUint32(size_dt_struct, i - begin_dt_struct);
 
@@ -191,20 +191,20 @@ function inner(
     return arr.slice(0, i);
   } catch (err) {
     if (err instanceof RangeError) {
-      return inner(tree, memoryReservations, bootCpuId, maxSize * 2);
+      return inner(tree, memory_reservations, boot_cpu_id, max_size * 2);
     }
     throw err;
   }
 }
 
-export function generateDevicetree(tree: DeviceTreeNode, {
-  memoryReservations = [],
-  bootCpuId = 0 as u32,
+export function generate_devicetree(tree: DeviceTreeNode, {
+  memory_reservations = [],
+  boot_cpu_id = 0,
 }: {
-  memoryReservations?: Array<
-    { address: u64; size: u64 }
+  memory_reservations?: Array<
+    { address: number; size: number }
   >;
-  bootCpuId?: u32;
+  boot_cpu_id?: number;
 } = {}) {
-  return inner(tree, memoryReservations, bootCpuId, 1024);
+  return inner(tree, memory_reservations, boot_cpu_id, 1024);
 }

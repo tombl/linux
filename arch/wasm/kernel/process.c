@@ -66,41 +66,7 @@ struct task_struct *__switch_to(struct task_struct *from,
 	return prev;
 }
 
-int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
-{
-	struct pt_regs *childregs = task_pt_regs(p);
-	struct task_bootstrap_args *bootstrap_args;
-	char name[TASK_COMM_LEN + 16] = { 0 };
-	int name_len;
-
-	memset(childregs, 0, sizeof(struct pt_regs));
-
-	atomic_set(&task_thread_info(p)->running_cpu, -1);
-
-	// don't spawn a worker for idle threads
-	// this is probably a bad idea
-	if (args->idle) return 0;
-
-	if (!args->fn)
-		panic("can't copy userspace thread"); // yet
-
-	bootstrap_args =
-		kzalloc(sizeof(struct task_bootstrap_args), GFP_KERNEL);
-	if (!bootstrap_args)
-		panic("can't allocate bootstrap args");
-
-	bootstrap_args->task = p;
-	bootstrap_args->fn = args->fn;
-	bootstrap_args->fn_arg = args->fn_arg;
-
-	name_len = snprintf(name, ARRAY_SIZE(name), "%s (%d)", p->comm, p->pid);
-
-	wasm_kernel_new_worker(bootstrap_args, name, name_len);
-
-	return 0;
-}
-
-static void noinline_for_stack start_task_inner(struct task_bootstrap_args *args)
+static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args)
 {
 	struct task_struct *task = args->task;
 	int (*fn)(void *) = args->fn;
@@ -149,9 +115,43 @@ static void noinline_for_stack start_task_inner(struct task_bootstrap_args *args
 	// syscall_exit_to_user_mode(&(struct pt_regs){ 0 });
 }
 
-__attribute__((export_name("task"))) void
-_start_task(struct task_bootstrap_args *args)
+static void task_entry(void* args)
 {
-	set_stack_pointer(task_pt_regs(args->task) - 1);
-	start_task_inner(args);
+	set_stack_pointer(
+		task_pt_regs(((struct task_bootstrap_args *)args)->task) - 1);
+	task_entry_inner(args);
+}
+
+int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
+{
+	struct pt_regs *childregs = task_pt_regs(p);
+	struct task_bootstrap_args *bootstrap_args;
+	char name[TASK_COMM_LEN + 16] = { 0 };
+	int name_len;
+
+	memset(childregs, 0, sizeof(struct pt_regs));
+
+	atomic_set(&task_thread_info(p)->running_cpu, -1);
+
+	// don't spawn a worker for idle threads
+	// this is probably a bad idea
+	if (args->idle) return 0;
+
+	if (!args->fn)
+		panic("can't copy userspace thread"); // yet
+
+	bootstrap_args =
+		kzalloc(sizeof(struct task_bootstrap_args), GFP_KERNEL);
+	if (!bootstrap_args)
+		panic("can't allocate bootstrap args");
+
+	bootstrap_args->task = p;
+	bootstrap_args->fn = args->fn;
+	bootstrap_args->fn_arg = args->fn_arg;
+
+	name_len = snprintf(name, ARRAY_SIZE(name), "%s (%d)", p->comm, p->pid);
+
+	wasm_kernel_spawn_worker(&task_entry, bootstrap_args, name, name_len);
+
+	return 0;
 }
