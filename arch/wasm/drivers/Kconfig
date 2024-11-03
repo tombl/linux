@@ -1,1 +1,5 @@
-
+config VIRTIO_WASM
+	tristate "Platform bus driver for WebAssembly virtio devices"
+	select VIRTIO
+	help
+	 This driver supports virtio devices on the WebAssembly platform.

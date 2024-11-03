@@ -1,2 +1,1 @@
-obj-y += \
-	virtio_wasm.o
+obj-$(CONFIG_VIRTIO_WASM) += virtio_wasm.o
