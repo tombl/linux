@@ -69,6 +69,11 @@ export class Machine extends EventEmitter<{
         "#size-cells": 1,
         ranges: undefined,
       },
+      rng: {
+        compatible: "virtio,wasm",
+        "host-id": 0x1234,
+        "virtio-device-id": 4, // entropy
+      },
     };
   }
 
@@ -106,6 +111,10 @@ export class Machine extends EventEmitter<{
       );
     };
 
+    const unavailable = () => {
+      throw new Error("not available on main thread");
+    };
+
     const imports = {
       env: { memory: this.#memory },
       boot: {
@@ -124,6 +133,15 @@ export class Machine extends EventEmitter<{
         boot_console_write,
         boot_console_close,
       }),
+      virtio: {
+        get_features: unavailable,
+        set_features: unavailable,
+        set_vring_enable: unavailable,
+        set_vring_num: unavailable,
+        set_vring_addr: unavailable,
+        set_interrupt_addrs: unavailable,
+        notify: unavailable,
+      },
     } satisfies Imports;
 
     const instance =

@@ -22,6 +22,25 @@ export interface Imports {
     get_stacktrace(buf: number, size: number): void;
     spawn_worker(fn: number, arg: number, comm: number, commLen: number): void;
   };
+  virtio: {
+    get_features(dev: number, features_addr: number): number;
+    set_features(dev: number, features: number): number;
+    set_vring_enable(dev: number, vq: number, enable: number): number;
+    set_vring_num(dev: number, vq: number, num: number): number;
+    set_vring_addr(
+      dev: number,
+      vq: number,
+      desc: number,
+      used: number,
+      avail: number,
+    ): number;
+    set_interrupt_addrs(
+      dev: number,
+      is_config_addr: number,
+      is_vring_addr: number,
+    ): number;
+    notify(dev: number, vq: number): number;
+  };
 }
 
 export function kernel_imports(

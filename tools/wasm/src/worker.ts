@@ -13,6 +13,7 @@ export type WorkerMessage =
 
 self.onmessage = (event: MessageEvent<InitMessage>) => {
   const { fn, arg, vmlinux, memory } = event.data;
+  const dv = new DataView(memory.buffer);
 
   const imports = {
     env: { memory },
@@ -40,6 +41,37 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
         );
       },
     }),
+    virtio: {
+      get_features(dev, features_addr) {
+        console.log("get_features", dev, features_addr);
+        dv.setBigUint64(features_addr, 0n);
+        return 0;
+      },
+      set_features(dev, features) {
+        console.log("set_features", dev, features);
+        return 0;
+      },
+      set_vring_enable(dev, vq, enable) {
+        console.log("set_vring_enable", dev, vq, enable);
+        return -1;
+      },
+      set_vring_num(dev, vq, num) {
+        console.log("set_vring_num", dev, vq, num);
+        return -1;
+      },
+      set_vring_addr(dev, vq, desc, used, avail) {
+        console.log("set_vring_addr", dev, vq, desc, used, avail);
+        return -1;
+      },
+      set_interrupt_addrs(dev, is_config_addr, is_vring_addr) {
+        console.log("set_interrupt_addrs", dev, is_config_addr, is_vring_addr);
+        return 0;
+      },
+      notify(dev, vq) {
+        console.log("notify", dev, vq);
+        return 0;
+      },
+    },
   } satisfies Imports;
 
   const instance = (new WebAssembly.Instance(vmlinux, imports)) as Instance;

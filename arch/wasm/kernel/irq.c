@@ -111,3 +111,19 @@ void __init init_IRQ(void)
 
 	pr_info("IRQs enabled\n");
 }
+
+static DECLARE_BITMAP(irqalloc, NR_IRQS);
+// TODO: wrap request_irq and free_irq instead expecting the caller to call these then them
+int wasm_alloc_irq(void)
+{
+	for (int i = FIRST_EXT_IRQ; i < NR_IRQS; i++) {
+		if (!test_and_set_bit(i, irqalloc))
+			return i;
+	}
+	return -ENOSPC;
+}
+void wasm_free_irq(int irq)
+{
+	WARN(!test_and_clear_bit(irq, irqalloc),
+	     "irq %d not allocated. double free?\n", irq);
+}
