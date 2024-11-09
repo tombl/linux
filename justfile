@@ -1,7 +1,7 @@
 j := `nproc`
 
 build:
-    make HOSTCC=$HOSTCC -j{{j}} -C tools/wasm
+    just make -C tools/wasm
 
 watch:
     watchexec -r -f '**/*.c' -f '**/*.h' -f '**/Makefile*' -f 'tools/wasm/src/**/*.ts' just build
@@ -31,3 +31,6 @@ serve:
         --header Cross-Origin-Opener-Policy:same-origin \
         --header Cross-Origin-Embedder-Policy:require-corp \
         --header Cross-Origin-Resource-Policy:cross-origin
+
+make *args:
+    make HOSTCC=$HOSTCC -j{{j}} {{args}}

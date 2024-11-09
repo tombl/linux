@@ -55,6 +55,9 @@
                   wabt
                   esbuild
                   typescript
+
+                  just
+                  miniserve
                 ];
 
                 HOSTCC = "${llvm.clang}/bin/clang";
