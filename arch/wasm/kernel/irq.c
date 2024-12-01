@@ -118,7 +118,7 @@ int wasm_alloc_irq(void)
 {
 	for (int i = FIRST_EXT_IRQ; i < NR_IRQS; i++) {
 		if (!test_and_set_bit(i, irqalloc))
-			return i;
+			return irq_create_mapping(NULL, i);
 	}
 	return -ENOSPC;
 }
