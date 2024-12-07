@@ -8,30 +8,32 @@ export type Unwrap<T> = T extends Type<infer U> ? U : never;
 export function Struct<T extends object>(
   layout: { [K in keyof T]: Type<T[K]> },
 ) {
+  let size = 0;
+
   const TheStruct = class {
-    _dv: DataView;
+    #dv: DataView;
     constructor(dv: DataView) {
-      this._dv = dv;
+      this.#dv = dv;
+    }
+    static {
+      for (
+        const [key, type] of Object.entries(
+          layout as Record<PropertyKey, Type<unknown>>,
+        )
+      ) {
+        const offset = size;
+        Object.defineProperty(this.prototype, key, {
+          get() {
+            return type.get(this.#dv, offset);
+          },
+          set(value) {
+            type.set(this.#dv, offset, value);
+          },
+        });
+        size += type.size;
+      }
     }
   } as { new (dv: DataView): T };
-
-  let size = 0;
-  for (
-    const [key, type] of Object.entries(
-      layout as Record<PropertyKey, Type<unknown>>,
-    )
-  ) {
-    const offset = size;
-    Object.defineProperty(TheStruct.prototype, key, {
-      get() {
-        return type.get(this._dv, offset);
-      },
-      set(value) {
-        type.set(this._dv, offset, value);
-      },
-    });
-    size += type.size;
-  }
 
   const type: Type<T> = {
     get(dv, offset) {
@@ -46,6 +48,27 @@ export function Struct<T extends object>(
   };
 
   return Object.assign(TheStruct, type);
+}
+
+export function FixedArray<T>(
+  { get, set, size }: Type<T>,
+  length: number,
+): Type<T[]> {
+  return {
+    get(dv, offset) {
+      const arr = Array<T>(length);
+      for (let i = 0; i < length; i++) {
+        arr[i] = get(dv, offset + size * i);
+      }
+      return arr;
+    },
+    set(dv, offset, value) {
+      for (let i = 0; i < length; i++) {
+        set(dv, offset + size * i, value[i]!);
+      }
+    },
+    size: size * length,
+  };
 }
 
 export const U8: Type<number> = {

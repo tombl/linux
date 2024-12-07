@@ -35,23 +35,27 @@ export interface Imports {
       buf_addr: number,
       buf_len: number,
     ): void;
+
     get_features(dev: number, features_addr: number): number;
     set_features(dev: number, features: bigint): number;
-    set_vring_enable(dev: number, vq: number, enable: number): number;
-    set_vring_num(dev: number, vq: number, num: number): number;
-    set_vring_addr(
-      dev: number,
-      vq: number,
-      desc: number,
-      used: number,
-      avail: number,
-    ): number;
+
     configure_interrupt(
       dev: number,
       irq: number,
       is_config_addr: number,
       is_vring_addr: number,
     ): number;
+
+    enable_vring(
+      dev: number,
+      vq: number,
+      size: number,
+      desc_addr: number,
+      used_addr: number,
+      avail_addr: number,
+    ): number;
+    disable_vring(dev: number, vq: number): number;
+
     notify(dev: number, vq: number): number;
   };
 }

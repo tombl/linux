@@ -16,14 +16,18 @@ void wasm_import(virtio, get_config)(u32 id, unsigned offset, void *buf,
 				     unsigned len);
 void wasm_import(virtio, set_config)(u32 id, unsigned offset, const void *buf,
 				     unsigned len);
+
 int wasm_import(virtio, get_features)(u32 id, u64 *features);
 int wasm_import(virtio, set_features)(u32 id, u64 features);
-int wasm_import(virtio, set_vring_enable)(u32 id, u32 index, bool enable);
-int wasm_import(virtio, set_vring_num)(u32 id, u32 index, u32 num);
-int wasm_import(virtio, set_vring_addr)(u32 id, u32 index, dma_addr_t desc,
-					dma_addr_t used, dma_addr_t avail);
+
 int wasm_import(virtio, configure_interrupt)(u32 id, u32 irq, bool *is_config,
-					     bool *is_vring);
+				      bool *is_vring);
+
+int wasm_import(virtio, enable_vring)(u32 id, u32 index, u32 size,
+				      dma_addr_t desc, dma_addr_t used,
+				      dma_addr_t avail);
+int wasm_import(virtio, disable_vring)(u32 id, u32 index);
+
 int wasm_import(virtio, notify)(u32 id, u32 index);
 
 #define to_virtio_wasm_device(_plat_dev) \
@@ -104,8 +108,7 @@ static void vw_del_vqs(struct virtio_device *vdev)
 
 	list_for_each_entry_safe(vq, n, &vdev->vqs, list) {
 		vring_del_virtqueue(vq);
-		WARN(wasm_virtio_set_vring_enable(vw_dev->host_id, vq->index,
-						  false) < 0,
+		WARN(wasm_virtio_disable_vring(vw_dev->host_id, vq->index) < 0,
 		     "failed to disable vq %i[%i]\n", vw_dev->host_id,
 		     vq->index);
 	}
@@ -153,18 +156,10 @@ static struct virtqueue *vw_setup_vq(struct virtio_device *vdev, unsigned index,
 	vq->num_max = num;
 	num = virtqueue_get_vring_size(vq);
 
-	rc = wasm_virtio_set_vring_num(vw_dev->host_id, vq->index, num);
-	if (rc)
-		goto error;
-
-	rc = wasm_virtio_set_vring_addr(vw_dev->host_id, vq->index,
-					virtqueue_get_desc_addr(vq),
-					virtqueue_get_used_addr(vq),
-					virtqueue_get_avail_addr(vq));
-	if (rc)
-		goto error;
-
-	rc = wasm_virtio_set_vring_enable(vw_dev->host_id, vq->index, true);
+	rc = wasm_virtio_enable_vring(vw_dev->host_id, vq->index, num,
+				      virtqueue_get_desc_addr(vq),
+				      virtqueue_get_used_addr(vq),
+				      virtqueue_get_avail_addr(vq));
 	if (rc)
 		goto error;
 
