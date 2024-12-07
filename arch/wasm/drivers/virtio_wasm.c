@@ -1,3 +1,4 @@
+#define DEBUG
 #define pr_fmt(fmt) "virtio-wasm: " fmt
 
 #include <asm/wasm_imports.h>
@@ -11,13 +12,17 @@
 #include <linux/virtio_ring.h>
 #include <linux/virtio.h>
 
+void wasm_import(virtio, get_config)(u32 id, unsigned offset, void *buf,
+				     unsigned len);
+void wasm_import(virtio, set_config)(u32 id, unsigned offset, const void *buf,
+				     unsigned len);
 int wasm_import(virtio, get_features)(u32 id, u64 *features);
 int wasm_import(virtio, set_features)(u32 id, u64 features);
 int wasm_import(virtio, set_vring_enable)(u32 id, u32 index, bool enable);
 int wasm_import(virtio, set_vring_num)(u32 id, u32 index, u32 num);
 int wasm_import(virtio, set_vring_addr)(u32 id, u32 index, dma_addr_t desc,
 					dma_addr_t used, dma_addr_t avail);
-int wasm_import(virtio, set_interrupt_addrs)(u32 id, bool *is_config,
+int wasm_import(virtio, configure_interrupt)(u32 id, u32 irq, bool *is_config,
 					     bool *is_vring);
 int wasm_import(virtio, notify)(u32 id, u32 index);
 
@@ -37,6 +42,20 @@ struct virtio_wasm_device {
 	bool interrupt_is_vring;
 };
 
+static void vw_get(struct virtio_device *vdev, unsigned offset, void *buf,
+		   unsigned len)
+{
+	struct virtio_wasm_device *vw_dev = to_virtio_wasm_device(vdev);
+	wasm_virtio_get_config(vw_dev->host_id, offset, buf, len);
+}
+
+static void vw_set(struct virtio_device *vdev, unsigned offset, const void *buf,
+		   unsigned len)
+{
+	struct virtio_wasm_device *vw_dev = to_virtio_wasm_device(vdev);
+	wasm_virtio_set_config(vw_dev->host_id, offset, buf, len);
+}
+
 static bool vw_notify(struct virtqueue *vq)
 {
 	struct virtio_wasm_device *vw_dev = to_virtio_wasm_device(vq->vdev);
@@ -51,12 +70,31 @@ static u8 vw_get_status(struct virtio_device *vdev)
 static void vw_set_status(struct virtio_device *vdev, u8 status)
 {
 	struct virtio_wasm_device *vw_dev = to_virtio_wasm_device(vdev);
-	vw_dev->status = status;
+	if (vw_dev->status != status) {
+		const char *name = dev_name(&vdev->dev);
+		vw_dev->status = status;
+		switch (status) {
+		case VIRTIO_CONFIG_S_ACKNOWLEDGE:
+			pr_debug("device %s: acknowledge\n", name);
+			break;
+		case VIRTIO_CONFIG_S_DRIVER:
+			pr_debug("device %s: driver\n", name);
+			break;
+		case VIRTIO_CONFIG_S_FAILED:
+			pr_debug("device %s: failed\n", name);
+			break;
+		case VIRTIO_CONFIG_S_DRIVER_OK:
+			pr_debug("device %s: driver ok\n", name);
+			break;
+		case VIRTIO_CONFIG_S_FEATURES_OK:
+			pr_debug("device %s: features ok\n", name);
+			break;
+		}
+	}
 }
 static void vw_reset(struct virtio_device *vdev)
 {
-	struct virtio_wasm_device *vw_dev = to_virtio_wasm_device(vdev);
-	vw_dev->status = 0;
+	vw_set_status(vdev, 0);
 }
 
 static void vw_del_vqs(struct virtio_device *vdev)
@@ -187,8 +225,8 @@ static const char *vw_bus_name(struct virtio_device *vdev)
 }
 
 static const struct virtio_config_ops virtio_wasm_config_ops = {
-	// .get = vw_get,
-	// .set = vw_set,
+	.get = vw_get,
+	.set = vw_set,
 	.get_status = vw_get_status,
 	.set_status = vw_set_status,
 	.reset = vw_reset,
@@ -242,7 +280,7 @@ static int virtio_wasm_probe(struct platform_device *pdev)
 	if (rc)
 		goto error;
 
-	rc = wasm_virtio_set_interrupt_addrs(vw_dev->host_id,
+	rc = wasm_virtio_configure_interrupt(vw_dev->host_id, vw_dev->irq,
 					     &vw_dev->interrupt_is_config,
 					     &vw_dev->interrupt_is_vring);
 	if (rc)

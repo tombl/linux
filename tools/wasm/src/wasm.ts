@@ -23,8 +23,20 @@ export interface Imports {
     spawn_worker(fn: number, arg: number, comm: number, commLen: number): void;
   };
   virtio: {
+    get_config(
+      dev: number,
+      offset: number,
+      buf_addr: number,
+      buf_len: number,
+    ): void;
+    set_config(
+      dev: number,
+      offset: number,
+      buf_addr: number,
+      buf_len: number,
+    ): void;
     get_features(dev: number, features_addr: number): number;
-    set_features(dev: number, features: number): number;
+    set_features(dev: number, features: bigint): number;
     set_vring_enable(dev: number, vq: number, enable: number): number;
     set_vring_num(dev: number, vq: number, num: number): number;
     set_vring_addr(
@@ -34,8 +46,9 @@ export interface Imports {
       used: number,
       avail: number,
     ): number;
-    set_interrupt_addrs(
+    configure_interrupt(
       dev: number,
+      irq: number,
       is_config_addr: number,
       is_vring_addr: number,
     ): number;

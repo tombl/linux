@@ -71,9 +71,14 @@ export class Machine extends EventEmitter<{
       },
       rng: {
         compatible: "virtio,wasm",
-        "host-id": 0x1234,
+        "host-id": 0,
         "virtio-device-id": 4, // entropy
       },
+      // blk: {
+      //   compatible: "virtio,wasm",
+      //   "host-id": 1,
+      //   "virtio-device-id": 2, // block
+      // },
     };
   }
 
@@ -134,12 +139,14 @@ export class Machine extends EventEmitter<{
         boot_console_close,
       }),
       virtio: {
+        get_config: unavailable,
+        set_config: unavailable,
         get_features: unavailable,
         set_features: unavailable,
         set_vring_enable: unavailable,
         set_vring_num: unavailable,
         set_vring_addr: unavailable,
-        set_interrupt_addrs: unavailable,
+        configure_interrupt: unavailable,
         notify: unavailable,
       },
     } satisfies Imports;
