@@ -10,11 +10,12 @@ export function Struct<T extends object>(
 ) {
   let size = 0;
 
-  const TheStruct = class {
+  return class {
     #dv: DataView;
     constructor(dv: DataView) {
       this.#dv = dv;
     }
+
     static {
       for (
         const [key, type] of Object.entries(
@@ -33,41 +34,37 @@ export function Struct<T extends object>(
         size += type.size;
       }
     }
-  } as { new (dv: DataView): T };
 
-  const type: Type<T> = {
-    get(dv, offset) {
+    static get(dv: DataView, offset: number) {
       if (offset !== 0) dv = new DataView(dv.buffer, dv.byteOffset + offset);
-      return new TheStruct(dv);
-    },
-    set(dv, offset, value) {
+      return new this(dv);
+    }
+    static set(dv: DataView, offset: number, value: T) {
       if (offset !== 0) dv = new DataView(dv.buffer, dv.byteOffset + offset);
-      Object.assign(new TheStruct(dv), value);
-    },
-    size,
-  };
-
-  return Object.assign(TheStruct, type);
+      Object.assign(new this(dv), value);
+    }
+    static size = size;
+  } as { new (dv: DataView): T } & Type<T>;
 }
 
 export function FixedArray<T>(
-  { get, set, size }: Type<T>,
+  type: Type<T>,
   length: number,
 ): Type<T[]> {
   return {
     get(dv, offset) {
       const arr = Array<T>(length);
       for (let i = 0; i < length; i++) {
-        arr[i] = get(dv, offset + size * i);
+        arr[i] = type.get(dv, offset + type.size * i);
       }
       return arr;
     },
     set(dv, offset, value) {
       for (let i = 0; i < length; i++) {
-        set(dv, offset + size * i, value[i]!);
+        type.set(dv, offset + type.size * i, value[i]!);
       }
     },
-    size: size * length,
+    size: type.size * length,
   };
 }
 
