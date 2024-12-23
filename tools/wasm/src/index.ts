@@ -2,6 +2,7 @@ import sections from "./build/sections.json" with { type: "json" };
 import vmlinuxUrl from "./build/vmlinux.wasm";
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
 import { assert, EventEmitter, get_script_path, unreachable } from "./util.ts";
+import { EntropyDevice, virtio_imports, VirtioDevice } from "./virtio.ts";
 import { type Imports, type Instance, kernel_imports } from "./wasm.ts";
 import type { InitMessage, WorkerMessage } from "./worker.ts";
 
@@ -21,6 +22,7 @@ export class Machine extends EventEmitter<{
   #boot_console_writer: WritableStreamDefaultWriter<Uint8Array>;
   #workers: Worker[] = [];
   #memory: WebAssembly.Memory;
+  #devices: VirtioDevice[];
 
   memory: Uint8Array;
   devicetree: DeviceTreeNode;
@@ -37,6 +39,8 @@ export class Machine extends EventEmitter<{
     super();
     this.#boot_console = new TransformStream<Uint8Array, Uint8Array>();
     this.#boot_console_writer = this.#boot_console.writable.getWriter();
+
+    this.#devices = [new EntropyDevice()];
 
     const PAGE_SIZE = 0x10000;
     const BYTES_PER_MIB = 0x100000;
@@ -69,17 +73,16 @@ export class Machine extends EventEmitter<{
         "#size-cells": 1,
         ranges: undefined,
       },
-      rng: {
-        compatible: "virtio,wasm",
-        "host-id": 0,
-        "virtio-device-id": 4, // entropy
-      },
-      // blk: {
-      //   compatible: "virtio,wasm",
-      //   "host-id": 1,
-      //   "virtio-device-id": 2, // block
-      // },
     };
+
+    for (const [i, dev] of this.#devices.entries()) {
+      this.devicetree[`virtio${i}`] = {
+        compatible: `virtio,wasm`,
+        "host-id": i,
+        "virtio-device-id": dev.ID,
+        features: dev.features,
+      };
+    }
   }
 
   async boot() {
@@ -106,6 +109,9 @@ export class Machine extends EventEmitter<{
             break;
           case "boot_console_close":
             boot_console_close();
+            break;
+          case "run_on_main":
+            instance.exports.call(event.data.fn, event.data.arg);
             break;
           default:
             unreachable(event.data);
@@ -137,17 +143,15 @@ export class Machine extends EventEmitter<{
         spawn_worker,
         boot_console_write,
         boot_console_close,
+        run_on_main: unavailable,
       }),
-      virtio: {
-        get_config: unavailable,
-        set_config: unavailable,
-        get_features: unavailable,
-        set_features: unavailable,
-        enable_vring: unavailable,
-        disable_vring: unavailable,
-        configure_interrupt: unavailable,
-        notify: unavailable,
-      },
+      virtio: virtio_imports({
+        memory: this.#memory,
+        devices: this.#devices,
+        trigger_irq_for_cpu(cpu, irq) {
+          instance.exports.trigger_irq_for_cpu(cpu, irq);
+        },
+      }),
     } satisfies Imports;
 
     const instance =

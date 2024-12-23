@@ -17,8 +17,8 @@ void __init smp_init_cpus(unsigned int ncpus);
 void __init init_sections(unsigned long node);
 void wasm_import(boot, get_devicetree)(char *buf, size_t size);
 
-__attribute__((export_name("worker_entry"))) void
-wasm_worker_entry(void (*fn)(void *), void *arg)
+__attribute__((export_name("call"))) void
+wasm_call(void (*fn)(void *), void *arg)
 {
 	fn(arg);
 }

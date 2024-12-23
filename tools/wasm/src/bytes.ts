@@ -1,4 +1,4 @@
-interface Type<T> {
+export interface Type<T> {
   get(dv: DataView, offset: number): T;
   set(dv: DataView, offset: number, value: T): void;
   size: number;
