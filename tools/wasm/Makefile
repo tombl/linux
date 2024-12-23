@@ -18,7 +18,7 @@ _kernel:
 	$(Q)$(MAKE) -C ../.. tools/wasm/src/build/vmlinux.wasm tools/wasm/src/build/sections.json
 
 dist/index.js: _kernel $(shell find src -type f)
-	$(Q)$(ESBUILD) --bundle src/index.ts --outdir=dist --format=esm --splitting --sourcemap --loader:.wasm=file
+	$(Q)$(ESBUILD) --bundle src/index.ts --outdir=dist --format=esm --splitting --sourcemap --loader:.wasm=file --loader:.squashfs=file
 
 dist/index.d.ts: _kernel $(shell find src -type f -name '*.ts')
 	$(Q)$(TSC)

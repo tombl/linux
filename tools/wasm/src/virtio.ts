@@ -1,20 +1,22 @@
 import {
   FixedArray,
   Struct,
+  type Type,
   U16LE,
   U32LE,
   U64LE,
   U8,
-  type Unwrap,
 } from "./bytes.ts";
 import { assert } from "./util.ts";
 import type { Imports } from "./wasm.ts";
+import squashfsUrl from "./root.squashfs";
 
-const EINVAL = 22;
+const squashfs = new Uint8Array(
+  await (await fetch(new URL(squashfsUrl, import.meta.url))).arrayBuffer(),
+);
 
 const VIRTIO_F_VERSION_1 = 1n << 32n;
 const VIRTIO_F_RING_PACKED = 1n << 34n;
-const VIRTIO_F_EVENT_IDX = 1n << 29n;
 const VIRTIO_F_INDIRECT_DESC = 1n << 28n;
 
 const VIRTQ_DESC_F_NEXT = 1 << 0;
@@ -22,6 +24,15 @@ const VIRTQ_DESC_F_WRITE = 1 << 1;
 const VIRTQ_DESC_F_INDIRECT = 1 << 2;
 const VIRTQ_DESC_F_AVAIL = 1 << 7;
 const VIRTQ_DESC_F_USED = 1 << 15;
+function formatDescFlags(flags: number) {
+  const f = [];
+  if (flags & VIRTQ_DESC_F_NEXT) f.push("NEXT");
+  if (flags & VIRTQ_DESC_F_WRITE) f.push("WRITE");
+  if (flags & VIRTQ_DESC_F_INDIRECT) f.push("INDIRECT");
+  if (flags & VIRTQ_DESC_F_AVAIL) f.push("AVAIL");
+  if (flags & VIRTQ_DESC_F_USED) f.push("USED");
+  return f.join(" ");
+}
 
 class VirtqDescriptor extends Struct({
   addr: U64LE,
@@ -29,30 +40,6 @@ class VirtqDescriptor extends Struct({
   id: U16LE,
   flags: U16LE,
 }) {}
-
-const VIRTQ_AVAIL_F_NO_INTERRUPT = 1;
-const VirtqAvail = (size: number) =>
-  Struct({
-    flags: U16LE,
-    idx: U16LE,
-    ring: FixedArray(U16LE, size),
-    used_event: U16LE, // only if VIRTIO_F_EVENT_IDX
-  });
-type VirtqAvail = Unwrap<ReturnType<typeof VirtqAvail>>;
-
-const VirtqUsedElem = Struct({
-  id: U32LE,
-  len: U32LE,
-});
-const VIRTQ_USED_F_NO_NOTIFY = 1;
-const VirtqUsed = (size: number) =>
-  Struct({
-    flags: U16LE,
-    idx: U16LE,
-    ring: FixedArray(VirtqUsedElem, size),
-    avail_event: U16LE, // only if VIRTIO_F_EVENT_IDX
-  });
-type VirtqUsed = Unwrap<ReturnType<typeof VirtqUsed>>;
 
 class Chain {
   #mem: DataView;
@@ -103,11 +90,14 @@ class Chain {
       console.log(
         "VirtqDescriptor:",
         desc.addr.toString(16).padStart(8, "0"),
-        desc.flags.toString(16),
+        formatDescFlags(desc.flags),
         desc.id,
         desc.len,
       );
-      yield new Uint8Array(this.#mem.buffer, Number(desc.addr), desc.len);
+      yield {
+        array: new Uint8Array(this.#mem.buffer, Number(desc.addr), desc.len),
+        writable: (desc.flags & VIRTQ_DESC_F_WRITE) !== 0,
+      };
     }
   }
 }
@@ -117,8 +107,6 @@ class Virtqueue {
 
   size: number;
   desc: VirtqDescriptor[];
-  used: VirtqUsed;
-  avail: VirtqAvail;
   wrap = true;
   used_idx = 0;
   avail_idx = 0;
@@ -127,16 +115,12 @@ class Virtqueue {
     mem: DataView,
     size: number,
     desc_addr: number,
-    used_addr: number,
-    avail_addr: number,
   ) {
     assert(size !== 0);
     assert(mem.byteOffset === 0);
     this.#mem = mem;
     this.size = size;
     this.desc = FixedArray(VirtqDescriptor, size).get(mem, desc_addr);
-    this.used = VirtqUsed(size).get(mem, used_addr);
-    this.avail = VirtqAvail(size).get(mem, avail_addr);
   }
 
   pop() {
@@ -189,18 +173,18 @@ class Virtqueue {
   }
 }
 
-export abstract class VirtioDevice {
+export abstract class VirtioDevice<Config = {}> {
   abstract readonly ID: number;
-  abstract readonly NVQS: number;
+  abstract readonly CONFIG_TYPE: Type<Config>;
 
-  config = new Uint8Array(0);
-  features = VIRTIO_F_VERSION_1 | VIRTIO_F_RING_PACKED |
-    VIRTIO_F_EVENT_IDX | VIRTIO_F_INDIRECT_DESC;
+  config: Config | null = null;
+
+  features = VIRTIO_F_VERSION_1 | VIRTIO_F_RING_PACKED | VIRTIO_F_INDIRECT_DESC;
 
   trigger_interrupt = (kind: "config" | "vring"): void => {
     // this function is overwritten on device setup
     void kind;
-    throw new Error("trigger_interrupt called before configure_interrupt");
+    throw new Error("trigger_interrupt called before setup");
   };
 
   vqs: Virtqueue[] = [];
@@ -215,23 +199,82 @@ export abstract class VirtioDevice {
   }
 
   abstract notify(vq: number): void;
+
+  setup_complete() {}
+}
+
+const EmptyStruct = Struct({});
+
+class BlockDeviceGeometry extends Struct({
+  cylinders: U16LE,
+  heads: U8,
+  sectors: U8,
+}) {}
+
+class BlockDeviceTopology extends Struct({
+  physical_block_exp: U8,
+  alignment_offset: U8,
+  min_io_size: U16LE,
+  opt_io_size: U32LE,
+}) {}
+
+class BlockDeviceConfig extends Struct({
+  capacity: U64LE,
+  size_max: U32LE,
+  seg_max: U32LE,
+  geometry: BlockDeviceGeometry,
+  blk_size: U32LE,
+  topology: BlockDeviceTopology,
+  writeback: U8,
+  unused: U8,
+  num_queues: U16LE,
+  max_discard_sectors: U32LE,
+  max_discard_seg: U32LE,
+  discard_sector_alignment: U32LE,
+  max_write_zeroes_sectors: U32LE,
+  max_write_zeroes_seg: U32LE,
+  write_zeroes_may_unmap: U8,
+}) {}
+
+export class BlockDevice extends VirtioDevice<BlockDeviceConfig> {
+  ID = 2;
+  CONFIG_TYPE = BlockDeviceConfig;
+
+  override setup_complete() {
+    assert(this.config);
+    this.config.capacity = BigInt(squashfs.length);
+    this.trigger_interrupt("config");
+  }
+
+  override notify(vq: number) {
+    assert(vq === 0);
+    console.log("block notify", vq);
+  }
 }
 
 export class EntropyDevice extends VirtioDevice {
   ID = 4;
-  NVQS = 1;
+  CONFIG_TYPE = EmptyStruct;
 
-  notify(vq: number) {
+  override notify(vq: number) {
+    assert(vq === 0);
+
     const queue = this.vqs[vq];
     assert(queue);
-    console.log("notify", vq, queue.size);
+    console.log("entropy notify", vq, queue.size);
 
     const chain = queue.pop();
     assert(chain);
     let n = 0;
-    for (const buf of chain) {
-      crypto.getRandomValues(buf);
-      n += buf.byteLength;
+    for (const { array, writable } of chain) {
+      assert(writable);
+
+      // can't use crypto.getRandomValues on a SharedArrayBuffer
+      const arr = new Uint8Array(array.length);
+      crypto.getRandomValues(arr);
+      array.set(arr);
+
+      n += array.byteLength;
     }
     chain.release(n);
 
@@ -255,41 +298,44 @@ export function virtio_imports(
   return {
     set_features(dev, features) {
       const device = devices[dev];
-      if (!device) return -EINVAL;
+      assert(device);
       device.features = features;
       return 0;
     },
 
-    enable_vring(dev, vq, size, desc_addr, used_addr, avail_addr) {
+    enable_vring(dev, vq, size, desc_addr) {
       const device = devices[dev];
-      if (!device) return -EINVAL;
-      if (vq >= device.NVQS) return -EINVAL;
+      assert(device);
 
       device.enable(
         vq,
-        new Virtqueue(dv, size, desc_addr, used_addr, avail_addr),
+        new Virtqueue(dv, size, desc_addr),
       );
 
       return 0;
     },
     disable_vring(dev, vq) {
       const device = devices[dev];
-      if (!device) return -EINVAL;
-      if (vq >= device.NVQS) return -EINVAL;
+      assert(device);
 
       device.disable(vq);
 
       return 0;
     },
 
-    configure_interrupt(
+    setup(
       dev,
       irq,
       is_config_addr,
       is_vring_addr,
+      config_addr,
+      config_len,
     ) {
       const device = devices[dev];
-      if (!device) return -EINVAL;
+      assert(device);
+
+      assert(config_len >= device.CONFIG_TYPE.size, "config space too small");
+      device.config = device.CONFIG_TYPE.get(dv, config_addr);
 
       device.trigger_interrupt = (kind) => {
         U8.set(dv, is_config_addr, kind === "config" ? 1 : 0);
@@ -297,13 +343,14 @@ export function virtio_imports(
         trigger_irq_for_cpu(0, irq); // TODO: balance?
       };
 
+      device.setup_complete();
+
       return 0;
     },
 
     notify(dev, vq) {
       const device = devices[dev];
-      if (!device) return -EINVAL;
-      if (vq >= device.NVQS) return -EINVAL;
+      assert(device);
 
       device.notify(vq);
 

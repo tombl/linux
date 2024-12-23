@@ -24,26 +24,26 @@ export interface Imports {
     run_on_main(fn: number, arg: number): void;
   };
   virtio: {
-    set_features(dev: number, features: bigint): number;
+    set_features(dev: number, features: bigint): void;
 
-    configure_interrupt(
+    setup(
       dev: number,
       irq: number,
       is_config_addr: number,
       is_vring_addr: number,
-    ): number;
+      config_addr: number,
+      config_len: number,
+    ): void;
 
     enable_vring(
       dev: number,
       vq: number,
       size: number,
       desc_addr: number,
-      used_addr: number,
-      avail_addr: number,
-    ): number;
-    disable_vring(dev: number, vq: number): number;
+    ): void;
+    disable_vring(dev: number, vq: number): void;
 
-    notify(dev: number, vq: number): number;
+    notify(dev: number, vq: number): void;
   };
 }
 

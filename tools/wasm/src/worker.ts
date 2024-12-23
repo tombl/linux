@@ -1,4 +1,3 @@
-import { U8 } from "./bytes.ts";
 import { type Imports, type Instance, kernel_imports } from "./wasm.ts";
 
 export interface InitMessage {
@@ -19,7 +18,6 @@ const unavailable = () => {
 
 self.onmessage = (event: MessageEvent<InitMessage>) => {
   const { fn, arg, vmlinux, memory } = event.data;
-  const dv = new DataView(memory.buffer);
 
   const imports = {
     env: { memory },
@@ -56,7 +54,7 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
     }),
     virtio: {
       set_features: unavailable,
-      configure_interrupt: unavailable,
+      setup: unavailable,
       enable_vring: unavailable,
       disable_vring: unavailable,
       notify: unavailable,

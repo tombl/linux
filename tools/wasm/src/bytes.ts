@@ -44,6 +44,14 @@ export function Struct<T extends object>(
       Object.assign(new this(dv), value);
     }
     static size = size;
+
+    toJSON() {
+      const obj = {} as T;
+      for (const key in layout) {
+        obj[key] = (this as unknown as T)[key];
+      }
+      return obj;
+    }
   } as { new (dv: DataView): T } & Type<T>;
 }
 

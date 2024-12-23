@@ -2,7 +2,12 @@ import sections from "./build/sections.json" with { type: "json" };
 import vmlinuxUrl from "./build/vmlinux.wasm";
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
 import { assert, EventEmitter, get_script_path, unreachable } from "./util.ts";
-import { EntropyDevice, virtio_imports, VirtioDevice } from "./virtio.ts";
+import {
+  BlockDevice,
+  EntropyDevice,
+  virtio_imports,
+  VirtioDevice,
+} from "./virtio.ts";
 import { type Imports, type Instance, kernel_imports } from "./wasm.ts";
 import type { InitMessage, WorkerMessage } from "./worker.ts";
 
@@ -40,7 +45,7 @@ export class Machine extends EventEmitter<{
     this.#boot_console = new TransformStream<Uint8Array, Uint8Array>();
     this.#boot_console_writer = this.#boot_console.writable.getWriter();
 
-    this.#devices = [new EntropyDevice()];
+    this.#devices = [new EntropyDevice(), new BlockDevice()];
 
     const PAGE_SIZE = 0x10000;
     const BYTES_PER_MIB = 0x100000;

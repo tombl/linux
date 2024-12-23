@@ -14,12 +14,11 @@
 
 void wasm_import(virtio, set_features)(u32 id, u64 features);
 
-void wasm_import(virtio, configure_interrupt)(u32 id, u32 irq, bool *is_config,
-					      bool *is_vring);
+void wasm_import(virtio, setup)(u32 id, u32 irq, bool *is_config,
+				bool *is_vring, u8 *config, u32 config_len);
 
 void wasm_import(virtio, enable_vring)(u32 id, u32 index, u32 size,
-				       dma_addr_t desc, dma_addr_t used,
-				       dma_addr_t avail);
+				       dma_addr_t desc);
 void wasm_import(virtio, disable_vring)(u32 id, u32 index);
 
 void wasm_import(virtio, notify)(u32 id, u32 index);
@@ -57,12 +56,9 @@ static void vw_set(struct virtio_device *vdev, unsigned offset, const void *buf,
 	struct virtio_wasm_device *vw_dev = to_virtio_wasm_device(vdev);
 
 	if (offset + len > vw_dev->config_len) {
-		while (offset + len > vw_dev->config_len)
-			vw_dev->config_len *= 2;
-		vw_dev->config = krealloc(vw_dev->config, vw_dev->config_len,
-					  GFP_KERNEL);
-		if (!vw_dev->config)
-			panic("failed to realloc config space\n");
+		pr_warn("attempted config write out of bounds: %u+%u > %u\n",
+			offset, len, vw_dev->config_len);
+		return;
 	}
 
 	memcpy(vw_dev->config + offset, buf, len);
@@ -167,9 +163,7 @@ static void _enable(void *arg)
 	struct virtio_wasm_device *vw_dev = to_virtio_wasm_device(vq->vdev);
 	wasm_virtio_enable_vring(vw_dev->host_id, vq->index,
 				 virtqueue_get_vring_size(vq),
-				 virtqueue_get_desc_addr(vq),
-				 virtqueue_get_used_addr(vq),
-				 virtqueue_get_avail_addr(vq));
+				 virtqueue_get_desc_addr(vq));
 }
 
 static struct virtqueue *vw_setup_vq(struct virtio_device *vdev, unsigned index,
@@ -268,12 +262,13 @@ static void virtio_wasm_release_dev(struct device *_d)
 	kfree(vw_dev);
 }
 
-static void _configure_interrupt(void *arg)
+static void _setup(void *arg)
 {
 	struct virtio_wasm_device *vw_dev = arg;
-	wasm_virtio_configure_interrupt(vw_dev->host_id, vw_dev->irq,
-					&vw_dev->interrupt_is_config,
-					&vw_dev->interrupt_is_vring);
+	wasm_virtio_setup(vw_dev->host_id, vw_dev->irq,
+			  &vw_dev->interrupt_is_config,
+			  &vw_dev->interrupt_is_vring, vw_dev->config,
+			  vw_dev->config_len);
 }
 
 static int virtio_wasm_probe(struct platform_device *pdev)
@@ -321,7 +316,7 @@ static int virtio_wasm_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, vw_dev);
 
-	wasm_kernel_run_on_main(_configure_interrupt, vw_dev);
+	wasm_kernel_run_on_main(_setup, vw_dev);
 
 	rc = register_virtio_device(&vw_dev->vdev);
 	if (rc) {
