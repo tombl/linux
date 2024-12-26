@@ -86,6 +86,7 @@ export class Machine extends EventEmitter<{
         "host-id": i,
         "virtio-device-id": dev.ID,
         features: dev.features,
+        config: dev.config_bytes,
       };
     }
   }

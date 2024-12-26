@@ -719,6 +719,7 @@ done:
 
 out_blkdev_put:
 	blkdev_put_whole(bdev_whole(part), mode);
+	pr_info("%s() = %d\n", __func__, ret);
 	return ret;
 }
 
@@ -746,6 +747,9 @@ struct block_device *blkdev_get_no_open(dev_t dev)
 			pr_warn_ratelimited(
 "block device autoloading is deprecated and will be removed.\n");
 	}
+
+	pr_info("inode: %p %i\n", inode, dev);
+
 	if (!inode)
 		return NULL;
 
@@ -798,8 +802,9 @@ struct block_device *blkdev_get_by_dev(dev_t dev, fmode_t mode, void *holder)
 		return ERR_PTR(ret);
 
 	bdev = blkdev_get_no_open(dev);
-	if (!bdev)
-		return ERR_PTR(-ENXIO);
+	if (!bdev){
+		pr_info("%s: no bdev\n", __func__);
+		return ERR_PTR(-ENXIO);}
 	disk = bdev->bd_disk;
 
 	if (mode & FMODE_EXCL) {
@@ -852,6 +857,7 @@ abort_claiming:
 	disk_unblock_events(disk);
 put_blkdev:
 	blkdev_put_no_open(bdev);
+	pr_info("%s() = %d", __func__, ret);
 	return ERR_PTR(ret);
 }
 EXPORT_SYMBOL(blkdev_get_by_dev);
@@ -883,6 +889,13 @@ struct block_device *blkdev_get_by_path(const char *path, fmode_t mode,
 	error = lookup_bdev(path, &dev);
 	if (error)
 		return ERR_PTR(error);
+
+	pr_info("%s: %s -> %d\n", __func__, path, dev);
+
+	for (int i = 0; i < INT_MAX; i++) {
+		bdev = blkdev_get_by_dev(dev, mode, holder);
+		pr_info("bdev[%d]: %p\n", i, bdev);
+	}
 
 	bdev = blkdev_get_by_dev(dev, mode, holder);
 	if (!IS_ERR(bdev) && (mode & FMODE_WRITE) && bdev_read_only(bdev)) {
@@ -990,6 +1003,7 @@ int lookup_bdev(const char *pathname, dev_t *dev)
 	if (!may_open_dev(&path))
 		goto out_path_put;
 
+	pr_info("rdev: %p %d\n", inode, inode->i_rdev);
 	*dev = inode->i_rdev;
 	error = 0;
 out_path_put:

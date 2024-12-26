@@ -12,8 +12,8 @@ export function Struct<T extends object>(
 
   return class {
     #dv: DataView;
-    constructor(dv: DataView) {
-      this.#dv = dv;
+    constructor(view: ArrayBufferView) {
+      this.#dv = new DataView(view.buffer, view.byteOffset, view.byteLength);
     }
 
     static {
@@ -52,7 +52,7 @@ export function Struct<T extends object>(
       }
       return obj;
     }
-  } as { new (dv: DataView): T } & Type<T>;
+  } as { new (view: ArrayBufferView): T } & Type<T>;
 }
 
 export function FixedArray<T>(

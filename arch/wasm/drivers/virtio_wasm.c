@@ -313,6 +313,14 @@ static int virtio_wasm_probe(struct platform_device *pdev)
 		goto error;
 	}
 
+	rc = of_property_read_variable_u8_array(pdev->dev.of_node, "config",
+						vw_dev->config, 0,
+						vw_dev->config_len);
+	if (rc < 0) {
+		pr_warn("failed to read config from device tree\n");
+		goto error;
+	}
+
 	platform_set_drvdata(pdev, vw_dev);
 
 	wasm_kernel_run_on_main(_setup, vw_dev);

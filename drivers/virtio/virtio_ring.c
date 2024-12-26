@@ -3,7 +3,6 @@
  *
  *  Copyright 2007 Rusty Russell IBM Corporation
  */
-#define DEBUG
 #define pr_fmt(fmt) "vring: " fmt
 
 #include <linux/virtio.h>
