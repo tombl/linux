@@ -87,24 +87,23 @@ static void vw_set_status(struct virtio_device *vdev, u8 status)
 	struct virtio_wasm_device *vw_dev = to_virtio_wasm_device(vdev);
 	if (vw_dev->status != status) {
 		const char *name = dev_name(&vdev->dev);
+		u8 changed = vw_dev->status ^ status;
 		vw_dev->status = status;
-		switch (status) {
-		case VIRTIO_CONFIG_S_ACKNOWLEDGE:
-			pr_debug("device %s: acknowledge\n", name);
-			break;
-		case VIRTIO_CONFIG_S_DRIVER:
-			pr_debug("device %s: driver\n", name);
-			break;
-		case VIRTIO_CONFIG_S_FAILED:
-			pr_debug("device %s: failed\n", name);
-			break;
-		case VIRTIO_CONFIG_S_DRIVER_OK:
-			pr_debug("device %s: driver ok\n", name);
-			break;
-		case VIRTIO_CONFIG_S_FEATURES_OK:
-			pr_debug("device %s: features ok\n", name);
-			break;
-		}
+		if (changed & VIRTIO_CONFIG_S_ACKNOWLEDGE)
+			pr_debug("device %s: acknowledge = %d\n", name,
+				 !!(status & VIRTIO_CONFIG_S_ACKNOWLEDGE));
+		if (changed & VIRTIO_CONFIG_S_DRIVER)
+			pr_debug("device %s: driver = %d\n", name,
+				 !!(status & VIRTIO_CONFIG_S_DRIVER));
+		if (changed & VIRTIO_CONFIG_S_FAILED)
+			pr_debug("device %s: failed = %d\n", name,
+				 !!(status & VIRTIO_CONFIG_S_FAILED));
+		if (changed & VIRTIO_CONFIG_S_DRIVER_OK)
+			pr_debug("device %s: driver ok = %d\n", name,
+				 !!(status & VIRTIO_CONFIG_S_DRIVER_OK));
+		if (changed & VIRTIO_CONFIG_S_FEATURES_OK)
+			pr_debug("device %s: features ok = %d\n", name,
+				 !!(status & VIRTIO_CONFIG_S_FEATURES_OK));
 	}
 }
 static void vw_reset(struct virtio_device *vdev)

@@ -300,27 +300,20 @@ export function virtio_imports(
       const device = devices[dev];
       assert(device);
       device.features = features;
-      return 0;
     },
 
     enable_vring(dev, vq, size, desc_addr) {
       const device = devices[dev];
       assert(device);
-
       device.enable(
         vq,
         new Virtqueue(dv, size, desc_addr),
       );
-
-      return 0;
     },
     disable_vring(dev, vq) {
       const device = devices[dev];
       assert(device);
-
       device.disable(vq);
-
-      return 0;
     },
 
     setup(
@@ -344,17 +337,12 @@ export function virtio_imports(
       };
 
       device.setup_complete();
-
-      return 0;
     },
 
     notify(dev, vq) {
       const device = devices[dev];
       assert(device);
-
       device.notify(vq);
-
-      return 0;
     },
   };
 }

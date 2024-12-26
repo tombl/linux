@@ -16,40 +16,30 @@ const unavailable = () => {
   throw new Error("not available on worker thread");
 };
 
+const postMessage = self.postMessage as (message: WorkerMessage) => void;
+
 self.onmessage = (event: MessageEvent<InitMessage>) => {
   const { fn, arg, vmlinux, memory } = event.data;
 
   const imports = {
     env: { memory },
     boot: {
-      get_devicetree(_buf, _size) {
-        throw new Error(
-          "get_devicetree on worker thread",
-        );
-      },
+      get_devicetree: unavailable,
     },
     kernel: kernel_imports({
       is_worker: true,
       memory,
       spawn_worker(fn, arg, name) {
-        self.postMessage(
-          { type: "spawn_worker", fn, arg, name } satisfies WorkerMessage,
-        );
+        postMessage({ type: "spawn_worker", fn, arg, name });
       },
       boot_console_write(message) {
-        self.postMessage(
-          { type: "boot_console_write", message } satisfies WorkerMessage,
-        );
+        postMessage({ type: "boot_console_write", message });
       },
       boot_console_close() {
-        self.postMessage(
-          { type: "boot_console_close" } satisfies WorkerMessage,
-        );
+        postMessage({ type: "boot_console_close" });
       },
       run_on_main(fn, arg) {
-        self.postMessage(
-          { type: "run_on_main", fn, arg } satisfies WorkerMessage,
-        );
+        postMessage({ type: "run_on_main", fn, arg });
       },
     }),
     virtio: {

@@ -52,7 +52,11 @@ __attribute__((export_name("boot"))) void __init _start(void)
 	__wasm_call_ctors();
 	init_sections(node);
 
-	wasm_kernel_spawn_worker(do_start_kernel, NULL, "boot", 4);
+	// ensure that any future work done on this thread won't interfere with the kernel
+	set_current_cpu(-2); // -1 is reserved for unscheduled tasks
+	set_current_task(NULL);
+
+	wasm_kernel_spawn_worker(do_start_kernel, NULL, "boot", sizeof "boot" - 1);
 }
 
 void __init setup_arch(char **cmdline_p)
