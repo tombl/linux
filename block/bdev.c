@@ -892,11 +892,6 @@ struct block_device *blkdev_get_by_path(const char *path, fmode_t mode,
 
 	pr_info("%s: %s -> %d\n", __func__, path, dev);
 
-	for (int i = 0; i < INT_MAX; i++) {
-		bdev = blkdev_get_by_dev(dev, mode, holder);
-		pr_info("bdev[%d]: %p\n", i, bdev);
-	}
-
 	bdev = blkdev_get_by_dev(dev, mode, holder);
 	if (!IS_ERR(bdev) && (mode & FMODE_WRITE) && bdev_read_only(bdev)) {
 		blkdev_put(bdev, mode);
