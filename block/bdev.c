@@ -998,7 +998,7 @@ int lookup_bdev(const char *pathname, dev_t *dev)
 	if (!may_open_dev(&path))
 		goto out_path_put;
 
-	pr_info("rdev: %p %d\n", inode, inode->i_rdev);
+	pr_info("rdev: %p %d %x\n", inode, inode->i_rdev, inode->i_mode);
 	*dev = inode->i_rdev;
 	error = 0;
 out_path_put:

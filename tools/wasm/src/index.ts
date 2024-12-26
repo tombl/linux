@@ -162,6 +162,8 @@ export class Machine extends EventEmitter<{
 
     const instance =
       (await WebAssembly.instantiate(vmlinux, imports)) as Instance;
+    // @ts-expect-error
+    globalThis.instance = instance;
     instance.exports.boot();
   }
 }

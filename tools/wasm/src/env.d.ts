@@ -3,7 +3,7 @@ declare module "*.wasm" {
   export default url;
 }
 
-declare module "*.squashfs" {
+declare module "*.img" {
   const url: string;
   export default url;
 }

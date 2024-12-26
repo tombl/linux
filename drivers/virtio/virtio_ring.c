@@ -3,6 +3,7 @@
  *
  *  Copyright 2007 Rusty Russell IBM Corporation
  */
+#define DEBUG
 #define pr_fmt(fmt) "vring: " fmt
 
 #include <linux/virtio.h>
@@ -1386,7 +1387,7 @@ static inline int virtqueue_add_packed(struct virtqueue *_vq,
 		err = virtqueue_add_indirect_packed(vq, sgs, total_sg, out_sgs,
 						    in_sgs, data, gfp);
 		if (err != -ENOMEM) {
-			END_USE(vq);
+			// END_USE(vq);
 			return err;
 		}
 

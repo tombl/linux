@@ -9,10 +9,10 @@ import {
 } from "./bytes.ts";
 import { assert } from "./util.ts";
 import type { Imports } from "./wasm.ts";
-import squashfsUrl from "./root.squashfs";
+import rootfsUrl from "./disk.img";
 
-const squashfs = new Uint8Array(
-  await (await fetch(new URL(squashfsUrl, import.meta.url))).arrayBuffer(),
+const rootfs = new Uint8Array(
+  await (await fetch(new URL(rootfsUrl, import.meta.url))).arrayBuffer(),
 );
 
 const TransportFeatures = {
@@ -121,7 +121,7 @@ class Virtqueue {
     this.desc = FixedArray(VirtqDescriptor, size).get(mem, desc_addr);
   }
 
-  pop() {
+  #pop() {
     let i = this.#advance();
     if (i === null) return null;
     const head = i;
@@ -155,6 +155,11 @@ class Virtqueue {
     }
 
     return chain;
+  }
+
+  *[Symbol.iterator]() {
+    let chain;
+    while (chain = this.#pop()) yield chain;
   }
 
   #advance() {
@@ -239,7 +244,7 @@ export class BlockDevice extends VirtioDevice<BlockDeviceConfig> {
   constructor() {
     super();
     this.features |= BlockDeviceFeatures.FLUSH | BlockDeviceFeatures.RO;
-    this.config.capacity = BigInt(squashfs.length);
+    this.config.capacity = BigInt(rootfs.length / 512);
   }
 
   override notify(vq: number) {
@@ -248,47 +253,49 @@ export class BlockDevice extends VirtioDevice<BlockDeviceConfig> {
     const queue = this.vqs[vq];
     assert(queue);
 
-    const chain = queue.pop();
-    assert(chain);
+    for (const chain of queue) {
+      const [header, data, status, trailing] = chain;
+      assert(header && !header.writable, "header must be readonly");
+      assert(
+        header.array.byteLength === BlockDeviceRequest.size,
+        `header size is ${header.array.byteLength}`,
+      );
+      assert(data, "data must exist");
+      assert(status && status.writable, "status must be writable");
+      assert(
+        status.array.byteLength === 1,
+        `status size is ${status.array.byteLength}`,
+      );
+      assert(!trailing, "too many descriptors");
 
-    const [header, data, status, trailing] = chain;
-    assert(header && !header.writable, "header must be readonly");
-    assert(
-      header.array.byteLength === BlockDeviceRequest.size,
-      `header size is ${header.array.byteLength}`,
-    );
-    assert(data, "data must exist");
-    assert(status && status.writable, "status must be writable");
-    assert(
-      status.array.byteLength === 1,
-      `status size is ${status.array.byteLength}`,
-    );
-    assert(!trailing, "too many descriptors");
+      const request = new BlockDeviceRequest(header.array);
 
-    const request = new BlockDeviceRequest(header.array);
-
-    let n = 0;
-    switch (request.type) {
-      case BlockDeviceRequestType.IN: {
-        assert(data.writable, "data must be writable when IN");
-        const sector = Number(request.sector);
-        const start = sector * 512;
-        const end = start + 512;
-        if (end > squashfs.length) {
-          status.array[0] = BlockDeviceStatus.IOERR;
-        } else {
-          data.array.set(squashfs.slice(start, end));
-          n = 512;
+      let n = 0;
+      switch (request.type) {
+        case BlockDeviceRequestType.IN: {
+          assert(data.writable, "data must be writable when IN");
+          const start = Number(request.sector) * 512;
+          let end = start + data.array.byteLength;
+          if (end >= rootfs.length) end = rootfs.length - 1;
+          data.array.set(rootfs.subarray(start, end));
+          n = end - start;
           status.array[0] = BlockDeviceStatus.OK;
+          break;
         }
-        break;
+        default:
+          console.error("unknown request type", request.type);
+          status.array[0] = BlockDeviceStatus.UNSUPP;
       }
-      default:
-        console.error("unknown request type", request.type);
-        status.array[0] = BlockDeviceStatus.UNSUPP;
-    }
 
-    chain.release(n);
+      console.log(
+        request.type,
+        request.sector,
+        status.array[0],
+        btoa(String.fromCharCode(...data.array)),
+      );
+
+      chain.release(n);
+    }
     this.trigger_interrupt("vring");
   }
 }
@@ -304,20 +311,20 @@ export class EntropyDevice extends VirtioDevice<EmptyStruct> {
     const queue = this.vqs[vq];
     assert(queue);
 
-    const chain = queue.pop();
-    assert(chain);
-    let n = 0;
-    for (const { array, writable } of chain) {
-      assert(writable);
+    for (const chain of queue) {
+      let n = 0;
+      for (const { array, writable } of chain) {
+        assert(writable);
 
-      // can't use crypto.getRandomValues on a SharedArrayBuffer
-      const arr = new Uint8Array(array.length);
-      crypto.getRandomValues(arr);
-      array.set(arr);
+        // can't use crypto.getRandomValues on a SharedArrayBuffer
+        const arr = new Uint8Array(array.length);
+        crypto.getRandomValues(arr);
+        array.set(arr);
 
-      n += array.byteLength;
+        n += array.byteLength;
+      }
+      chain.release(n);
     }
-    chain.release(n);
 
     this.trigger_interrupt("vring");
   }
@@ -340,7 +347,10 @@ export function virtio_imports(
     set_features(dev, features) {
       const device = devices[dev];
       assert(device);
-      device.features = features;
+      assert(
+        device.features === features,
+        "the kernel should accept every feature we offer, and no more",
+      );
     },
 
     enable_vring(dev, vq, size, desc_addr) {
