@@ -25,6 +25,7 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
     env: { memory },
     boot: {
       get_devicetree: unavailable,
+      get_initramfs: unavailable,
     },
     kernel: kernel_imports({
       is_worker: true,

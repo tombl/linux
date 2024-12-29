@@ -9,11 +9,6 @@ import {
 } from "./bytes.ts";
 import { assert } from "./util.ts";
 import type { Imports } from "./wasm.ts";
-import rootfsUrl from "./disk.img";
-
-const rootfs = new Uint8Array(
-  await (await fetch(new URL(rootfsUrl, import.meta.url))).arrayBuffer(),
-);
 
 const TransportFeatures = {
   VERSION_1: 1n << 32n,
@@ -241,10 +236,12 @@ export class BlockDevice extends VirtioDevice<BlockDeviceConfig> {
   config_bytes = new Uint8Array(BlockDeviceConfig.size);
   config = new BlockDeviceConfig(this.config_bytes);
 
+  storage = new Uint8Array(1024 * 1024);
+
   constructor() {
     super();
-    this.features |= BlockDeviceFeatures.FLUSH | BlockDeviceFeatures.RO;
-    this.config.capacity = BigInt(rootfs.length / 512);
+    this.features |= BlockDeviceFeatures.FLUSH;
+    this.config.capacity = BigInt(this.storage.byteLength / 512);
   }
 
   override notify(vq: number) {
@@ -276,8 +273,8 @@ export class BlockDevice extends VirtioDevice<BlockDeviceConfig> {
           assert(data.writable, "data must be writable when IN");
           const start = Number(request.sector) * 512;
           let end = start + data.array.byteLength;
-          if (end >= rootfs.length) end = rootfs.length - 1;
-          data.array.set(rootfs.subarray(start, end));
+          if (end >= this.storage.length) end = this.storage.length - 1;
+          data.array.set(this.storage.subarray(start, end));
           n = end - start;
           status.array[0] = BlockDeviceStatus.OK;
           break;
@@ -291,7 +288,6 @@ export class BlockDevice extends VirtioDevice<BlockDeviceConfig> {
         request.type,
         request.sector,
         status.array[0],
-        btoa(String.fromCharCode(...data.array)),
       );
 
       chain.release(n);

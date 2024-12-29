@@ -168,13 +168,6 @@ config BINFMT_MISC
 	  you have use for it; the module is called binfmt_misc. If you
 	  don't know what to answer at this point, say Y.
 
-config ARCH_HAS_BINFMT_WASM
-	bool
-
-config BINFMT_WASM
-	bool "Kernel support for WASM binaries"
-	depends on ARCH_HAS_BINFMT_WASM
-
 config COREDUMP
 	bool "Enable core dump support" if EXPERT
 	default y

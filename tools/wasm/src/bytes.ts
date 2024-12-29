@@ -1,3 +1,5 @@
+import { assert } from "./util";
+
 export interface Type<T> {
   get(dv: DataView, offset: number): T;
   set(dv: DataView, offset: number, value: T): void;
@@ -59,6 +61,7 @@ export function FixedArray<T>(
   type: Type<T>,
   length: number,
 ): Type<T[]> {
+  assert(Number.isInteger(length) && length > 0);
   return {
     get(dv, offset) {
       const arr = Array<T>(length);

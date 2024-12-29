@@ -1,6 +1,8 @@
+import initramfs from "./build/initramfs_data.cpio";
 import sections from "./build/sections.json" with { type: "json" };
 import vmlinuxUrl from "./build/vmlinux.wasm";
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
+import init2 from "./init2.cpio";
 import { assert, EventEmitter, get_script_path, unreachable } from "./util.ts";
 import {
   BlockDevice,
@@ -17,6 +19,8 @@ const vmlinux_response = fetch(new URL(vmlinuxUrl, import.meta.url));
 const vmlinux_promise = "compileStreaming" in WebAssembly
   ? WebAssembly.compileStreaming(vmlinux_response)
   : vmlinux_response.then((r) => r.arrayBuffer()).then(WebAssembly.compile);
+
+const INIT2_ADDR = 0x200000;
 
 export class Machine extends EventEmitter<{
   halt: void;
@@ -45,7 +49,7 @@ export class Machine extends EventEmitter<{
     this.#boot_console = new TransformStream<Uint8Array, Uint8Array>();
     this.#boot_console_writer = this.#boot_console.writable.getWriter();
 
-    this.#devices = [new EntropyDevice(), new BlockDevice()];
+    this.#devices = [new EntropyDevice() /*, new BlockDevice()*/];
 
     const PAGE_SIZE = 0x10000;
     const BYTES_PER_MIB = 0x100000;
@@ -67,6 +71,8 @@ export class Machine extends EventEmitter<{
         bootargs: options.cmdline ?? "no_hash_pointers",
         ncpus: options.cpus ?? navigator.hardwareConcurrency,
         sections,
+        "linux,initrd-start": INIT2_ADDR,
+        "linux,initrd-end": INIT2_ADDR + init2.byteLength,
       },
       aliases: {},
       memory: {
@@ -80,6 +86,8 @@ export class Machine extends EventEmitter<{
       },
     };
 
+    this.memory.set(init2, INIT2_ADDR);
+
     for (const [i, dev] of this.#devices.entries()) {
       this.devicetree[`virtio${i}`] = {
         compatible: `virtio,wasm`,
@@ -92,7 +100,11 @@ export class Machine extends EventEmitter<{
   }
 
   async boot() {
-    const devicetree = generate_devicetree(this.devicetree);
+    const devicetree = generate_devicetree(this.devicetree, {
+      memory_reservations: [
+        { address: INIT2_ADDR, size: init2.byteLength },
+      ],
+    });
     const vmlinux = await vmlinux_promise;
 
     const boot_console_write = (message: ArrayBuffer) => {
@@ -135,12 +147,14 @@ export class Machine extends EventEmitter<{
     const imports = {
       env: { memory: this.#memory },
       boot: {
-        get_devicetree: (buf: number, size: number) => {
-          assert(
-            size >= devicetree.byteLength,
-            "Device tree truncated",
-          );
-          this.memory.set(devicetree.slice(0, size), buf);
+        get_devicetree: (buf, size) => {
+          assert(size >= devicetree.byteLength, "Device tree truncated");
+          this.memory.set(devicetree, buf);
+        },
+        get_initramfs: (buf, size) => {
+          assert(size >= initramfs.byteLength, "Initramfs truncated");
+          this.memory.set(initramfs, buf);
+          return initramfs.byteLength;
         },
       },
       kernel: kernel_imports({
@@ -164,6 +178,8 @@ export class Machine extends EventEmitter<{
       (await WebAssembly.instantiate(vmlinux, imports)) as Instance;
     // @ts-expect-error
     globalThis.instance = instance;
+    // @ts-expect-error
+    globalThis.memory = this.#memory;
     instance.exports.boot();
   }
 }
