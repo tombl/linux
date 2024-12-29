@@ -5829,6 +5829,7 @@ static void put_prev_task_balance(struct rq *rq, struct task_struct *prev,
 {
 #ifdef CONFIG_SMP
 	const struct sched_class *class;
+	int class_i;
 	/*
 	 * We must do the balancing pass before put_prev_task(), such
 	 * that when we release the rq->lock the task is in the same
@@ -5837,7 +5838,7 @@ static void put_prev_task_balance(struct rq *rq, struct task_struct *prev,
 	 * We can terminate the balance pass as soon as we know there is
 	 * a runnable task of @class priority or higher.
 	 */
-	for_class_range(class, prev->sched_class, &idle_sched_class) {
+	for_class_range(class, class_i, prev->sched_class, &idle_sched_class) {
 		if (class->balance(rq, prev, rf))
 			break;
 	}
@@ -5853,6 +5854,7 @@ static inline struct task_struct *
 __pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 {
 	const struct sched_class *class;
+	int class_i;
 	struct task_struct *p;
 
 	/*
@@ -5880,7 +5882,7 @@ __pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 restart:
 	put_prev_task_balance(rq, prev, rf);
 
-	for_each_class(class) {
+	for_each_class(class, class_i) {
 		p = class->pick_next_task(rq);
 		if (p)
 			return p;
@@ -9320,13 +9322,14 @@ static inline void balance_hotplug_wait(void)
 
 void set_rq_online(struct rq *rq)
 {
+	int class_i;
 	if (!rq->online) {
 		const struct sched_class *class;
 
 		cpumask_set_cpu(rq->cpu, rq->rd->online);
 		rq->online = 1;
 
-		for_each_class(class) {
+		for_each_class(class, class_i) {
 			if (class->rq_online)
 				class->rq_online(rq);
 		}
@@ -9335,10 +9338,11 @@ void set_rq_online(struct rq *rq)
 
 void set_rq_offline(struct rq *rq)
 {
+	int class_i;
 	if (rq->online) {
 		const struct sched_class *class;
 
-		for_each_class(class) {
+		for_each_class(class, class_i) {
 			if (class->rq_offline)
 				class->rq_offline(rq);
 		}
@@ -9680,12 +9684,12 @@ void __init sched_init(void)
 	unsigned long ptr = 0;
 	int i;
 
-	/* Make sure the linker didn't screw up */
-	BUG_ON(&idle_sched_class != &fair_sched_class + 1 ||
-	       &fair_sched_class != &rt_sched_class + 1 ||
-	       &rt_sched_class   != &dl_sched_class + 1);
+	/* Make sure the author didn't screw up */
+	BUG_ON(idle_sched_class.rank != fair_sched_class.rank + 1 ||
+	       fair_sched_class.rank != rt_sched_class.rank + 1 ||
+	       rt_sched_class.rank   != dl_sched_class.rank + 1);
 #ifdef CONFIG_SMP
-	BUG_ON(&dl_sched_class != &stop_sched_class + 1);
+	BUG_ON(dl_sched_class.rank != stop_sched_class.rank + 1);
 #endif
 
 	wait_bit_init();

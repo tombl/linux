@@ -45,12 +45,21 @@ objtool-args = $(vmlinux-objtool-args-y) --link
 # ---------------------------------------------------------------------------
 
 quiet_cmd_ld_vmlinux.o = LD      $@
+ifdef CONFIG_LD_IS_WASMLD
+      cmd_ld_vmlinux.o = \
+	$(LD) ${KBUILD_LDFLAGS} --no-gc-sections -o $@ \
+	$(addprefix -T , $(initcalls-lds)) \
+	--whole-archive vmlinux.a --no-whole-archive \
+	$(KBUILD_VMLINUX_LIBS) \
+	$(cmd_objtool)
+else
       cmd_ld_vmlinux.o = \
 	$(LD) ${KBUILD_LDFLAGS} -r -o $@ \
 	$(addprefix -T , $(initcalls-lds)) \
 	--whole-archive vmlinux.a --no-whole-archive \
 	--start-group $(KBUILD_VMLINUX_LIBS) --end-group \
 	$(cmd_objtool)
+endif
 
 define rule_ld_vmlinux.o
 	$(call cmd_and_savecmd,ld_vmlinux.o)

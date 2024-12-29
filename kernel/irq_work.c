@@ -301,7 +301,7 @@ static void irq_workd_setup(unsigned int cpu)
 }
 
 static struct smp_hotplug_thread irqwork_threads = {
-	.store                  = &irq_workd,
+	.store			= &irq_workd,
 	.setup			= irq_workd_setup,
 	.thread_should_run      = irq_workd_should_run,
 	.thread_fn              = run_irq_workd,

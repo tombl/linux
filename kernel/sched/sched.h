@@ -2145,7 +2145,19 @@ extern const u32		sched_prio_to_wmult[40];
 
 #define RETRY_TASK		((void *)-1UL)
 
+enum sched_class_rank {
+#ifdef CONFIG_SMP
+	SCHED_CLASS_STOP,
+#endif
+	SCHED_CLASS_DL,
+	SCHED_CLASS_RT,
+	SCHED_CLASS_FAIR,
+	SCHED_CLASS_IDLE,
+	SCHED_CLASS_MAX,
+};
+
 struct sched_class {
+	enum sched_class_rank rank;
 
 #ifdef CONFIG_UCLAMP_TASK
 	int uclamp_enabled;
@@ -2219,38 +2231,42 @@ static inline void set_next_task(struct rq *rq, struct task_struct *next)
 }
 
 
-/*
- * Helper to define a sched_class instance; each one is placed in a separate
- * section which is ordered by the linker script:
- *
- *   include/asm-generic/vmlinux.lds.h
- *
- * *CAREFUL* they are laid out in *REVERSE* order!!!
- *
- * Also enforce alignment on the instance, not the type, to guarantee layout.
- */
 #define DEFINE_SCHED_CLASS(name) \
 const struct sched_class name##_sched_class \
-	__aligned(__alignof__(struct sched_class)) \
-	__section("__" #name "_sched_class")
+	__aligned(__alignof__(struct sched_class))
 
-/* Defined in include/asm-generic/vmlinux.lds.h */
-extern struct sched_class __sched_class_highest[];
-extern struct sched_class __sched_class_lowest[];
-
-#define for_class_range(class, _from, _to) \
-	for (class = (_from); class < (_to); class++)
-
-#define for_each_class(class) \
-	for_class_range(class, __sched_class_highest, __sched_class_lowest)
-
-#define sched_class_above(_a, _b)	((_a) < (_b))
-
-extern const struct sched_class stop_sched_class;
 extern const struct sched_class dl_sched_class;
 extern const struct sched_class rt_sched_class;
 extern const struct sched_class fair_sched_class;
 extern const struct sched_class idle_sched_class;
+
+static DEFINE_SCHED_CLASS(__max) = { .rank = SCHED_CLASS_MAX };
+
+#ifdef CONFIG_SMP
+extern const struct sched_class stop_sched_class;
+# define __min_sched_class stop_sched_class
+#else
+# define __min_sched_class dl_sched_class
+#endif
+
+static const struct sched_class* sched_class_by_rank[SCHED_CLASS_MAX+1] = {
+#ifdef CONFIG_SMP
+	[SCHED_CLASS_STOP]	= &stop_sched_class,
+#endif
+	[SCHED_CLASS_DL]	= &dl_sched_class,
+	[SCHED_CLASS_RT]	= &rt_sched_class,
+	[SCHED_CLASS_FAIR]	= &fair_sched_class,
+	[SCHED_CLASS_IDLE]	= &idle_sched_class,
+	[SCHED_CLASS_MAX]	= &__max_sched_class,
+};
+
+#define for_class_range(class, i, _from, _to) \
+	for (i = (_from)->rank, class = sched_class_by_rank[i]; i < (_to)->rank; i++, class = sched_class_by_rank[i])
+
+#define for_each_class(class, i) \
+	for_class_range(class, i, &__min_sched_class, &__max_sched_class)
+
+#define sched_class_above(_a, _b)	((_a)->rank < (_b)->rank)
 
 static inline bool sched_stop_runnable(struct rq *rq)
 {

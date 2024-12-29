@@ -8579,6 +8579,22 @@ void __init mem_init_print_info(void)
 	unsigned long init_code_size, init_data_size;
 
 	physpages = get_num_physpages();
+
+#ifdef CONFIG_WASM
+	pr_info("Memory: %luK/%luK available (%luK reserved, %luK cma-reserved"
+#ifdef	CONFIG_HIGHMEM
+		", %luK highmem"
+#endif
+		")\n",
+		K(nr_free_pages()), K(physpages),
+		K(physpages - totalram_pages() - totalcma_pages),
+		K(totalcma_pages)
+#ifdef	CONFIG_HIGHMEM
+		, K(totalhigh_pages())
+#endif
+		);
+	return;
+#else
 	codesize = _etext - _stext;
 	datasize = _edata - _sdata;
 	rosize = __end_rodata - __start_rodata;
@@ -8607,6 +8623,7 @@ void __init mem_init_print_info(void)
 	adj_init_size(_sdata, _edata, datasize, __start_rodata, rosize);
 
 #undef	adj_init_size
+#endif
 
 	pr_info("Memory: %luK/%luK available (%luK kernel code, %luK rwdata, %luK rodata, %luK init, %luK bss, %luK reserved, %luK cma-reserved"
 #ifdef	CONFIG_HIGHMEM

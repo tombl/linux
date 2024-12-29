@@ -167,3 +167,9 @@ sphinx_*/
 
 # Rust analyzer configuration
 /rust-project.json
+
+# Nix build output
+/result
+
+# GitHub Actions
+!/.github/

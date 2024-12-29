@@ -195,7 +195,7 @@ static const char *argv_init[MAX_INIT_ARGS+2] = { "init", NULL, };
 const char *envp_init[MAX_INIT_ENVS+2] = { "HOME=/", "TERM=linux", NULL, };
 static const char *panic_later, *panic_param;
 
-extern const struct obs_kernel_param __setup_start[], __setup_end[];
+extern const struct obs_kernel_param *__setup_start, *__setup_end;
 
 static bool __init obsolete_checksetup(char *line)
 {
@@ -1150,8 +1150,10 @@ static void __init do_ctors(void)
  * normal setup code as it's just a normal ELF binary, so we
  * cannot do it again - but we do need CONFIG_CONSTRUCTORS
  * even on UML for modules.
+ * Likewise, the WebAssembly linker combines all constructors
+ * into a single function which is called in the arch startup.
  */
-#if defined(CONFIG_CONSTRUCTORS) && !defined(CONFIG_UML)
+#if defined(CONFIG_CONSTRUCTORS) && !defined(CONFIG_UML) && !defined(CONFIG_WASM)
 	ctor_fn_t *fn = (ctor_fn_t *) __ctors_start;
 
 	for (; fn < (ctor_fn_t *) __ctors_end; fn++)
@@ -1314,28 +1316,60 @@ int __init_or_module do_one_initcall(initcall_t fn)
 	return ret;
 }
 
+#define INITCALL_LEVEL(n) extern initcall_entry_t *__initcall##n##_start, *__initcall##n##_end;
 
-extern initcall_entry_t __initcall_start[];
-extern initcall_entry_t __initcall0_start[];
-extern initcall_entry_t __initcall1_start[];
-extern initcall_entry_t __initcall2_start[];
-extern initcall_entry_t __initcall3_start[];
-extern initcall_entry_t __initcall4_start[];
-extern initcall_entry_t __initcall5_start[];
-extern initcall_entry_t __initcall6_start[];
-extern initcall_entry_t __initcall7_start[];
-extern initcall_entry_t __initcall_end[];
+INITCALL_LEVEL(early)
+INITCALL_LEVEL(0) INITCALL_LEVEL(0s)
+INITCALL_LEVEL(1) INITCALL_LEVEL(1s)
+INITCALL_LEVEL(2) INITCALL_LEVEL(2s)
+INITCALL_LEVEL(3) INITCALL_LEVEL(3s)
+INITCALL_LEVEL(4) INITCALL_LEVEL(4s)
+INITCALL_LEVEL(5) INITCALL_LEVEL(5s)
+INITCALL_LEVEL(rootfs)
+INITCALL_LEVEL(6) INITCALL_LEVEL(6s)
+INITCALL_LEVEL(7) INITCALL_LEVEL(7s)
 
-static initcall_entry_t *initcall_levels[] __initdata = {
-	__initcall0_start,
-	__initcall1_start,
-	__initcall2_start,
-	__initcall3_start,
-	__initcall4_start,
-	__initcall5_start,
-	__initcall6_start,
-	__initcall7_start,
-	__initcall_end,
+#undef INITCALL_LEVEL
+
+static initcall_entry_t **initcall_levels_start[] __initdata = {
+	&__initcall0_start,
+	&__initcall1_start,
+	&__initcall2_start,
+	&__initcall3_start,
+	&__initcall4_start,
+	&__initcall5_start,
+	&__initcall6_start,
+	&__initcall7_start,
+};
+static initcall_entry_t **initcall_levels_end[] __initdata = {
+	&__initcall0_end,
+	&__initcall1_end,
+	&__initcall2_end,
+	&__initcall3_end,
+	&__initcall4_end,
+	&__initcall5_end,
+	&__initcall6_end,
+	&__initcall7_end,
+};
+static initcall_entry_t **initcall_levels_sync_start[] __initdata = {
+	&__initcall0s_start,
+	&__initcall1s_start,
+	&__initcall2s_start,
+	&__initcall3s_start,
+	&__initcall4s_start,
+	&__initcall5s_start,
+	&__initcall6s_start,
+	&__initcall7s_start,
+};
+static initcall_entry_t **initcall_levels_sync_end[] __initdata = {
+	&__initcall0s_end,
+	&__initcall1s_end,
+	&__initcall2s_end,
+	&__initcall3s_end,
+	&__initcall4s_end,
+	&__initcall5s_end,
+	&__initcall6s_end,
+	&__initcall7s_end,
 };
 
 /* Keep these in sync with initcalls in include/linux/init.h */
@@ -1367,8 +1401,18 @@ static void __init do_initcall_level(int level, char *command_line)
 		   NULL, ignore_unknown_bootoption);
 
 	trace_initcall_level(initcall_level_names[level]);
-	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
+
+	for (fn = *initcall_levels_start[level];
+	     fn < *initcall_levels_end[level]; fn++)
 		do_one_initcall(initcall_from_entry(fn));
+
+	for (fn = *initcall_levels_sync_start[level];
+	     fn < *initcall_levels_sync_end[level]; fn++)
+		do_one_initcall(initcall_from_entry(fn));
+
+	if (level == 5)
+		for (fn = __initcallrootfs_start; fn < __initcallrootfs_end; fn++)
+			do_one_initcall(initcall_from_entry(fn));
 }
 
 static void __init do_initcalls(void)
@@ -1381,7 +1425,7 @@ static void __init do_initcalls(void)
 	if (!command_line)
 		panic("%s: Failed to allocate %zu bytes\n", __func__, len);
 
-	for (level = 0; level < ARRAY_SIZE(initcall_levels) - 1; level++) {
+	for (level = 0; level < ARRAY_SIZE(initcall_level_names) - 1; level++) {
 		/* Parser modifies command_line, restore it each time */
 		strcpy(command_line, saved_command_line);
 		do_initcall_level(level, command_line);
@@ -1411,7 +1455,7 @@ static void __init do_pre_smp_initcalls(void)
 	initcall_entry_t *fn;
 
 	trace_initcall_level("early");
-	for (fn = __initcall_start; fn < __initcall0_start; fn++)
+	for (fn = __initcallearly_start; fn < __initcallearly_end; fn++)
 		do_one_initcall(initcall_from_entry(fn));
 }
 

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Linux</title>
+    <script
+      crossorigin="anonymous"
+      src="https://unpkg.com/@xterm/xterm@5.5.0/lib/xterm.js"
+    ></script>
+    <script
+      crossorigin="anonymous"
+      src="https://unpkg.com/@xterm/addon-fit@0.10.0/lib/addon-fit.js"
+    ></script>
+    <script
+      crossorigin="anonymous"
+      src="https://unpkg.com/@xterm/addon-webgl@0.18.0/lib/addon-webgl.js"
+    ></script>
+    <link
+      crossorigin="anonymous"
+      rel="stylesheet"
+      href="https://unpkg.com/@xterm/xterm@5.5.0/css/xterm.css"
+    />
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      html {
+        height: 100%;
+        body {
+          margin: 0;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          .terminal {
+            flex: 1;
+          }
+        }
+      }
+      details {
+        font-size: 1.2rem;
+        margin: 1rem;
+        summary {
+          user-select: none;
+        }
+        form {
+          display: grid;
+          grid-template-columns: 15ch 1fr;
+          grid-column: 2;
+          input {
+            font-family: monospace;
+          }
+          button {
+            grid-column: span 2;
+          }
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <details open>
+      <summary>info & options</summary>
+
+      <p>Welcome to Linux 6.1 running natively in your browser!</p>
+
+      <p>
+        There's no x86_64/RISC-V emulation going on here, instead this is a port
+        of the kernel to WebAssembly.
+      </p>
+
+      <p>
+        It's only early days for this port, and it doesn't make it all the way
+        through boot yet, but we're getting close, and all the fundamentals are
+        there.
+      </p>
+
+      <p>
+        (context switching was particularly painful to implement in such a
+        constrained environment, but I think the solution ended up being quite
+        elegant.)
+      </p>
+
+      <p>All that's left to implement before we can boot BusyBox is:</p>
+      <ul>
+        <li>the ability to load binaries</li>
+        <li>somewhere to load them from (virtio in the browser?)</li>
+        <li>external syscall dispatch</li>
+        <li>and the ability to jump into userspace</li>
+      </ul>
+
+      <p>
+        If this sounds interesting, you can check out the source at
+        <a href="https://github.com/tombl/linux">github.com/tombl/linux</a>
+      </p>
+
+      <form>
+        <label for="cmdline">
+          <a
+            href="https://www.kernel.org/doc/html/v6.1/admin-guide/kernel-parameters.html"
+          >
+            Kernel parameters
+          </a>
+        </label>
+        <input type="text" name="cmdline" id="cmdline" />
+        <label for="memory">Memory (in MiB)</label>
+        <input type="number" name="memory" id="memory" />
+        <button type="submit">Reboot</button>
+      </form>
+    </details>
+    <script>
+      const details = document.querySelector("details");
+      if (localStorage.getItem("detailsOpen") !== null) {
+        details.open = localStorage.getItem("detailsOpen") === "true";
+      }
+      details.addEventListener("toggle", () => {
+        localStorage.setItem("detailsOpen", details.open.toString());
+      });
+    </script>
+    <script type="module">
+      import { Machine } from "./dist/index.js";
+
+      const term = new Terminal({
+        convertEol: true,
+        disableStdin: true,
+        fontFamily: "monospace",
+      });
+      const termFit = new FitAddon.FitAddon();
+      term.loadAddon(termFit);
+      term.open(document.body);
+      termFit.fit();
+      window.onresize = () => termFit.fit();
+      try {
+        term.loadAddon(new WebglAddon.WebglAddon());
+      } catch (err) {
+        console.warn(err);
+      }
+
+      if (!window.crossOriginIsolated) {
+        term.write("Error: not cross origin isolated\n");
+      }
+
+      const { cmdline = "no_hash_pointers", memory = 128 } = Object.fromEntries(
+        new URLSearchParams(location.search)
+      );
+      document.querySelector("input[name=cmdline]").value = cmdline;
+      document.querySelector("input[name=memory]").value = memory;
+
+      const machine = new Machine({
+        cmdline: cmdline.replace(/\+/g, " "),
+        memoryMib: memory,
+      });
+
+      machine.bootConsole.pipeTo(
+        new WritableStream({
+          write(chunk) {
+            term.write(chunk);
+            // return new Promise((r) => term.write(chunk, r));
+          },
+        })
+      );
+
+      machine.on("halt", () => {
+        term.write("halting...");
+      });
+
+      machine.on("restart", () => {
+        location.reload();
+      });
+
+      machine.on("error", ({ error, threadName }) => {
+        term.write(`${error.name} in ${threadName}: ${error.message}\n`);
+      });
+
+      machine.boot();
+    </script>
+  </body>
+</html>

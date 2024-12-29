@@ -927,7 +927,7 @@ static int cpuhp_kick_ap_work(unsigned int cpu)
 }
 
 static struct smp_hotplug_thread cpuhp_threads = {
-	.store			= &cpuhp_state.thread,
+	.store                  = &cpuhp_state.thread,
 	.thread_should_run	= cpuhp_should_run,
 	.thread_fn		= cpuhp_thread_fun,
 	.thread_comm		= "cpuhp/%u",

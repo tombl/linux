@@ -1,0 +1,9 @@
+#ifndef _WASM_MEMORY_H
+#define _WASM_MEMORY_H
+
+#define FIXADDR_TOP _AC(0xffffc000, UL)
+#define PKMAP_BASE _AC(0xff800000, UL)
+#define VMALLOC_START (PAGE_OFFSET + LOWMEM_LIMIT + (PAGE_SIZE * 8))
+#define VMALLOC_END (PKMAP_BASE - (PAGE_SIZE * 2))
+
+#endif

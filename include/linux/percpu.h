@@ -126,6 +126,9 @@ extern bool is_kernel_percpu_address(unsigned long addr);
 extern void __init setup_per_cpu_areas(void);
 #endif
 
+extern phys_addr_t per_cpu_ptr_to_phys(void *addr);
+extern unsigned long pcpu_nr_pages(void);
+
 extern void __percpu *__alloc_percpu_gfp(size_t size, size_t align, gfp_t gfp) __alloc_size(1);
 extern void __percpu *__alloc_percpu(size_t size, size_t align) __alloc_size(1);
 extern void free_percpu(void __percpu *__pdata);
@@ -141,6 +144,6 @@ extern phys_addr_t per_cpu_ptr_to_phys(void *addr);
 	(typeof(type) __percpu *)__alloc_percpu(sizeof(type),		\
 						__alignof__(type))
 
-extern unsigned long pcpu_nr_pages(void);
+extern void free_percpu(void __percpu *__pdata);
 
 #endif /* __LINUX_PERCPU_H */

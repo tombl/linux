@@ -861,24 +861,22 @@ ssize_t __modver_version_show(struct module_attribute *mattr,
 	return scnprintf(buf, PAGE_SIZE, "%s\n", vattr->version);
 }
 
-extern const struct module_version_attribute __start___modver[];
-extern const struct module_version_attribute __stop___modver[];
-
 static void __init version_sysfs_builtin(void)
 {
-	const struct module_version_attribute *vattr;
-	struct module_kobject *mk;
-	int err;
+	pr_warn("version_sysfs_builtin is not implemented");
+	// const struct module_version_attribute *vattr;
+	// struct module_kobject *mk;
+	// int err;
 
-	for (vattr = __start___modver; vattr < __stop___modver; vattr++) {
-		mk = locate_module_kobject(vattr->module_name);
-		if (mk) {
-			err = sysfs_create_file(&mk->kobj, &vattr->mattr.attr);
-			WARN_ON_ONCE(err);
-			kobject_uevent(&mk->kobj, KOBJ_ADD);
-			kobject_put(&mk->kobj);
-		}
-	}
+	// for (vattr = __start___modver; vattr < __stop___modver; vattr++) {
+	// 	mk = locate_module_kobject(vattr->module_name);
+	// 	if (mk) {
+	// 		err = sysfs_create_file(&mk->kobj, &vattr->mattr.attr);
+	// 		WARN_ON_ONCE(err);
+	// 		kobject_uevent(&mk->kobj, KOBJ_ADD);
+	// 		kobject_put(&mk->kobj);
+	// 	}
+	// }
 }
 
 /* module-related sysfs stuff */
