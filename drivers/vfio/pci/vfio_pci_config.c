@@ -312,6 +312,10 @@ static int vfio_virt_config_read(struct vfio_pci_core_device *vdev, int pos,
 	return count;
 }
 
+static struct perm_bits direct_ro_perms = {
+	.readfn = vfio_direct_config_read,
+};
+
 /* Default capability regions to read-only, no-virtualization */
 static struct perm_bits cap_perms[PCI_CAP_ID_MAX + 1] = {
 	[0 ... PCI_CAP_ID_MAX] = { .readfn = vfio_direct_config_read }
@@ -1244,7 +1248,7 @@ static int vfio_msi_cap_len(struct vfio_pci_core_device *vdev, u8 pos)
 	if (vdev->msi_perm)
 		return len;
 
-	vdev->msi_perm = kmalloc(sizeof(struct perm_bits), GFP_KERNEL);
+	vdev->msi_perm = kmalloc(sizeof(struct perm_bits), GFP_KERNEL_ACCOUNT);
 	if (!vdev->msi_perm)
 		return -ENOMEM;
 
@@ -1731,11 +1735,11 @@ int vfio_config_init(struct vfio_pci_core_device *vdev)
 	 * no requirements on the length of a capability, so the gap between
 	 * capabilities needs byte granularity.
 	 */
-	map = kmalloc(pdev->cfg_size, GFP_KERNEL);
+	map = kmalloc(pdev->cfg_size, GFP_KERNEL_ACCOUNT);
 	if (!map)
 		return -ENOMEM;
 
-	vconfig = kmalloc(pdev->cfg_size, GFP_KERNEL);
+	vconfig = kmalloc(pdev->cfg_size, GFP_KERNEL_ACCOUNT);
 	if (!vconfig) {
 		kfree(map);
 		return -ENOMEM;
@@ -1890,9 +1894,17 @@ static ssize_t vfio_config_do_rw(struct vfio_pci_core_device *vdev, char __user 
 		cap_start = *ppos;
 	} else {
 		if (*ppos >= PCI_CFG_SPACE_SIZE) {
-			WARN_ON(cap_id > PCI_EXT_CAP_ID_MAX);
+			/*
+			 * We can get a cap_id that exceeds PCI_EXT_CAP_ID_MAX
+			 * if we're hiding an unknown capability at the start
+			 * of the extended capability list.  Use default, ro
+			 * access, which will virtualize the id and next values.
+			 */
+			if (cap_id > PCI_EXT_CAP_ID_MAX)
+				perm = &direct_ro_perms;
+			else
+				perm = &ecap_perms[cap_id];
 
-			perm = &ecap_perms[cap_id];
 			cap_start = vfio_find_cap_start(vdev, *ppos);
 		} else {
 			WARN_ON(cap_id > PCI_CAP_ID_MAX);

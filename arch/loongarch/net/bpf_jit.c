@@ -179,7 +179,7 @@ static void __build_epilogue(struct jit_ctx *ctx, bool is_tail_call)
 
 	if (!is_tail_call) {
 		/* Set return value */
-		move_reg(ctx, LOONGARCH_GPR_A0, regmap[BPF_REG_0]);
+		emit_insn(ctx, addiw, LOONGARCH_GPR_A0, regmap[BPF_REG_0], 0);
 		/* Return to the caller */
 		emit_insn(ctx, jirl, LOONGARCH_GPR_RA, LOONGARCH_GPR_ZERO, 0);
 	} else {
@@ -402,7 +402,6 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx, bool ext
 	const u8 dst = regmap[insn->dst_reg];
 	const s16 off = insn->off;
 	const s32 imm = insn->imm;
-	const u64 imm64 = (u64)(insn + 1)->imm << 32 | (u32)insn->imm;
 	const bool is32 = BPF_CLASS(insn->code) == BPF_ALU || BPF_CLASS(insn->code) == BPF_JMP32;
 
 	switch (code) {
@@ -806,8 +805,12 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx, bool ext
 
 	/* dst = imm64 */
 	case BPF_LD | BPF_IMM | BPF_DW:
+	{
+		const u64 imm64 = (u64)(insn + 1)->imm << 32 | (u32)insn->imm;
+
 		move_imm(ctx, dst, imm64, is32);
 		return 1;
+	}
 
 	/* dst = *(size *)(src + off) */
 	case BPF_LDX | BPF_MEM | BPF_B:

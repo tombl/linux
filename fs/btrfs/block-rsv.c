@@ -384,17 +384,19 @@ void btrfs_update_global_block_rsv(struct btrfs_fs_info *fs_info)
 
 	/*
 	 * But we also want to reserve enough space so we can do the fallback
-	 * global reserve for an unlink, which is an additional 5 items (see the
-	 * comment in __unlink_start_trans for what we're modifying.)
+	 * global reserve for an unlink, which is an additional
+	 * BTRFS_UNLINK_METADATA_UNITS items.
 	 *
 	 * But we also need space for the delayed ref updates from the unlink,
-	 * so its 10, 5 for the actual operation, and 5 for the delayed ref
-	 * updates.
+	 * so add BTRFS_UNLINK_METADATA_UNITS units for delayed refs, one for
+	 * each unlink metadata item.
 	 */
-	min_items += 10;
+	min_items += BTRFS_UNLINK_METADATA_UNITS;
 
 	num_bytes = max_t(u64, num_bytes,
-			  btrfs_calc_insert_metadata_size(fs_info, min_items));
+			  btrfs_calc_insert_metadata_size(fs_info, min_items) +
+			  btrfs_calc_delayed_ref_bytes(fs_info,
+					       BTRFS_UNLINK_METADATA_UNITS));
 
 	spin_lock(&sinfo->lock);
 	spin_lock(&block_rsv->lock);
@@ -512,7 +514,7 @@ struct btrfs_block_rsv *btrfs_use_block_rsv(struct btrfs_trans_handle *trans,
 
 	block_rsv = get_block_rsv(trans, root);
 
-	if (unlikely(block_rsv->size == 0))
+	if (unlikely(btrfs_block_rsv_size(block_rsv) == 0))
 		goto try_reserve;
 again:
 	ret = btrfs_block_rsv_use_bytes(block_rsv, blocksize);

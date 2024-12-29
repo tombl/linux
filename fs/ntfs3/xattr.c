@@ -217,6 +217,12 @@ static ssize_t ntfs_list_ea(struct ntfs_inode *ni, char *buffer,
 		if (!ea->name_len)
 			break;
 
+		if (ea->name_len > ea_size) {
+			ntfs_set_state(ni->mi.sbi, NTFS_DIRTY_ERROR);
+			err = -EINVAL; /* corrupted fs */
+			break;
+		}
+
 		if (buffer) {
 			/* Check if we can use field ea->name */
 			if (off + ea_size > size)

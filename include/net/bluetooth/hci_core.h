@@ -81,7 +81,7 @@ struct discovery_state {
 	u8			last_adv_addr_type;
 	s8			last_adv_rssi;
 	u32			last_adv_flags;
-	u8			last_adv_data[HCI_MAX_AD_LENGTH];
+	u8			last_adv_data[HCI_MAX_EXT_AD_LENGTH];
 	u8			last_adv_data_len;
 	bool			report_invalid_rssi;
 	bool			result_filtering;
@@ -288,7 +288,7 @@ struct adv_pattern {
 	__u8 ad_type;
 	__u8 offset;
 	__u8 length;
-	__u8 value[HCI_MAX_AD_LENGTH];
+	__u8 value[HCI_MAX_EXT_AD_LENGTH];
 };
 
 struct adv_rssi_thresholds {
@@ -721,7 +721,7 @@ struct hci_conn {
 	__u16		le_conn_interval;
 	__u16		le_conn_latency;
 	__u16		le_supv_timeout;
-	__u8		le_adv_data[HCI_MAX_AD_LENGTH];
+	__u8		le_adv_data[HCI_MAX_EXT_AD_LENGTH];
 	__u8		le_adv_data_len;
 	__u8		le_per_adv_data[HCI_MAX_PER_AD_LENGTH];
 	__u8		le_per_adv_data_len;
@@ -937,7 +937,6 @@ void hci_inquiry_cache_flush(struct hci_dev *hdev);
 /* ----- HCI Connections ----- */
 enum {
 	HCI_CONN_AUTH_PEND,
-	HCI_CONN_REAUTH_PEND,
 	HCI_CONN_ENCRYPT_PEND,
 	HCI_CONN_RSWITCH_PEND,
 	HCI_CONN_MODE_CHANGE_PEND,
@@ -1705,6 +1704,10 @@ void hci_conn_del_sysfs(struct hci_conn *conn);
 /* Extended advertising support */
 #define ext_adv_capable(dev) (((dev)->le_features[1] & HCI_LE_EXT_ADV))
 
+/* Maximum advertising length */
+#define max_adv_len(dev) \
+	(ext_adv_capable(dev) ? HCI_MAX_EXT_AD_LENGTH : HCI_MAX_AD_LENGTH)
+
 /* BLUETOOTH CORE SPECIFICATION Version 5.3 | Vol 4, Part E page 1789:
  *
  * C24: Mandatory if the LE Controller supports Connection State and either
@@ -1927,18 +1930,46 @@ static inline int hci_check_conn_params(u16 min, u16 max, u16 latency,
 {
 	u16 max_latency;
 
-	if (min > max || min < 6 || max > 3200)
+	if (min > max) {
+		BT_WARN("min %d > max %d", min, max);
 		return -EINVAL;
+	}
 
-	if (to_multiplier < 10 || to_multiplier > 3200)
+	if (min < 6) {
+		BT_WARN("min %d < 6", min);
 		return -EINVAL;
+	}
 
-	if (max >= to_multiplier * 8)
+	if (max > 3200) {
+		BT_WARN("max %d > 3200", max);
 		return -EINVAL;
+	}
+
+	if (to_multiplier < 10) {
+		BT_WARN("to_multiplier %d < 10", to_multiplier);
+		return -EINVAL;
+	}
+
+	if (to_multiplier > 3200) {
+		BT_WARN("to_multiplier %d > 3200", to_multiplier);
+		return -EINVAL;
+	}
+
+	if (max >= to_multiplier * 8) {
+		BT_WARN("max %d >= to_multiplier %d * 8", max, to_multiplier);
+		return -EINVAL;
+	}
 
 	max_latency = (to_multiplier * 4 / max) - 1;
-	if (latency > 499 || latency > max_latency)
+	if (latency > 499) {
+		BT_WARN("latency %d > 499", latency);
 		return -EINVAL;
+	}
+
+	if (latency > max_latency) {
+		BT_WARN("latency %d > max_latency %d", latency, max_latency);
+		return -EINVAL;
+	}
 
 	return 0;
 }
@@ -2039,8 +2070,8 @@ void mgmt_device_disconnected(struct hci_dev *hdev, bdaddr_t *bdaddr,
 			      bool mgmt_connected);
 void mgmt_disconnect_failed(struct hci_dev *hdev, bdaddr_t *bdaddr,
 			    u8 link_type, u8 addr_type, u8 status);
-void mgmt_connect_failed(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 link_type,
-			 u8 addr_type, u8 status);
+void mgmt_connect_failed(struct hci_dev *hdev, struct hci_conn *conn,
+			 u8 status);
 void mgmt_pin_code_request(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 secure);
 void mgmt_pin_code_reply_complete(struct hci_dev *hdev, bdaddr_t *bdaddr,
 				  u8 status);

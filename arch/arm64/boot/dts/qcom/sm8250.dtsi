@@ -2182,6 +2182,8 @@
 			reset-names = "ufsphy";
 			status = "disabled";
 
+			power-domains = <&gcc UFS_PHY_GDSC>;
+
 			ufs_mem_phy_lanes: phy@1d87400 {
 				reg = <0 0x01d87400 0 0x16c>,
 				      <0 0x01d87600 0 0x200>,
@@ -4879,7 +4881,7 @@
 			compatible = "qcom,apss-wdt-sm8250", "qcom,kpss-wdt";
 			reg = <0 0x17c10000 0 0x1000>;
 			clocks = <&sleep_clk>;
-			interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 0 IRQ_TYPE_EDGE_RISING>;
 		};
 
 		timer@17c20000 {

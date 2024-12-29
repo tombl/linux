@@ -396,7 +396,10 @@ void sta_info_free(struct ieee80211_local *local, struct sta_info *sta)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(sta->link); i++) {
-		if (!(sta->sta.valid_links & BIT(i)))
+		struct link_sta_info *link_sta;
+
+		link_sta = rcu_access_pointer(sta->link[i]);
+		if (!link_sta)
 			continue;
 
 		sta_remove_link(sta, i, false);
@@ -590,6 +593,9 @@ __sta_info_alloc(struct ieee80211_sub_if_data *sdata,
 	ieee80211_init_frag_cache(&sta->frags);
 
 	sta->sta_state = IEEE80211_STA_NONE;
+
+	if (sdata->vif.type == NL80211_IFTYPE_MESH_POINT)
+		sta->amsdu_mesh_control = -1;
 
 	/* Mark TID as unreserved */
 	sta->reserved_tid = IEEE80211_TID_UNRESERVED;
@@ -887,6 +893,8 @@ static int sta_info_insert_finish(struct sta_info *sta) __acquires(RCU)
 
 	if (ieee80211_vif_is_mesh(&sdata->vif))
 		mesh_accept_plinks_update(sdata);
+
+	ieee80211_check_fast_xmit(sta);
 
 	return 0;
  out_remove:
@@ -1264,6 +1272,20 @@ static void __sta_info_destroy_part2(struct sta_info *sta)
 	 *	 after _part1 and before _part2!
 	 */
 
+	/*
+	 * There's a potential race in _part1 where we set WLAN_STA_BLOCK_BA
+	 * but someone might have just gotten past a check, and not yet into
+	 * queuing the work/creating the data/etc.
+	 *
+	 * Do another round of destruction so that the worker is certainly
+	 * canceled before we later free the station.
+	 *
+	 * Since this is after synchronize_rcu()/synchronize_net() we're now
+	 * certain that nobody can actually hold a reference to the STA and
+	 * be calling e.g. ieee80211_start_tx_ba_session().
+	 */
+	ieee80211_sta_tear_down_BA_sessions(sta, AGG_STOP_DESTROY_STA);
+
 	might_sleep();
 	lockdep_assert_held(&local->sta_mtx);
 
@@ -1550,7 +1572,7 @@ void ieee80211_sta_ps_deliver_wakeup(struct sta_info *sta)
 	skb_queue_head_init(&pending);
 
 	/* sync with ieee80211_tx_h_unicast_ps_buf */
-	spin_lock(&sta->ps_lock);
+	spin_lock_bh(&sta->ps_lock);
 	/* Send all buffered frames to the station */
 	for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
 		int count = skb_queue_len(&pending), tmp;
@@ -1579,7 +1601,7 @@ void ieee80211_sta_ps_deliver_wakeup(struct sta_info *sta)
 	 */
 	clear_sta_flag(sta, WLAN_STA_PSPOLL);
 	clear_sta_flag(sta, WLAN_STA_UAPSD);
-	spin_unlock(&sta->ps_lock);
+	spin_unlock_bh(&sta->ps_lock);
 
 	atomic_dec(&ps->num_sta_ps);
 

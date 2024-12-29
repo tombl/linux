@@ -17,12 +17,19 @@
 #include <linux/property.h>
 #include <linux/phy.h>
 
-struct fwnode_handle *dev_fwnode(const struct device *dev)
+struct fwnode_handle *__dev_fwnode(struct device *dev)
 {
 	return IS_ENABLED(CONFIG_OF) && dev->of_node ?
 		of_fwnode_handle(dev->of_node) : dev->fwnode;
 }
-EXPORT_SYMBOL_GPL(dev_fwnode);
+EXPORT_SYMBOL_GPL(__dev_fwnode);
+
+const struct fwnode_handle *__dev_fwnode_const(const struct device *dev)
+{
+	return IS_ENABLED(CONFIG_OF) && dev->of_node ?
+		of_fwnode_handle(dev->of_node) : dev->fwnode;
+}
+EXPORT_SYMBOL_GPL(__dev_fwnode_const);
 
 /**
  * device_property_present - check if a property of a device is present
@@ -783,7 +790,7 @@ EXPORT_SYMBOL_GPL(fwnode_get_next_available_child_node);
  * fwnode pointer. Note that this function also puts a reference to @child
  * unconditionally.
  */
-struct fwnode_handle *device_get_next_child_node(struct device *dev,
+struct fwnode_handle *device_get_next_child_node(const struct device *dev,
 						 struct fwnode_handle *child)
 {
 	const struct fwnode_handle *fwnode = dev_fwnode(dev);
@@ -826,7 +833,7 @@ EXPORT_SYMBOL_GPL(fwnode_get_named_child_node);
  * The caller is responsible for calling fwnode_handle_put() on the returned
  * fwnode pointer.
  */
-struct fwnode_handle *device_get_named_child_node(struct device *dev,
+struct fwnode_handle *device_get_named_child_node(const struct device *dev,
 						  const char *childname)
 {
 	return fwnode_get_named_child_node(dev_fwnode(dev), childname);
@@ -892,7 +899,7 @@ EXPORT_SYMBOL_GPL(fwnode_device_is_available);
  *
  * Return: the number of child nodes for a given device.
  */
-unsigned int device_get_child_node_count(struct device *dev)
+unsigned int device_get_child_node_count(const struct device *dev)
 {
 	struct fwnode_handle *child;
 	unsigned int count = 0;

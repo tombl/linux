@@ -283,6 +283,11 @@ void rpm_lmac_pause_frm_config(void *rpmd, int lmac_id, bool enable)
 	cfg = FIELD_SET(RPM_PFC_CLASS_MASK, 0, cfg);
 	rpm_write(rpm, lmac_id, RPMX_CMRX_PRT_CBFC_CTL, cfg);
 
+	/* Disable forward pause to driver */
+	cfg = rpm_read(rpm, lmac_id, RPMX_MTI_MAC100X_COMMAND_CONFIG);
+	cfg &= ~RPMX_MTI_MAC100X_COMMAND_CONFIG_PAUSE_FWD;
+	rpm_write(rpm, lmac_id, RPMX_MTI_MAC100X_COMMAND_CONFIG, cfg);
+
 	/* Enable channel mask for all LMACS */
 	rpm_write(rpm, 0, RPMX_CMR_CHAN_MSK_OR, ~0ULL);
 }
@@ -345,7 +350,7 @@ u8 rpm_get_lmac_type(void *rpmd, int lmac_id)
 	int err;
 
 	req = FIELD_SET(CMDREG_ID, CGX_CMD_GET_LINK_STS, req);
-	err = cgx_fwi_cmd_generic(req, &resp, rpm, 0);
+	err = cgx_fwi_cmd_generic(req, &resp, rpm, lmac_id);
 	if (!err)
 		return FIELD_GET(RESP_LINKSTAT_LMAC_TYPE, resp);
 	return err;
@@ -451,12 +456,10 @@ int rpm_lmac_pfc_config(void *rpmd, int lmac_id, u8 tx_pause, u8 rx_pause, u16 p
 
 	if (rx_pause) {
 		cfg &= ~(RPMX_MTI_MAC100X_COMMAND_CONFIG_RX_P_DISABLE |
-				RPMX_MTI_MAC100X_COMMAND_CONFIG_PAUSE_IGNORE |
-				RPMX_MTI_MAC100X_COMMAND_CONFIG_PAUSE_FWD);
+			 RPMX_MTI_MAC100X_COMMAND_CONFIG_PAUSE_IGNORE);
 	} else {
 		cfg |= (RPMX_MTI_MAC100X_COMMAND_CONFIG_RX_P_DISABLE |
-				RPMX_MTI_MAC100X_COMMAND_CONFIG_PAUSE_IGNORE |
-				RPMX_MTI_MAC100X_COMMAND_CONFIG_PAUSE_FWD);
+			RPMX_MTI_MAC100X_COMMAND_CONFIG_PAUSE_IGNORE);
 	}
 
 	if (tx_pause) {

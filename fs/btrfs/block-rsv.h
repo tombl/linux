@@ -50,6 +50,18 @@ struct btrfs_block_rsv {
 	u64 qgroup_rsv_reserved;
 };
 
+/*
+ * Number of metadata items necessary for an unlink operation:
+ *
+ * 1 for the possible orphan item
+ * 1 for the dir item
+ * 1 for the dir index
+ * 1 for the inode ref
+ * 1 for the inode
+ * 1 for the parent inode
+ */
+#define BTRFS_UNLINK_METADATA_UNITS		6
+
 void btrfs_init_block_rsv(struct btrfs_block_rsv *rsv, enum btrfs_rsv_type type);
 void btrfs_init_root_block_rsv(struct btrfs_root *root);
 struct btrfs_block_rsv *btrfs_alloc_block_rsv(struct btrfs_fs_info *fs_info,
@@ -99,6 +111,38 @@ static inline void btrfs_unuse_block_rsv(struct btrfs_fs_info *fs_info,
 static inline bool btrfs_block_rsv_full(const struct btrfs_block_rsv *rsv)
 {
 	return data_race(rsv->full);
+}
+
+/*
+ * Get the reserved mount of a block reserve in a context where getting a stale
+ * value is acceptable, instead of accessing it directly and trigger data race
+ * warning from KCSAN.
+ */
+static inline u64 btrfs_block_rsv_reserved(struct btrfs_block_rsv *rsv)
+{
+	u64 ret;
+
+	spin_lock(&rsv->lock);
+	ret = rsv->reserved;
+	spin_unlock(&rsv->lock);
+
+	return ret;
+}
+
+/*
+ * Get the size of a block reserve in a context where getting a stale value is
+ * acceptable, instead of accessing it directly and trigger data race warning
+ * from KCSAN.
+ */
+static inline u64 btrfs_block_rsv_size(struct btrfs_block_rsv *rsv)
+{
+	u64 ret;
+
+	spin_lock(&rsv->lock);
+	ret = rsv->size;
+	spin_unlock(&rsv->lock);
+
+	return ret;
 }
 
 #endif /* BTRFS_BLOCK_RSV_H */

@@ -1915,6 +1915,8 @@ static bool are_stream_backends_same(
 bool dc_is_stream_unchanged(
 	struct dc_stream_state *old_stream, struct dc_stream_state *stream)
 {
+	if (!old_stream || !stream)
+		return false;
 
 	if (!are_stream_backends_same(old_stream, stream))
 		return false;
@@ -2145,6 +2147,9 @@ static struct audio *find_first_free_audio(
 		enum dce_version dc_version)
 {
 	int i, available_audio_count;
+
+	if (id == ENGINE_ID_UNKNOWN)
+		return NULL;
 
 	available_audio_count = pool->audio_count;
 
@@ -2631,8 +2636,10 @@ static bool planes_changed_for_existing_stream(struct dc_state *context,
 		}
 	}
 
-	if (!stream_status)
+	if (!stream_status) {
 		ASSERT(0);
+		return false;
+	}
 
 	for (i = 0; i < set_count; i++)
 		if (set[i].stream == stream)
@@ -3036,6 +3043,12 @@ static void set_avi_info_frame(
 	} else if (color_space == COLOR_SPACE_ADOBERGB) {
 		hdmi_info.bits.EC0_EC2 = COLORIMETRYEX_ADOBERGB;
 		hdmi_info.bits.C0_C1   = COLORIMETRY_EXTENDED;
+	}
+
+	if (pixel_encoding && color_space == COLOR_SPACE_2020_YCBCR &&
+			stream->out_transfer_func->tf == TRANSFER_FUNCTION_GAMMA22) {
+		hdmi_info.bits.EC0_EC2 = 0;
+		hdmi_info.bits.C0_C1 = COLORIMETRY_ITU709;
 	}
 
 	/* TODO: un-hardcode aspect ratio */
@@ -3620,6 +3633,9 @@ void resource_build_bit_depth_reduction_params(struct dc_stream_state *stream,
 
 enum dc_status dc_validate_stream(struct dc *dc, struct dc_stream_state *stream)
 {
+	if (dc == NULL || stream == NULL)
+		return DC_ERROR_UNEXPECTED;
+
 	struct dc_link *link = stream->link;
 	struct timing_generator *tg = dc->res_pool->timing_generators[0];
 	enum dc_status res = DC_OK;

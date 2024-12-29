@@ -475,7 +475,7 @@ static int ntfs_extend_mft(struct ntfs_sb_info *sbi)
 	struct ATTRIB *attr;
 	struct wnd_bitmap *wnd = &sbi->mft.bitmap;
 
-	new_mft_total = (wnd->nbits + MFT_INCREASE_CHUNK + 127) & (CLST)~127;
+	new_mft_total = ALIGN(wnd->nbits + NTFS_MFT_INCREASE_STEP, 128);
 	new_mft_bytes = (u64)new_mft_total << sbi->record_bits;
 
 	/* Step 1: Resize $MFT::DATA. */
@@ -493,7 +493,7 @@ static int ntfs_extend_mft(struct ntfs_sb_info *sbi)
 	ni->mi.dirty = true;
 
 	/* Step 2: Resize $MFT::BITMAP. */
-	new_bitmap_bytes = bitmap_size(new_mft_total);
+	new_bitmap_bytes = ntfs3_bitmap_size(new_mft_total);
 
 	err = attr_set_size(ni, ATTR_BITMAP, NULL, 0, &sbi->mft.bitmap.run,
 			    new_bitmap_bytes, &new_bitmap_bytes, true, NULL);
@@ -974,6 +974,30 @@ static inline __le32 security_hash(const void *sd, size_t bytes)
 	while (bytes--)
 		hash = ((hash >> 0x1D) | (hash << 3)) + le32_to_cpu(*ptr++);
 	return cpu_to_le32(hash);
+}
+
+/*
+ * simple wrapper for sb_bread_unmovable.
+ */
+struct buffer_head *ntfs_bread(struct super_block *sb, sector_t block)
+{
+	struct ntfs_sb_info *sbi = sb->s_fs_info;
+	struct buffer_head *bh;
+
+	if (unlikely(block >= sbi->volume.blocks)) {
+		/* prevent generic message "attempt to access beyond end of device" */
+		ntfs_err(sb, "try to read out of volume at offset 0x%llx",
+			 (u64)block << sb->s_blocksize_bits);
+		return NULL;
+	}
+
+	bh = sb_bread_unmovable(sb, block);
+	if (bh)
+		return bh;
+
+	ntfs_err(sb, "failed to read volume at offset 0x%llx",
+		 (u64)block << sb->s_blocksize_bits);
+	return NULL;
 }
 
 int ntfs_sb_read(struct super_block *sb, u64 lbo, size_t bytes, void *buffer)
@@ -1650,6 +1674,7 @@ struct ntfs_inode *ntfs_new_inode(struct ntfs_sb_info *sbi, CLST rno, bool dir)
 
 out:
 	if (err) {
+		make_bad_inode(inode);
 		iput(inode);
 		ni = ERR_PTR(err);
 	}
@@ -1842,10 +1867,12 @@ int ntfs_security_init(struct ntfs_sb_info *sbi)
 		goto out;
 	}
 
-	root_sdh = resident_data_ex(attr, sizeof(struct INDEX_ROOT));
-	if (root_sdh->type != ATTR_ZERO ||
+	if(!(root_sdh = resident_data_ex(attr, sizeof(struct INDEX_ROOT))) ||
+	    root_sdh->type != ATTR_ZERO ||
 	    root_sdh->rule != NTFS_COLLATION_TYPE_SECURITY_HASH ||
-	    offsetof(struct INDEX_ROOT, ihdr) + root_sdh->ihdr.used > attr->res.data_size) {
+	    offsetof(struct INDEX_ROOT, ihdr) +
+			le32_to_cpu(root_sdh->ihdr.used) >
+			le32_to_cpu(attr->res.data_size)) {
 		err = -EINVAL;
 		goto out;
 	}
@@ -1861,10 +1888,12 @@ int ntfs_security_init(struct ntfs_sb_info *sbi)
 		goto out;
 	}
 
-	root_sii = resident_data_ex(attr, sizeof(struct INDEX_ROOT));
-	if (root_sii->type != ATTR_ZERO ||
+	if(!(root_sii = resident_data_ex(attr, sizeof(struct INDEX_ROOT))) ||
+	    root_sii->type != ATTR_ZERO ||
 	    root_sii->rule != NTFS_COLLATION_TYPE_UINT ||
-	    offsetof(struct INDEX_ROOT, ihdr) + root_sii->ihdr.used > attr->res.data_size) {
+	    offsetof(struct INDEX_ROOT, ihdr) +
+			le32_to_cpu(root_sii->ihdr.used) >
+			le32_to_cpu(attr->res.data_size)) {
 		err = -EINVAL;
 		goto out;
 	}

@@ -581,11 +581,16 @@ int mlx5e_mpwrq_validate_xsk(struct mlx5_core_dev *mdev, struct mlx5e_params *pa
 	bool unaligned = xsk ? xsk->unaligned : false;
 	u16 max_mtu_pkts;
 
-	if (!mlx5e_check_fragmented_striding_rq_cap(mdev, page_shift, umr_mode))
+	if (!mlx5e_check_fragmented_striding_rq_cap(mdev, page_shift, umr_mode)) {
+		mlx5_core_err(mdev, "Striding RQ for XSK can't be activated with page_shift %u and umr_mode %d\n",
+			      page_shift, umr_mode);
 		return -EOPNOTSUPP;
+	}
 
-	if (!mlx5e_rx_mpwqe_is_linear_skb(mdev, params, xsk))
+	if (!mlx5e_rx_mpwqe_is_linear_skb(mdev, params, xsk)) {
+		mlx5_core_err(mdev, "Striding RQ linear mode for XSK can't be activated with current params\n");
 		return -EINVAL;
+	}
 
 	/* Current RQ length is too big for the given frame size, the
 	 * needed number of WQEs exceeds the maximum.
@@ -990,8 +995,8 @@ void mlx5e_build_sq_param(struct mlx5_core_dev *mdev,
 	void *wq = MLX5_ADDR_OF(sqc, sqc, wq);
 	bool allow_swp;
 
-	allow_swp =
-		mlx5_geneve_tx_allowed(mdev) || !!mlx5_ipsec_device_caps(mdev);
+	allow_swp = mlx5_geneve_tx_allowed(mdev) ||
+		    (mlx5_ipsec_device_caps(mdev) & MLX5_IPSEC_CAP_CRYPTO);
 	mlx5e_build_sq_param_common(mdev, param);
 	MLX5_SET(wq, wq, log_wq_sz, params->log_sq_size);
 	MLX5_SET(sqc, sqc, allow_swp, allow_swp);

@@ -29,7 +29,7 @@ static unsigned long dir_blocks(struct inode *inode)
 static unsigned int dir_buckets(unsigned int level, int dir_level)
 {
 	if (level + dir_level < MAX_DIR_HASH_DEPTH / 2)
-		return 1 << (level + dir_level);
+		return BIT(level + dir_level);
 	else
 		return MAX_DIR_BUCKETS;
 }
@@ -190,7 +190,8 @@ static unsigned long dir_block_index(unsigned int level,
 	unsigned long bidx = 0;
 
 	for (i = 0; i < level; i++)
-		bidx += dir_buckets(i, dir_level) * bucket_blocks(i);
+		bidx += mul_u32_u32(dir_buckets(i, dir_level),
+				    bucket_blocks(i));
 	bidx += idx * bucket_blocks(level);
 	return bidx;
 }

@@ -225,7 +225,7 @@ struct dasd_ccw_req {
  * The following flags are used to suppress output of certain errors.
  */
 #define DASD_CQR_SUPPRESS_NRF	4	/* Suppress 'No Record Found' error */
-#define DASD_CQR_SUPPRESS_FP	5	/* Suppress 'File Protected' error*/
+#define DASD_CQR_SUPPRESS_IT	5	/* Suppress 'Invalid Track' error*/
 #define DASD_CQR_SUPPRESS_IL	6	/* Suppress 'Incorrect Length' error */
 #define DASD_CQR_SUPPRESS_CR	7	/* Suppress 'Command Reject' error */
 
@@ -464,6 +464,7 @@ extern struct dasd_discipline *dasd_diag_discipline_pointer;
 #define DASD_EER_STATECHANGE 3
 #define DASD_EER_PPRCSUSPEND 4
 #define DASD_EER_NOSPC	     5
+#define DASD_EER_AUTOQUIESCE 31
 
 /* DASD path handling */
 
@@ -641,6 +642,7 @@ struct dasd_device {
 	struct dasd_format_entry format_entry;
 	struct kset *paths_info;
 	struct dasd_copy_relation *copy;
+	unsigned long aq_mask;
 };
 
 struct dasd_block {

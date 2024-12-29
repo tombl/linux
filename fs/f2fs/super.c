@@ -63,21 +63,31 @@ const char *f2fs_fault_name[FAULT_MAX] = {
 	[FAULT_LOCK_OP]		= "lock_op",
 };
 
-void f2fs_build_fault_attr(struct f2fs_sb_info *sbi, unsigned int rate,
-							unsigned int type)
+int f2fs_build_fault_attr(struct f2fs_sb_info *sbi, unsigned long rate,
+							unsigned long type)
 {
 	struct f2fs_fault_info *ffi = &F2FS_OPTION(sbi).fault_info;
 
 	if (rate) {
+		if (rate > INT_MAX)
+			return -EINVAL;
 		atomic_set(&ffi->inject_ops, 0);
-		ffi->inject_rate = rate;
+		ffi->inject_rate = (int)rate;
 	}
 
-	if (type)
-		ffi->inject_type = type;
+	if (type) {
+		if (type >= BIT(FAULT_MAX))
+			return -EINVAL;
+		ffi->inject_type = (unsigned int)type;
+	}
 
 	if (!rate && !type)
 		memset(ffi, 0, sizeof(struct f2fs_fault_info));
+	else
+		f2fs_info(sbi,
+			"build fault injection attr: rate: %lu, type: 0x%lx",
+								rate, type);
+	return 0;
 }
 #endif
 
@@ -613,14 +623,12 @@ static int f2fs_set_lz4hc_level(struct f2fs_sb_info *sbi, const char *str)
 {
 #ifdef CONFIG_F2FS_FS_LZ4HC
 	unsigned int level;
-#endif
 
 	if (strlen(str) == 3) {
 		F2FS_OPTION(sbi).compress_level = 0;
 		return 0;
 	}
 
-#ifdef CONFIG_F2FS_FS_LZ4HC
 	str += 3;
 
 	if (str[0] != ':') {
@@ -630,7 +638,7 @@ static int f2fs_set_lz4hc_level(struct f2fs_sb_info *sbi, const char *str)
 	if (kstrtouint(str + 1, 10, &level))
 		return -EINVAL;
 
-	if (level < LZ4HC_MIN_CLEVEL || level > LZ4HC_MAX_CLEVEL) {
+	if (!f2fs_is_compress_level_valid(COMPRESS_LZ4, level)) {
 		f2fs_info(sbi, "invalid lz4hc compress level: %d", level);
 		return -EINVAL;
 	}
@@ -638,6 +646,10 @@ static int f2fs_set_lz4hc_level(struct f2fs_sb_info *sbi, const char *str)
 	F2FS_OPTION(sbi).compress_level = level;
 	return 0;
 #else
+	if (strlen(str) == 3) {
+		F2FS_OPTION(sbi).compress_level = 0;
+		return 0;
+	}
 	f2fs_info(sbi, "kernel doesn't support lz4hc compression");
 	return -EINVAL;
 #endif
@@ -647,11 +659,11 @@ static int f2fs_set_lz4hc_level(struct f2fs_sb_info *sbi, const char *str)
 #ifdef CONFIG_F2FS_FS_ZSTD
 static int f2fs_set_zstd_level(struct f2fs_sb_info *sbi, const char *str)
 {
-	unsigned int level;
+	int level;
 	int len = 4;
 
 	if (strlen(str) == len) {
-		F2FS_OPTION(sbi).compress_level = 0;
+		F2FS_OPTION(sbi).compress_level = F2FS_ZSTD_DEFAULT_CLEVEL;
 		return 0;
 	}
 
@@ -661,10 +673,16 @@ static int f2fs_set_zstd_level(struct f2fs_sb_info *sbi, const char *str)
 		f2fs_info(sbi, "wrong format, e.g. <alg_name>:<compr_level>");
 		return -EINVAL;
 	}
-	if (kstrtouint(str + 1, 10, &level))
+	if (kstrtoint(str + 1, 10, &level))
 		return -EINVAL;
 
-	if (!level || level > zstd_max_clevel()) {
+	/* f2fs does not support negative compress level now */
+	if (level < 0) {
+		f2fs_info(sbi, "do not support negative compress level: %d", level);
+		return -ERANGE;
+	}
+
+	if (!f2fs_is_compress_level_valid(COMPRESS_ZSTD, level)) {
 		f2fs_info(sbi, "invalid zstd compress level: %d", level);
 		return -EINVAL;
 	}
@@ -898,8 +916,8 @@ static int parse_options(struct super_block *sb, char *options, bool is_remount)
 			if (args->from && match_int(args, &arg))
 				return -EINVAL;
 			if (arg <= 0 || arg > __ilog2_u32(BIO_MAX_VECS)) {
-				f2fs_warn(sbi, "Not support %d, larger than %d",
-					  1 << arg, BIO_MAX_VECS);
+				f2fs_warn(sbi, "Not support %ld, larger than %d",
+					BIT(arg), BIO_MAX_VECS);
 				return -EINVAL;
 			}
 			F2FS_OPTION(sbi).write_io_size_bits = arg;
@@ -908,14 +926,17 @@ static int parse_options(struct super_block *sb, char *options, bool is_remount)
 		case Opt_fault_injection:
 			if (args->from && match_int(args, &arg))
 				return -EINVAL;
-			f2fs_build_fault_attr(sbi, arg, F2FS_ALL_FAULT_TYPE);
+			if (f2fs_build_fault_attr(sbi, arg,
+					F2FS_ALL_FAULT_TYPE))
+				return -EINVAL;
 			set_opt(sbi, FAULT_INJECTION);
 			break;
 
 		case Opt_fault_type:
 			if (args->from && match_int(args, &arg))
 				return -EINVAL;
-			f2fs_build_fault_attr(sbi, 0, arg);
+			if (f2fs_build_fault_attr(sbi, 0, arg))
+				return -EINVAL;
 			set_opt(sbi, FAULT_INJECTION);
 			break;
 #else
@@ -1340,7 +1361,7 @@ default_check:
 #endif
 
 	if (F2FS_IO_SIZE_BITS(sbi) && !f2fs_lfs_mode(sbi)) {
-		f2fs_err(sbi, "Should set mode=lfs with %uKB-sized IO",
+		f2fs_err(sbi, "Should set mode=lfs with %luKB-sized IO",
 			 F2FS_IO_SIZE_KB(sbi));
 		return -EINVAL;
 	}
@@ -2084,8 +2105,6 @@ static void default_options(struct f2fs_sb_info *sbi)
 	F2FS_OPTION(sbi).bggc_mode = BGGC_MODE_ON;
 	F2FS_OPTION(sbi).memory_mode = MEMORY_MODE_NORMAL;
 
-	sbi->sb->s_flags &= ~SB_INLINECRYPT;
-
 	set_opt(sbi, INLINE_XATTR);
 	set_opt(sbi, INLINE_DATA);
 	set_opt(sbi, INLINE_DENTRY);
@@ -2805,15 +2824,26 @@ static int f2fs_quota_on(struct super_block *sb, int type, int format_id,
 		return -EBUSY;
 	}
 
+	if (path->dentry->d_sb != sb)
+		return -EXDEV;
+
 	err = f2fs_quota_sync(sb, type);
+	if (err)
+		return err;
+
+	inode = d_inode(path->dentry);
+
+	err = filemap_fdatawrite(inode->i_mapping);
+	if (err)
+		return err;
+
+	err = filemap_fdatawait(inode->i_mapping);
 	if (err)
 		return err;
 
 	err = dquot_quota_on(sb, type, format_id, path);
 	if (err)
 		return err;
-
-	inode = d_inode(path->dentry);
 
 	inode_lock(inode);
 	F2FS_I(inode)->i_flags |= F2FS_NOATIME_FL | F2FS_IMMUTABLE_FL;
@@ -3213,9 +3243,9 @@ static inline bool sanity_check_area_boundary(struct f2fs_sb_info *sbi,
 	u32 segment_count = le32_to_cpu(raw_super->segment_count);
 	u32 log_blocks_per_seg = le32_to_cpu(raw_super->log_blocks_per_seg);
 	u64 main_end_blkaddr = main_blkaddr +
-				(segment_count_main << log_blocks_per_seg);
+				((u64)segment_count_main << log_blocks_per_seg);
 	u64 seg_end_blkaddr = segment0_blkaddr +
-				(segment_count << log_blocks_per_seg);
+				((u64)segment_count << log_blocks_per_seg);
 
 	if (segment0_blkaddr != cp_blkaddr) {
 		f2fs_info(sbi, "Mismatch start address, segment0(%u) cp_blkaddr(%u)",
@@ -3356,7 +3386,7 @@ static int sanity_check_raw_super(struct f2fs_sb_info *sbi,
 	total_sections = le32_to_cpu(raw_super->section_count);
 
 	/* blocks_per_seg should be 512, given the above check */
-	blocks_per_seg = 1 << le32_to_cpu(raw_super->log_blocks_per_seg);
+	blocks_per_seg = BIT(le32_to_cpu(raw_super->log_blocks_per_seg));
 
 	if (segment_count > F2FS_MAX_SEGMENT ||
 				segment_count < F2FS_MIN_SEGMENTS) {
@@ -3625,9 +3655,9 @@ static void init_sb_info(struct f2fs_sb_info *sbi)
 	sbi->log_sectors_per_block =
 		le32_to_cpu(raw_super->log_sectors_per_block);
 	sbi->log_blocksize = le32_to_cpu(raw_super->log_blocksize);
-	sbi->blocksize = 1 << sbi->log_blocksize;
+	sbi->blocksize = BIT(sbi->log_blocksize);
 	sbi->log_blocks_per_seg = le32_to_cpu(raw_super->log_blocks_per_seg);
-	sbi->blocks_per_seg = 1 << sbi->log_blocks_per_seg;
+	sbi->blocks_per_seg = BIT(sbi->log_blocks_per_seg);
 	sbi->segs_per_sec = le32_to_cpu(raw_super->segs_per_sec);
 	sbi->secs_per_zone = le32_to_cpu(raw_super->secs_per_zone);
 	sbi->total_sections = le32_to_cpu(raw_super->section_count);
@@ -3883,7 +3913,7 @@ void f2fs_handle_stop(struct f2fs_sb_info *sbi, unsigned char reason)
 
 	f2fs_down_write(&sbi->sb_lock);
 
-	if (raw_super->s_stop_reason[reason] < ((1 << BITS_PER_BYTE) - 1))
+	if (raw_super->s_stop_reason[reason] < GENMASK(BITS_PER_BYTE - 1, 0))
 		raw_super->s_stop_reason[reason]++;
 
 	err = f2fs_commit_super(sbi, false);
@@ -4033,7 +4063,7 @@ static int f2fs_scan_devices(struct f2fs_sb_info *sbi)
 			  FDEV(i).start_blk, FDEV(i).end_blk);
 	}
 	f2fs_info(sbi,
-		  "IO Block Size: %8d KB", F2FS_IO_SIZE_KB(sbi));
+		  "IO Block Size: %8ld KB", F2FS_IO_SIZE_KB(sbi));
 	return 0;
 }
 

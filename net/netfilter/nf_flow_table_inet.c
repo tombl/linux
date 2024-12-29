@@ -17,11 +17,15 @@ nf_flow_offload_inet_hook(void *priv, struct sk_buff *skb,
 
 	switch (skb->protocol) {
 	case htons(ETH_P_8021Q):
+		if (!pskb_may_pull(skb, skb_mac_offset(skb) + sizeof(*veth)))
+			return NF_ACCEPT;
+
 		veth = (struct vlan_ethhdr *)skb_mac_header(skb);
 		proto = veth->h_vlan_encapsulated_proto;
 		break;
 	case htons(ETH_P_PPP_SES):
-		proto = nf_flow_pppoe_proto(skb);
+		if (!nf_flow_pppoe_proto(skb, &proto))
+			return NF_ACCEPT;
 		break;
 	default:
 		proto = skb->protocol;
@@ -39,7 +43,7 @@ nf_flow_offload_inet_hook(void *priv, struct sk_buff *skb,
 }
 
 static int nf_flow_rule_route_inet(struct net *net,
-				   const struct flow_offload *flow,
+				   struct flow_offload *flow,
 				   enum flow_offload_tuple_dir dir,
 				   struct nf_flow_rule *flow_rule)
 {

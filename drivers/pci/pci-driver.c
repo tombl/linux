@@ -473,6 +473,13 @@ static void pci_device_remove(struct device *dev)
 
 	if (drv->remove) {
 		pm_runtime_get_sync(dev);
+		/*
+		 * If the driver provides a .runtime_idle() callback and it has
+		 * started to run already, it may continue to run in parallel
+		 * with the code below, so wait until all of the runtime PM
+		 * activity has completed.
+		 */
+		pm_runtime_barrier(dev);
 		drv->remove(pci_dev);
 		pm_runtime_put_noidle(dev);
 	}
@@ -572,7 +579,20 @@ static void pci_pm_default_resume_early(struct pci_dev *pci_dev)
 
 static void pci_pm_bridge_power_up_actions(struct pci_dev *pci_dev)
 {
-	pci_bridge_wait_for_secondary_bus(pci_dev, "resume", PCI_RESET_WAIT);
+	int ret;
+
+	ret = pci_bridge_wait_for_secondary_bus(pci_dev, "resume");
+	if (ret) {
+		/*
+		 * The downstream link failed to come up, so mark the
+		 * devices below as disconnected to make sure we don't
+		 * attempt to resume them.
+		 */
+		pci_walk_bus(pci_dev->subordinate, pci_dev_set_disconnected,
+			     NULL);
+		return;
+	}
+
 	/*
 	 * When powering on a bridge from D3cold, the whole hierarchy may be
 	 * powered on into D0uninitialized state, resume them to give them a

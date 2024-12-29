@@ -56,7 +56,11 @@ int xfrm6_transport_finish(struct sk_buff *skb, int async)
 	skb_postpush_rcsum(skb, skb_network_header(skb), nhlen);
 
 	if (xo && (xo->flags & XFRM_GRO)) {
-		skb_mac_header_rebuild(skb);
+		/* The full l2 header needs to be preserved so that re-injecting the packet at l2
+		 * works correctly in the presence of vlan tags.
+		 */
+		skb_mac_header_rebuild_full(skb, xo->orig_mac_len);
+		skb_reset_network_header(skb);
 		skb_reset_transport_header(skb);
 		return 0;
 	}
@@ -81,14 +85,14 @@ int xfrm6_udp_encap_rcv(struct sock *sk, struct sk_buff *skb)
 	struct ipv6hdr *ip6h;
 	int len;
 	int ip6hlen = sizeof(struct ipv6hdr);
-
 	__u8 *udpdata;
 	__be32 *udpdata32;
-	__u16 encap_type = up->encap_type;
+	u16 encap_type;
 
 	if (skb->protocol == htons(ETH_P_IP))
 		return xfrm4_udp_encap_rcv(sk, skb);
 
+	encap_type = READ_ONCE(up->encap_type);
 	/* if this is not encapsulated socket, then just return now */
 	if (!encap_type)
 		return 1;

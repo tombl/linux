@@ -999,11 +999,9 @@ static ssize_t rvu_dbg_qsize_write(struct file *filp,
 	u16 pcifunc;
 	int ret, lf;
 
-	cmd_buf = memdup_user(buffer, count + 1);
+	cmd_buf = memdup_user_nul(buffer, count);
 	if (IS_ERR(cmd_buf))
 		return -ENOMEM;
-
-	cmd_buf[count] = '\0';
 
 	cmd_buf_tmp = strchr(cmd_buf, '\n');
 	if (cmd_buf_tmp) {
@@ -2618,7 +2616,7 @@ static void rvu_dbg_cgx_init(struct rvu *rvu)
 		rvu->rvu_dbg.cgx = debugfs_create_dir(dname,
 						      rvu->rvu_dbg.cgx_root);
 
-		for_each_set_bit(lmac_id, &lmac_bmap, MAX_LMAC_PER_CGX) {
+		for_each_set_bit(lmac_id, &lmac_bmap, rvu->hw->lmac_per_cgx) {
 			/* lmac debugfs dir */
 			sprintf(dname, "lmac%d", lmac_id);
 			rvu->rvu_dbg.lmac =

@@ -631,6 +631,7 @@ int vpu_v4l2_open(struct file *file, struct vpu_inst *inst)
 		func = &vpu->decoder;
 
 	atomic_set(&inst->ref_count, 0);
+	atomic_long_set(&inst->last_response_cmd, 0);
 	vpu_inst_get(inst);
 	inst->vpu = vpu;
 	inst->core = vpu_request_core(vpu, inst->type);
@@ -739,6 +740,7 @@ int vpu_add_func(struct vpu_dev *vpu, struct vpu_func *func)
 		vfd->fops = vdec_get_fops();
 		vfd->ioctl_ops = vdec_get_ioctl_ops();
 	}
+	video_set_drvdata(vfd, vpu);
 
 	ret = video_register_device(vfd, VFL_TYPE_VIDEO, -1);
 	if (ret) {
@@ -746,7 +748,6 @@ int vpu_add_func(struct vpu_dev *vpu, struct vpu_func *func)
 		v4l2_m2m_release(func->m2m_dev);
 		return ret;
 	}
-	video_set_drvdata(vfd, vpu);
 	func->vfd = vfd;
 
 	ret = v4l2_m2m_register_media_controller(func->m2m_dev, func->vfd, func->function);

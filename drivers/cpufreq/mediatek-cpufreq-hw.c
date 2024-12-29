@@ -10,8 +10,10 @@
 #include <linux/iopoll.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/of_address.h>
+#include <linux/of.h>
 #include <linux/of_platform.h>
+#include <linux/platform_device.h>
+#include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 
 #define LUT_MAX_ENTRIES			32U
@@ -60,7 +62,7 @@ mtk_cpufreq_get_cpu_power(struct device *cpu_dev, unsigned long *uW,
 
 	policy = cpufreq_cpu_get_raw(cpu_dev->id);
 	if (!policy)
-		return 0;
+		return -EINVAL;
 
 	data = policy->driver_data;
 
@@ -160,6 +162,7 @@ static int mtk_cpu_resources_init(struct platform_device *pdev,
 	struct mtk_cpufreq_data *data;
 	struct device *dev = &pdev->dev;
 	struct resource *res;
+	struct of_phandle_args args;
 	void __iomem *base;
 	int ret, i;
 	int index;
@@ -168,11 +171,14 @@ static int mtk_cpu_resources_init(struct platform_device *pdev,
 	if (!data)
 		return -ENOMEM;
 
-	index = of_perf_domain_get_sharing_cpumask(policy->cpu, "performance-domains",
-						   "#performance-domain-cells",
-						   policy->cpus);
-	if (index < 0)
-		return index;
+	ret = of_perf_domain_get_sharing_cpumask(policy->cpu, "performance-domains",
+						 "#performance-domain-cells",
+						 policy->cpus, &args);
+	if (ret < 0)
+		return ret;
+
+	index = args.args[0];
+	of_node_put(args.np);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, index);
 	if (!res) {
@@ -295,7 +301,23 @@ static struct cpufreq_driver cpufreq_mtk_hw_driver = {
 static int mtk_cpufreq_hw_driver_probe(struct platform_device *pdev)
 {
 	const void *data;
-	int ret;
+	int ret, cpu;
+	struct device *cpu_dev;
+	struct regulator *cpu_reg;
+
+	/* Make sure that all CPU supplies are available before proceeding. */
+	for_each_possible_cpu(cpu) {
+		cpu_dev = get_cpu_device(cpu);
+		if (!cpu_dev)
+			return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
+					     "Failed to get cpu%d device\n", cpu);
+
+		cpu_reg = devm_regulator_get(cpu_dev, "cpu");
+		if (IS_ERR(cpu_reg))
+			return dev_err_probe(&pdev->dev, PTR_ERR(cpu_reg),
+					     "CPU%d regulator get failed\n", cpu);
+	}
+
 
 	data = of_device_get_match_data(&pdev->dev);
 	if (!data)

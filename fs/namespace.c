@@ -2613,20 +2613,25 @@ static void mnt_warn_timestamp_expiry(struct path *mountpoint, struct vfsmount *
 	if (!__mnt_is_readonly(mnt) &&
 	   (!(sb->s_iflags & SB_I_TS_EXPIRY_WARNED)) &&
 	   (ktime_get_real_seconds() + TIME_UPTIME_SEC_MAX > sb->s_time_max)) {
-		char *buf = (char *)__get_free_page(GFP_KERNEL);
-		char *mntpath = buf ? d_path(mountpoint, buf, PAGE_SIZE) : ERR_PTR(-ENOMEM);
-		struct tm tm;
+		char *buf, *mntpath;
 
-		time64_to_tm(sb->s_time_max, 0, &tm);
+		buf = (char *)__get_free_page(GFP_KERNEL);
+		if (buf)
+			mntpath = d_path(mountpoint, buf, PAGE_SIZE);
+		else
+			mntpath = ERR_PTR(-ENOMEM);
+		if (IS_ERR(mntpath))
+			mntpath = "(unknown)";
 
-		pr_warn("%s filesystem being %s at %s supports timestamps until %04ld (0x%llx)\n",
+		pr_warn("%s filesystem being %s at %s supports timestamps until %ptTd (0x%llx)\n",
 			sb->s_type->name,
 			is_mounted(mnt) ? "remounted" : "mounted",
-			mntpath,
-			tm.tm_year+1900, (unsigned long long)sb->s_time_max);
+			mntpath, &sb->s_time_max,
+			(unsigned long long)sb->s_time_max);
 
-		free_page((unsigned long)buf);
 		sb->s_iflags |= SB_I_TS_EXPIRY_WARNED;
+		if (buf)
+			free_page((unsigned long)buf);
 	}
 }
 
@@ -2693,7 +2698,12 @@ static int do_remount(struct path *path, int ms_flags, int sb_flags,
 	if (IS_ERR(fc))
 		return PTR_ERR(fc);
 
+	/*
+	 * Indicate to the filesystem that the remount request is coming
+	 * from the legacy mount system call.
+	 */
 	fc->oldapi = true;
+
 	err = parse_monolithic_mount_data(fc, data);
 	if (!err) {
 		down_write(&sb->s_umount);
@@ -3026,6 +3036,12 @@ static int do_new_mount(struct path *path, const char *fstype, int sb_flags,
 	put_filesystem(type);
 	if (IS_ERR(fc))
 		return PTR_ERR(fc);
+
+	/*
+	 * Indicate to the filesystem that the mount request is coming
+	 * from the legacy mount system call.
+	 */
+	fc->oldapi = true;
 
 	if (subtype)
 		err = vfs_parse_fs_string(fc, "subtype",
@@ -4161,10 +4177,15 @@ static int do_mount_setattr(struct path *path, struct mount_kattr *kattr)
 	/*
 	 * If this is an attached mount make sure it's located in the callers
 	 * mount namespace. If it's not don't let the caller interact with it.
-	 * If this is a detached mount make sure it has an anonymous mount
-	 * namespace attached to it, i.e. we've created it via OPEN_TREE_CLONE.
+	 *
+	 * If this mount doesn't have a parent it's most often simply a
+	 * detached mount with an anonymous mount namespace. IOW, something
+	 * that's simply not attached yet. But there are apparently also users
+	 * that do change mount properties on the rootfs itself. That obviously
+	 * neither has a parent nor is it a detached mount so we cannot
+	 * unconditionally check for detached mounts.
 	 */
-	if (!(mnt_has_parent(mnt) ? check_mnt(mnt) : is_anon_ns(mnt->mnt_ns)))
+	if ((mnt_has_parent(mnt) || !is_anon_ns(mnt->mnt_ns)) && !check_mnt(mnt))
 		goto out;
 
 	/*
