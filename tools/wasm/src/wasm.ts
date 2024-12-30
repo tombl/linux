@@ -1,7 +1,7 @@
 export interface Instance extends WebAssembly.Instance {
   exports: {
     boot(): void;
-    worker_entry(fn: number, arg: number): void;
+    call(fn: number, arg: number): void;
     trigger_irq_for_cpu(cpu: number, irq: number): void;
   };
 }
@@ -10,6 +10,7 @@ export interface Imports {
   env: { memory: WebAssembly.Memory };
   boot: {
     get_devicetree(buf: number, size: number): void;
+    get_initramfs(buf: number, size: number): number;
   };
   kernel: {
     breakpoint(): void;
@@ -21,25 +22,29 @@ export interface Imports {
     get_now_nsec(): bigint;
     get_stacktrace(buf: number, size: number): void;
     spawn_worker(fn: number, arg: number, comm: number, commLen: number): void;
+    run_on_main(fn: number, arg: number): void;
   };
   virtio: {
-    get_features(dev: number, features_addr: number): number;
-    set_features(dev: number, features: number): number;
-    set_vring_enable(dev: number, vq: number, enable: number): number;
-    set_vring_num(dev: number, vq: number, num: number): number;
-    set_vring_addr(
+    set_features(dev: number, features: bigint): void;
+
+    setup(
       dev: number,
-      vq: number,
-      desc: number,
-      used: number,
-      avail: number,
-    ): number;
-    set_interrupt_addrs(
-      dev: number,
+      irq: number,
       is_config_addr: number,
       is_vring_addr: number,
-    ): number;
-    notify(dev: number, vq: number): number;
+      config_addr: number,
+      config_len: number,
+    ): void;
+
+    enable_vring(
+      dev: number,
+      vq: number,
+      size: number,
+      desc_addr: number,
+    ): void;
+    disable_vring(dev: number, vq: number): void;
+
+    notify(dev: number, vq: number): void;
   };
 }
 
@@ -50,12 +55,14 @@ export function kernel_imports(
     spawn_worker,
     boot_console_write,
     boot_console_close,
+    run_on_main,
   }: {
     is_worker: boolean;
     memory: WebAssembly.Memory;
     spawn_worker: (fn: number, arg: number, name: string) => void;
     boot_console_write: (message: ArrayBuffer) => void;
     boot_console_close: () => void;
+    run_on_main: (fn: number, arg: number) => void;
   },
 ): Imports["kernel"] {
   const mem = new Uint8Array(memory.buffer);
@@ -117,5 +124,7 @@ export function kernel_imports(
       );
       spawn_worker(fn, arg, name);
     },
+
+    run_on_main,
   };
 }

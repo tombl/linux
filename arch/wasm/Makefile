@@ -25,6 +25,11 @@ tools/wasm/src/build/sections.json: arch/wasm/sections.json
 	$(Q)mkdir -p tools/wasm/src/build
 	$(Q)cp $< $@
 
+tools/wasm/src/build/initramfs_data.cpio: FORCE
+	$(Q)mkdir -p tools/wasm/src/build
+	$(Q)$(MAKE) usr/initramfs_data.o
+	$(Q)cp usr/initramfs_inc_data $@
+
 define archhelp
   echo  '* tools/wasm       - WebAssembly host library'
 endef

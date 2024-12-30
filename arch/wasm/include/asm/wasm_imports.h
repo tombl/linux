@@ -23,4 +23,6 @@ void wasm_import(kernel, get_stacktrace)(char *buf, size_t size);
 void wasm_import(kernel, spawn_worker)(void (*fn)(void *), void *arg,
 				       char *name, size_t name_len);
 
+void wasm_import(kernel, run_on_main)(void (*fn)(void *), void *arg);
+
 #endif

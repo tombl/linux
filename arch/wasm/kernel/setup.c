@@ -16,9 +16,13 @@ int __init setup_early_printk(char *buf);
 void __init smp_init_cpus(unsigned int ncpus);
 void __init init_sections(unsigned long node);
 void wasm_import(boot, get_devicetree)(char *buf, size_t size);
+int wasm_import(boot, get_initramfs)(char *buf, size_t size);
 
-__attribute__((export_name("worker_entry"))) void
-wasm_worker_entry(void (*fn)(void *), void *arg)
+char *__initramfs_start;
+unsigned long __initramfs_size;
+
+__attribute__((export_name("call"))) void
+wasm_call(void (*fn)(void *), void *arg)
 {
 	fn(arg);
 }
@@ -33,12 +37,16 @@ static void do_start_kernel(void *unused)
 __attribute__((export_name("boot"))) void __init _start(void)
 {
 	static char devicetree[2048];
+	static char initramfs[512];
 	int node;
 
 	set_current_cpu(0);
 	set_current_task(&init_task);
 
 	memblock_reserve(0, (phys_addr_t)&__heap_base);
+
+	__initramfs_start = initramfs;
+	__initramfs_size = wasm_boot_get_initramfs(initramfs, ARRAY_SIZE(initramfs));
 
 	wasm_boot_get_devicetree(devicetree, ARRAY_SIZE(devicetree));
 	BUG_ON(!early_init_dt_scan(devicetree));
@@ -52,7 +60,11 @@ __attribute__((export_name("boot"))) void __init _start(void)
 	__wasm_call_ctors();
 	init_sections(node);
 
-	wasm_kernel_spawn_worker(do_start_kernel, NULL, "boot", 4);
+	// ensure that any future work done on this thread won't interfere with the kernel
+	set_current_cpu(-2); // -1 is reserved for unscheduled tasks
+	set_current_task(NULL);
+
+	wasm_kernel_spawn_worker(do_start_kernel, NULL, "boot", sizeof "boot" - 1);
 }
 
 void __init setup_arch(char **cmdline_p)

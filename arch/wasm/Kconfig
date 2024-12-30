@@ -1,7 +1,6 @@
 config WASM
 	def_bool y
 	depends on !BINFMT_ELF && !MMU && !MODULES && !COREDUMP && !SECCOMP && !UPROBES && !COMPAT
-	select ARCH_HAS_BINFMT_WASM
 	select ARCH_HAS_SYSCALL_WRAPPER
 	select ARCH_NO_PREEMPT
 	select ARCH_NO_SWAP

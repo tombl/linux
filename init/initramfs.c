@@ -591,7 +591,7 @@ static int __init initramfs_async_setup(char *str)
 }
 __setup("initramfs_async=", initramfs_async_setup);
 
-extern char __initramfs_start[];
+extern char *__initramfs_start;
 extern unsigned long __initramfs_size;
 #include <linux/initrd.h>
 #include <linux/kexec.h>

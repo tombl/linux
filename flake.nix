@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-24.05";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-24.11";
   };
   outputs =
     { self, nixpkgs }:
@@ -17,7 +17,7 @@
             system:
             let
               pkgs = nixpkgs.legacyPackages.${system};
-              llvm = pkgs.llvmPackages_17;
+              llvm = pkgs.llvmPackages_19;
             in
             {
               default = pkgs.stdenvNoCC.mkDerivation {

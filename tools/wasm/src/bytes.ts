@@ -1,4 +1,6 @@
-interface Type<T> {
+import { assert } from "./util";
+
+export interface Type<T> {
   get(dv: DataView, offset: number): T;
   set(dv: DataView, offset: number, value: T): void;
   size: number;
@@ -8,44 +10,73 @@ export type Unwrap<T> = T extends Type<infer U> ? U : never;
 export function Struct<T extends object>(
   layout: { [K in keyof T]: Type<T[K]> },
 ) {
-  const TheStruct = class {
-    _dv: DataView;
-    constructor(dv: DataView) {
-      this._dv = dv;
-    }
-  } as { new (dv: DataView): T };
-
   let size = 0;
-  for (
-    const [key, type] of Object.entries(
-      layout as Record<PropertyKey, Type<unknown>>,
-    )
-  ) {
-    const offset = size;
-    Object.defineProperty(TheStruct.prototype, key, {
-      get() {
-        return type.get(this._dv, offset);
-      },
-      set(value) {
-        type.set(this._dv, offset, value);
-      },
-    });
-    size += type.size;
-  }
 
-  const type: Type<T> = {
-    get(dv, offset) {
+  return class {
+    #dv: DataView;
+    constructor(view: ArrayBufferView) {
+      this.#dv = new DataView(view.buffer, view.byteOffset, view.byteLength);
+    }
+
+    static {
+      for (
+        const [key, type] of Object.entries(
+          layout as Record<PropertyKey, Type<unknown>>,
+        )
+      ) {
+        const offset = size;
+        Object.defineProperty(this.prototype, key, {
+          get() {
+            return type.get(this.#dv, offset);
+          },
+          set(value) {
+            type.set(this.#dv, offset, value);
+          },
+        });
+        size += type.size;
+      }
+    }
+
+    static get(dv: DataView, offset: number) {
       if (offset !== 0) dv = new DataView(dv.buffer, dv.byteOffset + offset);
-      return new TheStruct(dv);
+      return new this(dv);
+    }
+    static set(dv: DataView, offset: number, value: T) {
+      if (offset !== 0) dv = new DataView(dv.buffer, dv.byteOffset + offset);
+      Object.assign(new this(dv), value);
+    }
+    static size = size;
+
+    toJSON() {
+      const obj = {} as T;
+      for (const key in layout) {
+        obj[key] = (this as unknown as T)[key];
+      }
+      return obj;
+    }
+  } as { new (view: ArrayBufferView): T } & Type<T>;
+}
+
+export function FixedArray<T>(
+  type: Type<T>,
+  length: number,
+): Type<T[]> {
+  assert(Number.isInteger(length) && length > 0);
+  return {
+    get(dv, offset) {
+      const arr = Array<T>(length);
+      for (let i = 0; i < length; i++) {
+        arr[i] = type.get(dv, offset + type.size * i);
+      }
+      return arr;
     },
     set(dv, offset, value) {
-      if (offset !== 0) dv = new DataView(dv.buffer, dv.byteOffset + offset);
-      Object.assign(new TheStruct(dv), value);
+      for (let i = 0; i < length; i++) {
+        type.set(dv, offset + type.size * i, value[i]!);
+      }
     },
-    size,
+    size: type.size * length,
   };
-
-  return Object.assign(TheStruct, type);
 }
 
 export const U8: Type<number> = {

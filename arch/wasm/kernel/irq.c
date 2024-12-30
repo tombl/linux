@@ -1,5 +1,3 @@
-#define pr_fmt(fmt) "wasm/irq: " fmt
-
 #include <asm/smp.h>
 #include <linux/cpu.h>
 #include <linux/bitops.h>
@@ -82,7 +80,7 @@ void arch_local_irq_restore(unsigned long flags)
 static int wasm_irq_map(struct irq_domain *d, unsigned int irq,
 			irq_hw_number_t hw)
 {
-	pr_info("wasm_irq_map: %d -> %lu\n", irq, hw);
+	pr_info("map irq: %d -> %lu\n", irq, hw);
 
 	irq_set_chip_and_handler(irq, &dummy_irq_chip, handle_percpu_irq);
 

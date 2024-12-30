@@ -439,10 +439,6 @@ void panic(const char *fmt, ...)
 #endif
 	pr_emerg("---[ end Kernel panic - not syncing: %s ]---\n", buf);
 
-#ifdef CONFIG_WASM
-	wasm_kernel_breakpoint();
-#endif
-
 	/* Do not scroll important messages printed above */
 	suppress_printk = 1;
 
@@ -454,6 +450,12 @@ void panic(const char *fmt, ...)
 	console_flush_on_panic(CONSOLE_FLUSH_PENDING);
 
 	local_irq_enable();
+
+#ifdef CONFIG_WASM
+	wasm_kernel_breakpoint();
+	wasm_kernel_halt();
+#endif
+
 	for (i = 0; ; i += PANIC_TIMER_STEP) {
 		touch_softlockup_watchdog();
 		if (i >= i_next) {
