@@ -22,6 +22,8 @@
   in the ELF header, as required by certain architectures.
 */
 
+#ifndef CONFIG_WASM
+
 .section .init.ramfs,"a"
 __irf_start:
 .incbin "usr/initramfs_inc_data"
@@ -33,4 +35,6 @@ __initramfs_size:
 	.quad __irf_end - __irf_start
 #else
 	.long __irf_end - __irf_start
+#endif
+
 #endif
