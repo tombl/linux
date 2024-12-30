@@ -12,6 +12,12 @@ compress-$(CONFIG_INITRAMFS_COMPRESSION_LZO)	:= lzo
 compress-$(CONFIG_INITRAMFS_COMPRESSION_LZ4)	:= lz4
 compress-$(CONFIG_INITRAMFS_COMPRESSION_ZSTD)	:= zstd
 
+ifndef CONFIG_WASM
+obj-$(CONFIG_BLK_DEV_INITRD) := initramfs_data.o
+
+$(obj)/initramfs_data.o: $(obj)/initramfs_inc_data
+endif
+
 ramfs-input := $(CONFIG_INITRAMFS_SOURCE)
 cpio-data :=
 

@@ -11,16 +11,16 @@ static struct linux_binfmt wasm_format = {
 
 static int load_wasm_binary(struct linux_binprm *bprm)
 {
-        if (strncmp(bprm->buf, "\0asm", 4)) {
-                return -ENOEXEC;
-        }
+	if (strncmp(bprm->buf, "\0asm", 4)) {
+		return -ENOEXEC;
+	}
 
 	set_binfmt(&wasm_format);
 	finalize_exec(bprm);
 
-        // TODO: read file, instantiate module, call with args
+	// TODO: read file, instantiate module, call with args
 
-        BUG();
+	BUG();
 
 	return 0;
 }

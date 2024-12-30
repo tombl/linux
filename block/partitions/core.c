@@ -449,7 +449,6 @@ int bdev_add_partition(struct gendisk *disk, int partno, sector_t start,
 
 	mutex_lock(&disk->open_mutex);
 	if (!disk_live(disk)) {
-		pr_warn("bdev not live\n");
 		ret = -ENXIO;
 		goto out;
 	}
@@ -581,7 +580,6 @@ static bool blk_add_partition(struct gendisk *disk,
 
 	part = add_partition(disk, p, from, size, state->parts[p].flags,
 			     &state->parts[p].info);
-	pr_info("add_partition() = %p\n", part);
 	if (IS_ERR(part)) {
 		if (PTR_ERR(part) != -ENXIO) {
 			printk(KERN_ERR " %s: p%d could not be added: %pe\n",
@@ -667,9 +665,8 @@ int bdev_disk_changed(struct gendisk *disk, bool invalidate)
 
 	lockdep_assert_held(&disk->open_mutex);
 
-	if (!disk_live(disk)){
-		pr_warn("bdev not live\n");
-		return -ENXIO;}
+	if (!disk_live(disk))
+		return -ENXIO;
 
 rescan:
 	if (disk->open_partitions)

@@ -372,9 +372,7 @@ static int __init do_mount_root(const char *name, const char *fs,
 		strncpy(data_page, data, PAGE_SIZE);
 	}
 
-	pr_info("mounting root\n");
 	ret = init_mount(name, "/root", fs, flags, data_page);
-	pr_info("init_mount: %d\n", ret);
 	if (ret)
 		goto out;
 

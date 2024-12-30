@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0
-#define DEBUG
 /*
  * drivers/base/dd.c - The core device/driver interactions.
  *
