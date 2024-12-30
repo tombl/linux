@@ -3,6 +3,15 @@ export interface Instance extends WebAssembly.Instance {
     boot(): void;
     call(fn: number, arg: number): void;
     trigger_irq_for_cpu(cpu: number, irq: number): void;
+    syscall(
+      nr: number,
+      arg0: number,
+      arg1: number,
+      arg2: number,
+      arg3: number,
+      arg4: number,
+      arg5: number,
+    ): number;
   };
 }
 
