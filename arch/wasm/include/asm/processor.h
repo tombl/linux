@@ -32,7 +32,6 @@ static inline unsigned long __get_wchan(struct task_struct *p)
 
 static inline void flush_thread(void)
 {
-	BUG();
 }
 
 struct thread_struct {};
@@ -41,11 +40,9 @@ struct thread_struct {};
 	{           \
 	}
 
-#define task_pt_regs(task) \
-	((struct pt_regs *)(task->stack + THREAD_SIZE) - 1)
+#define task_pt_regs(task) ((struct pt_regs *)(task->stack + THREAD_SIZE) - 1)
 
-// I believe this is unreferenced in nommu:
-#define TASK_SIZE (__builtin_trap(),U32_MAX)
+#define TASK_SIZE U32_MAX
 
 #define TASK_UNMAPPED_BASE 0
 

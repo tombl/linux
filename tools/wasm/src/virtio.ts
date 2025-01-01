@@ -296,6 +296,49 @@ export class BlockDevice extends VirtioDevice<BlockDeviceConfig> {
   }
 }
 
+export class ConsoleDevice extends VirtioDevice<EmptyStruct> {
+  ID = 3;
+  config_bytes = new Uint8Array(0);
+  config = new EmptyStruct(this.config_bytes);
+
+  #input: ReadableStream<Uint8Array>;
+  constructor(input: ReadableStream<Uint8Array>) {
+    super();
+    this.#input = input;
+  }
+
+  #writing: Promise<void> | null = null;
+
+  override notify(vq: number) {
+    assert(vq === 0);
+
+    const queue = this.vqs[vq];
+    assert(queue);
+    const queueIter = queue[Symbol.iterator]();
+
+    this.#writing ??= (async () => {
+      for await (let chunk of this.#input) {
+        while (chunk.length > 0) {
+          const chain = queueIter.next().value;
+          if (!chain) {
+            console.warn("no more descriptors, dropping console input");
+            break;
+          }
+
+          const [desc, trailing] = chain;
+          assert(desc && desc.writable, "receiver must be writable");
+          assert(!trailing, "too many descriptors");
+
+          const n = Math.min(chunk.length, desc.array.byteLength);
+          desc.array.set(chunk.subarray(0, n));
+          chunk = chunk.subarray(n);
+          chain.release(n);
+        }
+      }
+    })();
+  }
+}
+
 export class EntropyDevice extends VirtioDevice<EmptyStruct> {
   ID = 4;
   config_bytes = new Uint8Array(0);

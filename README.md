@@ -7,14 +7,15 @@
 - [x] Kernel threads
   - Mapped to JavaScript workers
   - Complete multicore support
-- [ ] Implement virtio in the host library
-  - [ ] Implement a block device
-- [ ] `binfmt_wasm`
-- [ ] Jumping into userspace
-- [ ] Expose syscall dispatch
+- [x] Implement virtio in the host library
+  - [x] Implement a block device
+- [x] `binfmt_wasm`
+- [x] Jumping into userspace
+- [x] Expose syscall dispatch
 
 ## Eventually:
 
+- signals
 - virtio-rng backed by `crypto.getRandomValues()`
 - virtio-net to connect multiple machines
   - and service worker loopback

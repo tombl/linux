@@ -6,6 +6,7 @@ import init2 from "./init2.cpio";
 import { assert, EventEmitter, get_script_path, unreachable } from "./util.ts";
 import {
   BlockDevice,
+  ConsoleDevice,
   EntropyDevice,
   virtio_imports,
   VirtioDevice,
@@ -49,7 +50,16 @@ export class Machine extends EventEmitter<{
     this.#boot_console = new TransformStream<Uint8Array, Uint8Array>();
     this.#boot_console_writer = this.#boot_console.writable.getWriter();
 
-    this.#devices = [new EntropyDevice() /*, new BlockDevice()*/];
+    this.#devices = [
+      new EntropyDevice(),
+      new ConsoleDevice(
+        new ReadableStream({
+          pull(controller) {
+          },
+        }),
+      ),
+      // new BlockDevice(),
+    ];
 
     const PAGE_SIZE = 0x10000;
     const BYTES_PER_MIB = 0x100000;
@@ -165,6 +175,10 @@ export class Machine extends EventEmitter<{
         boot_console_close,
         run_on_main: unavailable,
       }),
+      user: {
+        compile: unavailable,
+        instantiate: unavailable,
+      },
       virtio: virtio_imports({
         memory: this.#memory,
         devices: this.#devices,

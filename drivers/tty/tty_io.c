@@ -2042,6 +2042,8 @@ static struct tty_struct *tty_open_by_driver(dev_t device,
 	int index = -1;
 	int retval;
 
+	pr_info("tty_open_by_driver of %i %s\n", device, filp->f_path.dentry->d_iname);
+
 	mutex_lock(&tty_mutex);
 	driver = tty_lookup_driver(device, filp, &index);
 	if (IS_ERR(driver)) {

@@ -1,3 +1,4 @@
+import { assert } from "./util.ts";
 import { type Imports, type Instance, kernel_imports } from "./wasm.ts";
 
 export interface InitMessage {
@@ -18,14 +19,60 @@ const unavailable = () => {
 
 const postMessage = self.postMessage as (message: WorkerMessage) => void;
 
+let user_module: WebAssembly.Module | null = null;
+let user_instance: WebAssembly.Instance | null = null;
+
 self.onmessage = (event: MessageEvent<InitMessage>) => {
   const { fn, arg, vmlinux, memory } = event.data;
+  const mem = new Uint8Array(memory.buffer);
 
   const imports = {
     env: { memory },
     boot: {
       get_devicetree: unavailable,
       get_initramfs: unavailable,
+    },
+    user: {
+      compile(buf, size) {
+        const bytes = new Uint8Array(mem.slice(buf, buf + size));
+        try {
+          user_module = new WebAssembly.Module(bytes);
+          return 0;
+        } catch {
+          return -8; // exec format error
+        }
+      },
+      instantiate(stack, memory_base, table_size) {
+        assert(user_module);
+
+        try {
+          user_instance = new WebAssembly.Instance(user_module, {
+            env: {
+              memory,
+              __stack_pointer: new WebAssembly.Global({
+                value: "i32",
+                mutable: true,
+              }, stack),
+              __memory_base: memory_base,
+              __indirect_function_table: new WebAssembly.Table({
+                element: "anyfunc",
+                initial: table_size,
+              }),
+              __table_base: 0,
+            },
+            linux: {
+              syscall: instance.exports.syscall,
+            },
+          });
+
+          const { __wasm_apply_data_relocs } = user_instance.exports;
+          if (typeof __wasm_apply_data_relocs === "function") {
+            __wasm_apply_data_relocs();
+          }
+        } catch (error) {
+          console.warn("error instantiating user module:", error);
+        }
+    },
     },
     kernel: kernel_imports({
       is_worker: true,
@@ -54,4 +101,9 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
 
   const instance = (new WebAssembly.Instance(vmlinux, imports)) as Instance;
   instance.exports.call(fn, arg);
+
+  assert(user_instance, "kernel thread stopped before user module was loaded");
+  const { _start } = user_instance.exports;
+  assert(typeof _start === "function", "_start not found");
+  _start();
 };

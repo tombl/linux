@@ -33,6 +33,10 @@ export interface Imports {
     spawn_worker(fn: number, arg: number, comm: number, commLen: number): void;
     run_on_main(fn: number, arg: number): void;
   };
+  user: {
+    compile(buf: number, size: number): number;
+    instantiate(stack: number, memory: number, table_size: number): void;
+  };
   virtio: {
     set_features(dev: number, features: bigint): void;
 
