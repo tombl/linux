@@ -3006,7 +3006,6 @@ struct tty_driver *console_device(int *index)
 
 	console_lock();
 	for_each_console(c) {
-		pr_info("console %s[%i] -> %p", c->name, c->index, c->device);
 		if (!c->device)
 			continue;
 		driver = c->device(c, index);
