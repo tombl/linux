@@ -98,7 +98,7 @@ void __init init_sections(unsigned long node)
 	#undef INITCALL_LEVEL
 
 	SECTION("__param",		__start___param,	_,	__stop___param);
-	SECTION(".con_initcall.init",	__con_initcall_start,	_,	__con_initcall_start);
+	SECTION(".con_initcall.init",	__con_initcall_start,	_,	__con_initcall_end);
 	SECTION(".init.setup",		__setup_start,		_,	__setup_end);
 	SECTION(".data.once",		__start_once,		_,	__end_once);
 
