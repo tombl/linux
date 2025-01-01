@@ -1,5 +1,10 @@
 #!/usr/bin/env -S deno run --allow-read
-import { Machine } from "./dist/index.js";
+import {
+  BlockDevice,
+  ConsoleDevice,
+  EntropyDevice,
+  Machine,
+} from "./dist/index.js";
 import { parseArgs } from "jsr:@std/cli@1/parse-args";
 import { assert } from "./src/util.ts";
 
@@ -7,7 +12,7 @@ const args = parseArgs(Deno.args, {
   string: ["cmdline"],
   boolean: ["help"],
   default: {
-    cmdline: "no_hash_pointers",
+    cmdline: "no_hash_pointers console=hvc0",
     memory: 128,
     cpus: navigator.hardwareConcurrency,
   },
@@ -33,9 +38,14 @@ const machine = new Machine({
   cmdline: args.cmdline,
   memoryMib: args.memory,
   cpus: args.cpus,
+  devices: [
+    new ConsoleDevice(Deno.stdin.readable, Deno.stdout.writable),
+    new EntropyDevice(),
+    new BlockDevice(new Uint8Array(8 * 1024 * 1024)),
+  ],
 });
 
-machine.bootConsole.pipeTo(Deno.stdout.writable);
+machine.bootConsole.pipeTo(Deno.stderr.writable, { preventClose: true });
 
 machine.on("halt", () => {
   console.log("halting...");

@@ -106,13 +106,6 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 
 	// callback returns only if the kernel thread execs a process
 	fn_ret = fn(fn_arg);
-
-	// call into userspace?
-	pr_info("task finished on cpu %d\n", raw_smp_processor_id());
-
-	do_exit(0);
-
-	// syscall_exit_to_user_mode(&(struct pt_regs){ 0 });
 }
 
 static void task_entry(void* args)

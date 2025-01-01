@@ -118,7 +118,12 @@
       });
     </script>
     <script type="module">
-      import { Machine } from "./dist/index.js";
+      import {
+        BlockDevice,
+        ConsoleDevice,
+        EntropyDevice,
+        Machine,
+      } from "./dist/index.js";
 
       const term = new Terminal({
         convertEol: true,
@@ -140,25 +145,42 @@
         term.write("Error: not cross origin isolated\n");
       }
 
-      const { cmdline = "no_hash_pointers", memory = 128 } = Object.fromEntries(
+      const { cmdline = "no_hash_pointers console=hvc0", memory = 128 } = Object.fromEntries(
         new URLSearchParams(location.search)
       );
       document.querySelector("input[name=cmdline]").value = cmdline;
       document.querySelector("input[name=memory]").value = memory;
 
+      const stdin = new ReadableStream({
+        start(controller) {
+          term.onData((data) => {
+            controller.enqueue(data);
+          });
+        },
+      });
+
+      const stdout = new WritableStream({
+        write(chunk) {
+          term.write(chunk);
+        },
+      });
+      const stdout2 = new WritableStream({
+        write(chunk) {
+          term.write(chunk);
+        },
+      });
+
       const machine = new Machine({
         cmdline: cmdline.replace(/\+/g, " "),
         memoryMib: memory,
+        devices: [
+          new ConsoleDevice(stdin, stdout),
+          new EntropyDevice(),
+          new BlockDevice(new Uint8Array(8 * 1024 * 1024)),
+        ],
       });
 
-      machine.bootConsole.pipeTo(
-        new WritableStream({
-          write(chunk) {
-            term.write(chunk);
-            // return new Promise((r) => term.write(chunk, r));
-          },
-        })
-      );
+      machine.bootConsole.pipeTo(stdout2);
 
       machine.on("halt", () => {
         term.write("halting...");

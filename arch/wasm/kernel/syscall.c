@@ -1,3 +1,4 @@
+#include <linux/entry-common.h>
 #include <linux/syscalls.h>
 
 #undef __SYSCALL
@@ -20,6 +21,9 @@ wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
 	     unsigned long arg5)
 {
 	struct pt_regs *regs = current_pt_regs();
+	long ret;
+
+	nr = syscall_enter_from_user_mode(regs, nr);
 
 	if (nr < 0 || nr >= ARRAY_SIZE(syscall_table))
 		return -ENOSYS;
@@ -34,7 +38,9 @@ wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
 	regs->syscall_args[4] = arg4;
 	regs->syscall_args[5] = arg5;
 
-	return syscall_table[nr](regs);
+	ret = syscall_table[nr](regs);
 
-	// TODO: there's some call needed here before we return to userspace
+	syscall_exit_to_user_mode(regs);
+
+	return ret;
 }

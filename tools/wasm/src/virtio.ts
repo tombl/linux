@@ -188,12 +188,12 @@ export abstract class VirtioDevice<Config extends object = object> {
   vqs: Virtqueue[] = [];
   enable(vq: number, queue: Virtqueue) {
     this.vqs[vq] = queue;
-    console.log("enable", vq, queue.size);
+    console.log("enable", this.constructor.name, vq, queue.size);
   }
   disable(vq: number) {
     const queue = this.vqs[vq];
     assert(queue);
-    console.log("disable", vq);
+    console.log("disable", this.constructor.name, vq);
   }
 
   abstract notify(vq: number): void;
@@ -236,12 +236,13 @@ export class BlockDevice extends VirtioDevice<BlockDeviceConfig> {
   config_bytes = new Uint8Array(BlockDeviceConfig.size);
   config = new BlockDeviceConfig(this.config_bytes);
 
-  storage = new Uint8Array(1024 * 1024);
+  #storage: Uint8Array;
 
-  constructor() {
+  constructor(storage: Uint8Array) {
     super();
+    this.#storage = storage;
     this.features |= BlockDeviceFeatures.FLUSH;
-    this.config.capacity = BigInt(this.storage.byteLength / 512);
+    this.config.capacity = BigInt(this.#storage.byteLength / 512);
   }
 
   override notify(vq: number) {
@@ -273,8 +274,8 @@ export class BlockDevice extends VirtioDevice<BlockDeviceConfig> {
           assert(data.writable, "data must be writable when IN");
           const start = Number(request.sector) * 512;
           let end = start + data.array.byteLength;
-          if (end >= this.storage.length) end = this.storage.length - 1;
-          data.array.set(this.storage.subarray(start, end));
+          if (end >= this.#storage.length) end = this.#storage.length - 1;
+          data.array.set(this.#storage.subarray(start, end));
           n = end - start;
           status.array[0] = BlockDeviceStatus.OK;
           break;
@@ -284,15 +285,73 @@ export class BlockDevice extends VirtioDevice<BlockDeviceConfig> {
           status.array[0] = BlockDeviceStatus.UNSUPP;
       }
 
-      console.log(
-        request.type,
-        request.sector,
-        status.array[0],
-      );
-
       chain.release(n);
     }
     this.trigger_interrupt("vring");
+  }
+}
+
+export class ConsoleDevice extends VirtioDevice<EmptyStruct> {
+  ID = 3;
+  config_bytes = new Uint8Array(0);
+  config = new EmptyStruct(this.config_bytes);
+
+  #input: ReadableStream<Uint8Array>;
+  #output: WritableStreamDefaultWriter<Uint8Array>;
+  constructor(
+    input: ReadableStream<Uint8Array>,
+    output: WritableStream<Uint8Array>,
+  ) {
+    super();
+    this.#input = input;
+    this.#output = output.getWriter();
+  }
+
+  #writing: Promise<void> | null = null;
+  async #writer(queue: Virtqueue) {
+    const queueIter = queue[Symbol.iterator]();
+    for await (let chunk of this.#input) {
+      while (chunk.length > 0) {
+        const chain = queueIter.next().value;
+        if (!chain) {
+          console.warn("no more descriptors, dropping console input");
+          break;
+        }
+
+        const [desc, trailing] = chain;
+        assert(desc && desc.writable, "receiver must be writable");
+        assert(!trailing, "too many descriptors");
+
+        const n = Math.min(chunk.length, desc.array.byteLength);
+        desc.array.set(chunk.subarray(0, n));
+        chunk = chunk.subarray(n);
+        chain.release(n);
+      }
+    }
+  }
+
+  override async notify(vq: number) {
+    const queue = this.vqs[vq];
+    assert(queue);
+
+    switch (vq) {
+      case 0:
+        this.#writing ??= this.#writer(queue);
+        break;
+      case 1:
+        for (const chain of queue) {
+          let n = 0;
+          for (const { array, writable } of chain) {
+            assert(!writable, "transmitter must be readable");
+            await this.#output.write(array);
+            n += array.byteLength;
+          }
+          chain.release(n);
+        }
+        break;
+      default:
+        console.error("ConsoleDevice: unknown vq", vq);
+    }
   }
 }
 

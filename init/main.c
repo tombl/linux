@@ -1627,7 +1627,7 @@ void __init console_on_rootfs(void)
 	struct file *file = filp_open("/dev/console", O_RDWR, 0);
 
 	if (IS_ERR(file)) {
-		pr_err("Warning: unable to open an initial console.\n");
+		pr_err("Warning: unable to open an initial console: %ld\n", PTR_ERR(file));
 		return;
 	}
 	init_dup(file);
