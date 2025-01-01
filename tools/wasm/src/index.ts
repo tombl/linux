@@ -4,15 +4,11 @@ import vmlinuxUrl from "./build/vmlinux.wasm";
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
 import init2 from "./init2.cpio";
 import { assert, EventEmitter, get_script_path, unreachable } from "./util.ts";
-import {
-  BlockDevice,
-  ConsoleDevice,
-  EntropyDevice,
-  virtio_imports,
-  VirtioDevice,
-} from "./virtio.ts";
+import { virtio_imports, VirtioDevice } from "./virtio.ts";
 import { type Imports, type Instance, kernel_imports } from "./wasm.ts";
 import type { InitMessage, WorkerMessage } from "./worker.ts";
+
+export { BlockDevice, ConsoleDevice, EntropyDevice } from "./virtio.ts";
 
 const worker_url = get_script_path(() => import("./worker.ts"), import.meta);
 
@@ -45,21 +41,12 @@ export class Machine extends EventEmitter<{
     cmdline?: string;
     memoryMib?: number;
     cpus?: number;
+    devices: VirtioDevice[];
   }) {
     super();
     this.#boot_console = new TransformStream<Uint8Array, Uint8Array>();
     this.#boot_console_writer = this.#boot_console.writable.getWriter();
-
-    this.#devices = [
-      new EntropyDevice(),
-      new ConsoleDevice(
-        new ReadableStream({
-          pull(controller) {
-          },
-        }),
-      ),
-      // new BlockDevice(),
-    ];
+    this.#devices = options.devices;
 
     const PAGE_SIZE = 0x10000;
     const BYTES_PER_MIB = 0x100000;
@@ -118,7 +105,9 @@ export class Machine extends EventEmitter<{
     const vmlinux = await vmlinux_promise;
 
     const boot_console_write = (message: ArrayBuffer) => {
-      this.#boot_console_writer.write(new Uint8Array(message));
+      this.#boot_console_writer.write(new Uint8Array(message)).catch(() => {
+        // Ignore errors if the console is closed
+      });
     };
     const boot_console_close = () => {
       this.#boot_console_writer.close();

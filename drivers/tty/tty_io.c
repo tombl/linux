@@ -1927,7 +1927,7 @@ static struct tty_driver *tty_lookup_driver(dev_t device, struct file *filp,
 #endif
 	case MKDEV(TTYAUX_MAJOR, 1): {
 		struct tty_driver *console_driver = console_device(index);
-
+		pr_info("got console %p\n", console_driver);
 		if (console_driver) {
 			driver = tty_driver_kref_get(console_driver);
 			if (driver && filp) {
@@ -2041,8 +2041,6 @@ static struct tty_struct *tty_open_by_driver(dev_t device,
 	struct tty_driver *driver = NULL;
 	int index = -1;
 	int retval;
-
-	pr_info("tty_open_by_driver of %i %s\n", device, filp->f_path.dentry->d_iname);
 
 	mutex_lock(&tty_mutex);
 	driver = tty_lookup_driver(device, filp, &index);
