@@ -12,6 +12,7 @@ export interface Instance extends WebAssembly.Instance {
       arg4: number,
       arg5: number,
     ): number;
+    get_thread_area(): number;
   };
 }
 

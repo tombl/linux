@@ -62,6 +62,7 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
             },
             linux: {
               syscall: instance.exports.syscall,
+              get_thread_area: instance.exports.get_thread_area,
             },
           });
 

@@ -17,12 +17,13 @@ struct thread_info {
 	int preempt_count;
 	int cpu; // this is for the kernel
 	atomic_t running_cpu; // negative means unscheduled
+	unsigned long tp_value;
 };
 
 #define INIT_THREAD_INFO(tsk)                                              \
 	{                                                                  \
 		.flags = 0, .preempt_count = INIT_PREEMPT_COUNT, .cpu = 0, \
-		.running_cpu = ATOMIC_INIT(0),                             \
+		.running_cpu = ATOMIC_INIT(0), .tp_value = U32_MAX,        \
 	}
 
 #define TIF_SYSCALL_TRACE 0 /* syscall trace active */
