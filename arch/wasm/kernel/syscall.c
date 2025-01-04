@@ -44,3 +44,17 @@ wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
 
 	return ret;
 }
+
+SYSCALL_DEFINE1(set_thread_area, unsigned long, addr)
+{
+	struct thread_info *ti = task_thread_info(current);
+	ti->tp_value = addr;
+	return 0;
+}
+
+__attribute__((export_name("get_thread_area"))) unsigned long
+wasm_get_thread_area(void)
+{
+	struct thread_info *ti = task_thread_info(current);
+	return ti->tp_value;
+}
