@@ -161,9 +161,6 @@ err:
 	return ret;
 }
 
-int wasm_import(user, compile)(u8 *bytes, u32 len);
-void wasm_import(user, instantiate)(u32 stack, u32 memory, u32 table_size);
-
 static int load_wasm_binary(struct linux_binprm *bprm)
 {
 	int ret;

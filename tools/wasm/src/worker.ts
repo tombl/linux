@@ -21,10 +21,12 @@ const postMessage = self.postMessage as (message: WorkerMessage) => void;
 
 let user_module: WebAssembly.Module | null = null;
 let user_instance: WebAssembly.Instance | null = null;
+let user_memory: WebAssembly.Memory | null = null;
+let user_memory_buffer: Uint8Array | null = null;
 
 self.onmessage = (event: MessageEvent<InitMessage>) => {
   const { fn, arg, vmlinux, memory } = event.data;
-  const mem = new Uint8Array(memory.buffer);
+  const memory_buffer = new Uint8Array(memory.buffer);
 
   const imports = {
     env: { memory },
@@ -34,7 +36,7 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
     },
     user: {
       compile(buf, size) {
-        const bytes = new Uint8Array(mem.slice(buf, buf + size));
+        const bytes = new Uint8Array(memory_buffer.slice(buf, buf + size));
         try {
           user_module = new WebAssembly.Module(bytes);
           return 0;
@@ -42,38 +44,49 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
           return -8; // exec format error
         }
       },
-      instantiate(stack, memory_base, table_size) {
+      instantiate() {
         assert(user_module);
+
+        // TODO: shared memory support by postMessage-ing the buffer back to the main thread
+        // and having it pass all known memories back to newly spawned workers.
+        // TODO: read the real initial size from the module.
+        // TOOD: enforce rlimit via maximum.
+        user_memory = new WebAssembly.Memory({
+          initial: 10,
+          maximum: 100,
+        });
+        user_memory_buffer = new Uint8Array(user_memory.buffer);
 
         try {
           user_instance = new WebAssembly.Instance(user_module, {
-            env: {
-              memory,
-              __stack_pointer: new WebAssembly.Global({
-                value: "i32",
-                mutable: true,
-              }, stack),
-              __memory_base: memory_base,
-              __indirect_function_table: new WebAssembly.Table({
-                element: "anyfunc",
-                initial: table_size,
-              }),
-              __table_base: 0,
-            },
+            env: { memory: user_memory },
             linux: {
               syscall: instance.exports.syscall,
               get_thread_area: instance.exports.get_thread_area,
             },
           });
-
-          const { __wasm_apply_data_relocs } = user_instance.exports;
-          if (typeof __wasm_apply_data_relocs === "function") {
-            __wasm_apply_data_relocs();
-          }
         } catch (error) {
           console.warn("error instantiating user module:", error);
         }
-    },
+      },
+      read(to, from, n) {
+        assert(user_memory_buffer);
+        const slice = user_memory_buffer.subarray(from, from + n);
+        memory_buffer.set(slice, to);
+        return n - slice.length;
+      },
+      write(to, from, n) {
+        assert(user_memory_buffer);
+        const slice = memory_buffer.subarray(from, from + n);
+        user_memory_buffer.set(slice, to);
+        return n - slice.length;
+      },
+      write_zeroes(to, n) {
+        assert(user_memory_buffer);
+        const slice = user_memory_buffer.subarray(to, to + n);
+        slice.fill(0);
+        return n - slice.length;
+      },
     },
     kernel: kernel_imports({
       is_worker: true,
