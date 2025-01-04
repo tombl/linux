@@ -65,6 +65,12 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
               get_thread_area: instance.exports.get_thread_area,
             },
           });
+
+          if ("memory" in user_instance.exports) {
+            assert(user_instance.exports.memory instanceof WebAssembly.Memory);
+            user_memory = user_instance.exports.memory;
+            user_memory_buffer = new Uint8Array(user_memory.buffer);
+          }
         } catch (error) {
           console.warn("error instantiating user module:", error);
         }
