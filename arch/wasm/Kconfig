@@ -21,7 +21,6 @@ config WASM
 	select PAGE_SIZE_64KB
 	select SMP
 	select THREAD_INFO_IN_TASK
-	select UACCESS_MEMCPY if !MMU
 
 config CMDLINE
 	string "Kernel command string to append"

@@ -12,17 +12,6 @@
 #include <linux/virtio_ring.h>
 #include <linux/virtio.h>
 
-void wasm_import(virtio, set_features)(u32 id, u64 features);
-
-void wasm_import(virtio, setup)(u32 id, u32 irq, bool *is_config,
-				bool *is_vring, u8 *config, u32 config_len);
-
-void wasm_import(virtio, enable_vring)(u32 id, u32 index, u32 size,
-				       dma_addr_t desc);
-void wasm_import(virtio, disable_vring)(u32 id, u32 index);
-
-void wasm_import(virtio, notify)(u32 id, u32 index);
-
 #define to_virtio_wasm_device(_plat_dev) \
 	container_of(_plat_dev, struct virtio_wasm_device, vdev)
 

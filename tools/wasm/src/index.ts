@@ -167,6 +167,9 @@ export class Machine extends EventEmitter<{
       user: {
         compile: unavailable,
         instantiate: unavailable,
+        read: unavailable,
+        write: unavailable,
+        write_zeroes: unavailable,
       },
       virtio: virtio_imports({
         memory: this.#memory,

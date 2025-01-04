@@ -15,8 +15,6 @@ void __wasm_call_ctors(void);
 int __init setup_early_printk(char *buf);
 void __init smp_init_cpus(unsigned int ncpus);
 void __init init_sections(unsigned long node);
-void wasm_import(boot, get_devicetree)(char *buf, size_t size);
-int wasm_import(boot, get_initramfs)(char *buf, size_t size);
 
 char *__initramfs_start;
 unsigned long __initramfs_size;

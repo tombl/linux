@@ -37,6 +37,9 @@ export interface Imports {
   user: {
     compile(buf: number, size: number): number;
     instantiate(stack: number, memory: number, table_size: number): void;
+    read(to: number, from: number, n: number): number;
+    write(to: number, from: number, n: number): number;
+    write_zeroes(to: number, n: number): number;
   };
   virtio: {
     set_features(dev: number, features: bigint): void;
