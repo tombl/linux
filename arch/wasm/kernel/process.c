@@ -130,17 +130,20 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	// this is probably a bad idea
 	if (args->idle) return 0;
 
-	if (!args->fn)
-		panic("can't copy userspace thread"); // yet
-
 	bootstrap_args =
 		kzalloc(sizeof(struct task_bootstrap_args), GFP_KERNEL);
 	if (!bootstrap_args)
-		panic("can't allocate bootstrap args");
-
+		return -ENOMEM;
 	bootstrap_args->task = p;
-	bootstrap_args->fn = args->fn;
-	bootstrap_args->fn_arg = args->fn_arg;
+
+	if (unlikely(args->fn)) {
+		bootstrap_args->fn = args->fn;
+		bootstrap_args->fn_arg = args->fn_arg;
+	} else {
+		// TODO: hmm this is a userspace thread
+		// we need to copy the instance and the memory from the current worker
+		// into the new one.
+	}
 
 	name_len = snprintf(name, ARRAY_SIZE(name), "%s (%d)", p->comm, p->pid);
 

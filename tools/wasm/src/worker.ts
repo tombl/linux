@@ -52,8 +52,8 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
         // TODO: read the real initial size from the module.
         // TOOD: enforce rlimit via maximum.
         user_memory = new WebAssembly.Memory({
-          initial: 10,
-          maximum: 100,
+          initial: 2048,
+          maximum: 2048,
         });
         user_memory_buffer = new Uint8Array(user_memory.buffer);
 
@@ -63,6 +63,8 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
             linux: {
               syscall: instance.exports.syscall,
               get_thread_area: instance.exports.get_thread_area,
+              get_args_length: instance.exports.get_args_length,
+              get_args: instance.exports.get_args,
             },
           });
 
@@ -126,4 +128,5 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
   const { _start } = user_instance.exports;
   assert(typeof _start === "function", "_start not found");
   _start();
+  instance.exports.syscall(60, 37, 0, 0, 0, 0, 0); // exit(37)
 };

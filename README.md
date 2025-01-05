@@ -12,14 +12,15 @@
 - [x] `binfmt_wasm`
 - [x] Jumping into userspace
 - [x] Expose syscall dispatch
+- [x] [Port musl](https://github.com/tombl/musl)
+- [ ] Port busybox
 
 ## Eventually:
 
 - signals
-- virtio-rng backed by `crypto.getRandomValues()`
 - virtio-net to connect multiple machines
   - and service worker loopback
-- virtio-console to support multiple terminals
+- enhanced virtio-console to support terminal resizing and multiple terminals
 - virtio-fs backed by the [File System API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API)
 - vsock to implement custom javascript integrations
   - unrestricted vscode in the browser?

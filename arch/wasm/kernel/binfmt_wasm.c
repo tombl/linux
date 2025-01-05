@@ -1,9 +1,11 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/binfmts.h>
+#include <linux/highmem.h>
 #include <linux/mman.h>
 #include <linux/personality.h>
 #include <linux/ptrace.h>
+#include <linux/syscalls.h>
 
 static int load_wasm_binary(struct linux_binprm *bprm);
 
@@ -20,6 +22,95 @@ static int file_get_size(struct file *f, loff_t *size)
 	if (ret)
 		return ret;
 	*size = stat.size;
+	return 0;
+}
+
+static int copy_args(struct linux_binprm *bprm)
+{
+	struct wasm_process_args *args;
+	int stop = bprm->p >> PAGE_SHIFT;
+	int len = ((bprm->argc + bprm->envc + 2) * sizeof(char *)) +
+		  (PAGE_SIZE * (MAX_ARG_PAGES - stop)) + (bprm->p & ~PAGE_MASK);
+	char *data;
+	int ret;
+
+	args = kmalloc(sizeof(*args) + len, GFP_KERNEL);
+	if (!args)
+		return -ENOMEM;
+
+	args->argc = bprm->argc;
+	args->envc = bprm->envc;
+	args->len = len;
+
+	data = args->data + len;
+	for (int index = MAX_ARG_PAGES - 1; index >= stop; index--) {
+		unsigned int offset = index == stop ? bprm->p & ~PAGE_MASK : 0;
+		char *src = kmap_local_page(bprm->page[index]) + offset;
+		data -= PAGE_SIZE - offset;
+		memcpy(data, src, PAGE_SIZE - offset);
+		kunmap_local(src);
+	}
+
+	args->argv = (char **)(args->data);
+	for (int i = bprm->argc; i > 0; i--) {
+		len = strnlen(data, MAX_ARG_STRLEN);
+		if (!len || len > MAX_ARG_STRLEN) {
+			ret = -EINVAL;
+			goto err;
+		}
+		args->argv[i - 1] = data;
+		data += len + 1;
+	}
+	args->argv[bprm->argc] = NULL;
+
+	args->envp = args->argv + bprm->argc + 1;
+	for (int i = bprm->envc; i > 0; i--) {
+		len = strnlen(data, MAX_ARG_STRLEN);
+		if (!len || len > MAX_ARG_STRLEN) {
+			ret = -EINVAL;
+			goto err;
+		}
+		args->envp[i - 1] = data;
+		data += len + 1;
+	}
+	args->envp[bprm->envc] = NULL;
+
+	current_thread_info()->args = args;
+	return 0;
+err:
+	kfree(args);
+	return ret;
+}
+
+__attribute__((export_name("get_args_length"))) int get_args_length(void)
+{
+	struct wasm_process_args *args = current_thread_info()->args;
+	return args ? sizeof(*args) + args->len : -EINVAL;
+}
+
+__attribute__((export_name("get_args"))) int get_args(void *buf)
+{
+	struct wasm_process_args *args = current_thread_info()->args;
+	long offset = ((long)buf - (long)args);
+	if (!args)
+		return -EINVAL;
+
+	__builtin_dump_struct(args, _printk);
+
+	for (int i = 0; i < args->argc; i++)
+		args->argv[i] += offset;
+	for (int i = 0; i < args->envc; i++)
+		args->envp[i] += offset;
+
+	args->argv += offset / sizeof(void *);
+	args->envp += offset / sizeof(void *);
+
+	if (copy_to_user(buf, args, sizeof(*args) + args->len))
+		return -EFAULT;
+
+	kfree(args);
+	current_thread_info()->args = NULL;
+
 	return 0;
 }
 
@@ -49,6 +140,10 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 
 	ret = vm_munmap((uintptr_t)code, filesize);
 	code = NULL;
+	if (ret)
+		goto err;
+
+	ret = copy_args(bprm);
 	if (ret)
 		goto err;
 
