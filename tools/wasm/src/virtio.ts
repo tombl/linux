@@ -188,12 +188,10 @@ export abstract class VirtioDevice<Config extends object = object> {
   vqs: Virtqueue[] = [];
   enable(vq: number, queue: Virtqueue) {
     this.vqs[vq] = queue;
-    console.log("enable", this.constructor.name, vq, queue.size);
   }
   disable(vq: number) {
     const queue = this.vqs[vq];
     assert(queue);
-    console.log("disable", this.constructor.name, vq);
   }
 
   abstract notify(vq: number): void;

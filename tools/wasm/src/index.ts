@@ -2,7 +2,6 @@ import initramfs from "./build/initramfs_data.cpio";
 import sections from "./build/sections.json" with { type: "json" };
 import vmlinuxUrl from "./build/vmlinux.wasm";
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
-import init2 from "./init2.cpio";
 import { assert, EventEmitter, get_script_path, unreachable } from "./util.ts";
 import { virtio_imports, VirtioDevice } from "./virtio.ts";
 import { type Imports, type Instance, kernel_imports } from "./wasm.ts";
@@ -17,7 +16,7 @@ const vmlinux_promise = "compileStreaming" in WebAssembly
   ? WebAssembly.compileStreaming(vmlinux_response)
   : vmlinux_response.then((r) => r.arrayBuffer()).then(WebAssembly.compile);
 
-const INIT2_ADDR = 0x200000;
+const INITCPIO_ADDR = 0x200000;
 
 export class Machine extends EventEmitter<{
   halt: void;
@@ -29,6 +28,7 @@ export class Machine extends EventEmitter<{
   #workers: Worker[] = [];
   #memory: WebAssembly.Memory;
   #devices: VirtioDevice[];
+  #initcpio?: ArrayBufferView;
 
   memory: Uint8Array;
   devicetree: DeviceTreeNode;
@@ -42,11 +42,13 @@ export class Machine extends EventEmitter<{
     memoryMib?: number;
     cpus?: number;
     devices: VirtioDevice[];
+    initcpio?: ArrayBufferView;
   }) {
     super();
     this.#boot_console = new TransformStream<Uint8Array, Uint8Array>();
     this.#boot_console_writer = this.#boot_console.writable.getWriter();
     this.#devices = options.devices;
+    this.#initcpio = options.initcpio;
 
     const PAGE_SIZE = 0x10000;
     const BYTES_PER_MIB = 0x100000;
@@ -65,11 +67,9 @@ export class Machine extends EventEmitter<{
       "#size-cells": 1,
       chosen: {
         "rng-seed": crypto.getRandomValues(new Uint8Array(64)),
-        bootargs: options.cmdline ?? "no_hash_pointers",
+        bootargs: `console=hvc0 ${options.cmdline ?? ""}`,
         ncpus: options.cpus ?? navigator.hardwareConcurrency,
         sections,
-        "linux,initrd-start": INIT2_ADDR,
-        "linux,initrd-end": INIT2_ADDR + init2.byteLength,
       },
       aliases: {},
       memory: {
@@ -83,7 +83,20 @@ export class Machine extends EventEmitter<{
       },
     };
 
-    this.memory.set(init2, INIT2_ADDR);
+    if (this.#initcpio) {
+      const chosen = this.devicetree.chosen as DeviceTreeNode;
+      chosen["linux,initrd-start"] = INITCPIO_ADDR;
+      chosen["linux,initrd-end"] = INITCPIO_ADDR + this.#initcpio.byteLength;
+
+      this.memory.set(
+        new Uint8Array(
+          this.#initcpio.buffer,
+          this.#initcpio.byteOffset,
+          this.#initcpio.byteLength,
+        ),
+        INITCPIO_ADDR,
+      );
+    }
 
     for (const [i, dev] of this.#devices.entries()) {
       this.devicetree[`virtio${i}`] = {
@@ -97,10 +110,16 @@ export class Machine extends EventEmitter<{
   }
 
   async boot() {
+    const memory_reservations: { address: number; size: number }[] = [];
+    if (this.#initcpio) {
+      memory_reservations.push({
+        address: INITCPIO_ADDR,
+        size: this.#initcpio.byteLength,
+      });
+    }
+
     const devicetree = generate_devicetree(this.devicetree, {
-      memory_reservations: [
-        { address: INIT2_ADDR, size: init2.byteLength },
-      ],
+      memory_reservations,
     });
     const vmlinux = await vmlinux_promise;
 
@@ -182,10 +201,6 @@ export class Machine extends EventEmitter<{
 
     const instance =
       (await WebAssembly.instantiate(vmlinux, imports)) as Instance;
-    // @ts-expect-error
-    globalThis.instance = instance;
-    // @ts-expect-error
-    globalThis.memory = this.#memory;
     instance.exports.boot();
   }
 }

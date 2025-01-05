@@ -70,24 +70,9 @@
       </p>
 
       <p>
-        It's only early days for this port, and it doesn't make it all the way
-        through boot yet, but we're getting close, and all the fundamentals are
-        there.
+        We've got a patched version of the Linux kernel and Musl libc running,
+        complete with virtio devices, memory isolation, and multi-core support.
       </p>
-
-      <p>
-        (context switching was particularly painful to implement in such a
-        constrained environment, but I think the solution ended up being quite
-        elegant.)
-      </p>
-
-      <p>All that's left to implement before we can boot BusyBox is:</p>
-      <ul>
-        <li>the ability to load binaries</li>
-        <li>somewhere to load them from (virtio in the browser?)</li>
-        <li>external syscall dispatch</li>
-        <li>and the ability to jump into userspace</li>
-      </ul>
 
       <p>
         If this sounds interesting, you can check out the source at
@@ -105,6 +90,8 @@
         <input type="text" name="cmdline" id="cmdline" />
         <label for="memory">Memory (in MiB)</label>
         <input type="number" name="memory" id="memory" />
+        <label for="initcpio">URL to an initramfs</label>
+        <input type="text" name="initcpio" id="initcpio" />
         <button type="submit">Reboot</button>
       </form>
     </details>
@@ -145,11 +132,14 @@
         term.write("Error: not cross origin isolated\n");
       }
 
-      const { cmdline = "no_hash_pointers console=hvc0", memory = 128 } = Object.fromEntries(
-        new URLSearchParams(location.search)
-      );
+      const {
+        cmdline = "",
+        memory = navigator.hardwareConcurrency > 16 ? 256 : 128,
+        initcpio: initcpioPath = "initramfs.cpio",
+      } = Object.fromEntries(new URLSearchParams(location.search));
       document.querySelector("input[name=cmdline]").value = cmdline;
       document.querySelector("input[name=memory]").value = memory;
+      document.querySelector("input[name=initcpio]").value = initcpioPath;
 
       const stdin = new ReadableStream({
         start(controller) {
@@ -170,6 +160,11 @@
         },
       });
 
+      const initcpio = await fetch(initcpioPath).then((res) => res.ok && res.arrayBuffer());
+      if (!initcpio) {
+        term.write(`Failed to fetch initramfs.\n`);
+      }
+
       const machine = new Machine({
         cmdline: cmdline.replace(/\+/g, " "),
         memoryMib: memory,
@@ -178,6 +173,7 @@
           new EntropyDevice(),
           new BlockDevice(new Uint8Array(8 * 1024 * 1024)),
         ],
+        initcpio: new Uint8Array(initcpio),
       });
 
       machine.bootConsole.pipeTo(stdout2);

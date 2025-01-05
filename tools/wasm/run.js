@@ -8,23 +8,29 @@ import {
 import { parseArgs } from "jsr:@std/cli@1/parse-args";
 import { assert } from "./src/util.ts";
 
+const defaultMemory = navigator.hardwareConcurrency > 16 ? 256 : 128;
+
 const args = parseArgs(Deno.args, {
   string: ["cmdline"],
   boolean: ["help"],
   default: {
-    cmdline: "no_hash_pointers console=hvc0",
-    memory: 128,
+    cmdline: "",
+    memory: defaultMemory,
     cpus: navigator.hardwareConcurrency,
+    initcpio: import.meta.url
+      .replace("run.js", "public/initramfs.cpio")
+      .replace("file://", ""),
   },
-  alias: { cmdline: "c", memory: "m", cpus: "j", help: "h" },
+  alias: { cmdline: "c", memory: "m", initcpio: "i", cpus: "j", help: "h" },
 });
 
 if (args.help) {
   console.log(`usage: run.ts [options]
 
 options:
-  -c, --cmdline <string>  Command line arguments to pass to the kernel (default: "no_hash_pointers")
-  -m, --memory <number>   Amount of memory to allocate in MiB (default: 128)
+  -c, --cmdline <string>  Command line arguments to pass to the kernel
+  -m, --memory <number>   Amount of memory to allocate in MiB (default: ${defaultMemory})
+  -i, --initcpio <string> Path to the initramfs to boot
   -j, --cpus <number>     Number of CPUs to use (default: number of CPUs on the machine)
   -h, --help              Show this help message
 `);
@@ -43,6 +49,7 @@ const machine = new Machine({
     new EntropyDevice(),
     new BlockDevice(new Uint8Array(8 * 1024 * 1024)),
   ],
+  initcpio: await Deno.readFile(args.initcpio),
 });
 
 machine.bootConsole.pipeTo(Deno.stderr.writable, { preventClose: true });
