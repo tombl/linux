@@ -120,7 +120,7 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
   } satisfies Imports;
 
   const instance = (new WebAssembly.Instance(vmlinux, imports)) as Instance;
-  instance.exports.call(fn, arg);
+  instance.exports.__indirect_function_table.get(fn)!(arg);
 
   assert(user_instance, "kernel thread stopped before user module was loaded");
   const { _start } = user_instance.exports;

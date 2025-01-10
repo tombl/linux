@@ -147,7 +147,8 @@ export class Machine extends EventEmitter<{
             boot_console_close();
             break;
           case "run_on_main":
-            instance.exports.call(event.data.fn, event.data.arg);
+            instance.exports.__indirect_function_table
+              .get(event.data.fn)!(event.data.arg);
             break;
           default:
             unreachable(event.data);

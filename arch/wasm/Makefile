@@ -3,7 +3,7 @@ LD = $(LLVM_PREFIX)wasm-ld$(LLVM_SUFFIX)
 WASM_FEATURES = -matomics -mbulk-memory -mextended-const -mmultivalue -mmutable-globals -mnontrapping-fptoint -mreference-types -msign-ext -msimd128
 
 cflags-y += -Wno-incompatible-library-redeclaration '-D__builtin_return_address=wasm_kernel_return_address' $(WASM_FEATURES) -mllvm -wasm-enable-sjlj
-ldflags-y += --import-memory --max-memory=4294967296 --shared-memory --no-merge-data-segments
+ldflags-y += --import-memory --max-memory=4294967296 --shared-memory --no-merge-data-segments --export-table
 
 KBUILD_CFLAGS += $(cflags-y)
 KBUILD_AFLAGS += $(aflags-y)

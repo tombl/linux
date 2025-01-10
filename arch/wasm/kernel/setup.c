@@ -19,12 +19,6 @@ void __init init_sections(unsigned long node);
 char *__initramfs_start;
 unsigned long __initramfs_size;
 
-__attribute__((export_name("call"))) void
-wasm_call(void (*fn)(void *), void *arg)
-{
-	fn(arg);
-}
-
 static void do_start_kernel(void *unused)
 {
 	set_current_cpu(0);

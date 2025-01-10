@@ -1,7 +1,7 @@
 export interface Instance extends WebAssembly.Instance {
   exports: {
+    __indirect_function_table: WebAssembly.Table;
     boot(): void;
-    call(fn: number, arg: number): void;
     trigger_irq_for_cpu(cpu: number, irq: number): void;
     syscall(
       nr: number,
