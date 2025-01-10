@@ -28,22 +28,8 @@
                 nativeBuildInputs = with pkgs; [
                   perl
                   bc
-                  nettools
-                  openssl
-                  rsync
-                  gmp
-                  libmpc
-                  mpfr
-                  zstd
-                  python3Minimal
-                  kmod
-                  ubootTools
                   bison
                   flex
-                  cpio
-                  pahole
-                  zlib
-                  elfutils
 
                   pkg-config
                   ncurses
