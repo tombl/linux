@@ -18,7 +18,7 @@ const args = parseArgs(Deno.args, {
     memory: defaultMemory,
     cpus: navigator.hardwareConcurrency,
     initcpio: import.meta.url
-      .replace("run.js", "public/initramfs.cpio")
+      .replace("run.js", "initramfs.cpio")
       .replace("file://", ""),
   },
   alias: { cmdline: "c", memory: "m", initcpio: "i", cpus: "j", help: "h" },
