@@ -95,8 +95,6 @@ __attribute__((export_name("get_args"))) int get_args(void *buf)
 	if (!args)
 		return -EINVAL;
 
-	__builtin_dump_struct(args, _printk);
-
 	for (int i = 0; i < args->argc; i++)
 		args->argv[i] += offset;
 	for (int i = 0; i < args->envc; i++)
