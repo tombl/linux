@@ -1,4 +1,5 @@
 j := `nproc`
+cmdline := "no_hash_pointers"
 
 build:
     just make -C tools/wasm
@@ -7,7 +8,7 @@ watch:
     watchexec -r -f '**/*.c' -f '**/*.h' -f '**/Makefile*' -f 'tools/wasm/src/**/*.ts' just build
 
 run:
-    tools/wasm/run.js -j4
+    tools/wasm/run.js -j4 -c '{{cmdline}}'
 watchrun:
     watchexec -r -w tools/wasm/dist --ignore-nothing --debounce=200ms just run
 
