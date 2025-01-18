@@ -143,6 +143,7 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 		// TODO: hmm this is a userspace thread
 		// we need to copy the instance and the memory from the current worker
 		// into the new one.
+		pr_warn("currently unsupported: a userspace thread called clone()\n");
 	}
 
 	name_len = snprintf(name, ARRAY_SIZE(name), "%s (%d)", p->comm, p->pid);
