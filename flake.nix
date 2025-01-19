@@ -50,7 +50,14 @@
 
                 enableParallelBuilding = true;
                 configurePhase = "make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES defconfig";
-                buildPhase = "make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES -C tools/wasm";
+                buildPhase = "
+                  # this is a horrible dirty hack but there's some non-deterministic build failure
+                  for i in $(seq 1 3); do
+                    if make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES -C tools/wasm; then
+                      break
+                    fi
+                  done
+                ";
                 installPhase = ''cp -r tools/wasm/dist $out'';
               };
             }
