@@ -124,9 +124,14 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
   const instance = (new WebAssembly.Instance(vmlinux, imports)) as Instance;
   instance.exports.__indirect_function_table.get(fn)!(arg);
 
-  assert(user_instance, "kernel thread stopped before user module was loaded");
-  const { _start } = user_instance.exports;
-  assert(typeof _start === "function", "_start not found");
-  _start();
+  try {
+    assert(user_instance, "kernel thread stopped before user module was loaded");
+    const { _start } = user_instance.exports;
+    assert(typeof _start === "function", "_start not found");
+    _start();
+  } catch (error) {
+    console.error("error running user module:", error);
+  }
+
   instance.exports.syscall(60, 37, 0, 0, 0, 0, 0); // exit(37)
 };
