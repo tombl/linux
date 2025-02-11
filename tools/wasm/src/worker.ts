@@ -77,6 +77,18 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
           console.warn("error instantiating user module:", error);
         }
       },
+      call() {
+        assert(user_instance);
+
+        try {
+          const { _start } = user_instance.exports;
+          assert(typeof _start === "function", "_start not found");
+          _start();
+          throw new Error("_start reached the end without exiting");
+        } catch (error) {
+          console.error("error running user module:", error);
+        }
+      },
       read(to, from, n) {
         assert(user_memory_buffer);
         const slice = user_memory_buffer.subarray(from, from + n);
@@ -123,15 +135,4 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
 
   const instance = (new WebAssembly.Instance(vmlinux, imports)) as Instance;
   instance.exports.__indirect_function_table.get(fn)!(arg);
-
-  try {
-    assert(user_instance, "kernel thread stopped before user module was loaded");
-    const { _start } = user_instance.exports;
-    assert(typeof _start === "function", "_start not found");
-    _start();
-  } catch (error) {
-    console.error("error running user module:", error);
-  }
-
-  instance.exports.syscall(60, 37, 0, 0, 0, 0, 0); // exit(37)
 };

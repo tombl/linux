@@ -104,11 +104,22 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 
 	schedule_tail(prev);
 
-	// callback returns only if the kernel thread execs a process
-	fn_ret = fn(fn_arg);
+	if (unlikely(args->fn)) {
+		// callback returns only if the kernel thread execs a process
+		fn_ret = fn(fn_arg);
+
+		wasm_user_call();
+	} else {
+		// TODO: hmm this is a userspace thread
+		// we need to copy the instance and the memory from the current worker
+		// into the new one.
+		pr_warn("currently unsupported: a userspace thread called clone()\n");
+	}
+
+	do_exit(37);
 }
 
-static void task_entry(void* args)
+static void task_entry(void *args)
 {
 	set_stack_pointer(
 		task_pt_regs(((struct task_bootstrap_args *)args)->task) - 1);
@@ -128,23 +139,16 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 
 	// don't spawn a worker for idle threads
 	// this is probably a bad idea
-	if (args->idle) return 0;
+	if (args->idle)
+		return 0;
 
 	bootstrap_args =
 		kzalloc(sizeof(struct task_bootstrap_args), GFP_KERNEL);
 	if (!bootstrap_args)
 		return -ENOMEM;
+	bootstrap_args->fn = args->fn;
+	bootstrap_args->fn_arg = args->fn_arg;
 	bootstrap_args->task = p;
-
-	if (unlikely(args->fn)) {
-		bootstrap_args->fn = args->fn;
-		bootstrap_args->fn_arg = args->fn_arg;
-	} else {
-		// TODO: hmm this is a userspace thread
-		// we need to copy the instance and the memory from the current worker
-		// into the new one.
-		pr_warn("currently unsupported: a userspace thread called clone()\n");
-	}
 
 	name_len = snprintf(name, ARRAY_SIZE(name), "%s (%d)", p->comm, p->pid);
 

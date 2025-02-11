@@ -187,6 +187,7 @@ export class Machine extends EventEmitter<{
       user: {
         compile: unavailable,
         instantiate: unavailable,
+        call: unavailable,
         read: unavailable,
         write: unavailable,
         write_zeroes: unavailable,
