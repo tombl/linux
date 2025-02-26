@@ -43,5 +43,5 @@ struct task_struct *get_current_task(void)
 }
 struct task_struct *get_current_task_on(int cpu)
 {
-	return current_tasks[raw_smp_processor_id()];
+	return current_tasks[cpu];
 }
