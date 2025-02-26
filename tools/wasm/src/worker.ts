@@ -112,6 +112,8 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
       is_worker: true,
       memory,
       spawn_worker(fn, arg, name) {
+        // these should be non-null for threads spawned via clone()
+        console.log("spawning with", user_memory, user_module);
         postMessage({ type: "spawn_worker", fn, arg, name });
       },
       boot_console_write(message) {

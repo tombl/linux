@@ -109,14 +109,15 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 		fn_ret = fn(fn_arg);
 
 		wasm_user_call();
+		do_exit(37);
 	} else {
 		// TODO: hmm this is a userspace thread
 		// we need to copy the instance and the memory from the current worker
 		// into the new one.
 		pr_warn("currently unsupported: a userspace thread called clone()\n");
+		do_exit(38);
 	}
 
-	do_exit(37);
 }
 
 static void task_entry(void *args)
