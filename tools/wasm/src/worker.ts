@@ -22,7 +22,6 @@ const postMessage = self.postMessage as (message: WorkerMessage) => void;
 let user_module: WebAssembly.Module | null = null;
 let user_instance: WebAssembly.Instance | null = null;
 let user_memory: WebAssembly.Memory | null = null;
-let user_memory_buffer: Uint8Array | null = null;
 
 self.onmessage = (event: MessageEvent<InitMessage>) => {
   const { fn, arg, vmlinux, memory } = event.data;
@@ -55,7 +54,6 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
           initial: 2048,
           maximum: 2048,
         });
-        user_memory_buffer = new Uint8Array(user_memory.buffer);
 
         try {
           user_instance = new WebAssembly.Instance(user_module, {
@@ -71,7 +69,6 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
           if ("memory" in user_instance.exports) {
             assert(user_instance.exports.memory instanceof WebAssembly.Memory);
             user_memory = user_instance.exports.memory;
-            user_memory_buffer = new Uint8Array(user_memory.buffer);
           }
         } catch (error) {
           console.warn("error instantiating user module:", error);
@@ -90,20 +87,20 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
         }
       },
       read(to, from, n) {
-        assert(user_memory_buffer);
-        const slice = user_memory_buffer.subarray(from, from + n);
+        assert(user_memory);
+        const slice = new Uint8Array(user_memory.buffer, from, n);
         memory_buffer.set(slice, to);
         return n - slice.length;
       },
       write(to, from, n) {
-        assert(user_memory_buffer);
+        assert(user_memory);
         const slice = memory_buffer.subarray(from, from + n);
-        user_memory_buffer.set(slice, to);
+        new Uint8Array(user_memory.buffer, to, n).set(slice);
         return n - slice.length;
       },
       write_zeroes(to, n) {
-        assert(user_memory_buffer);
-        const slice = user_memory_buffer.subarray(to, to + n);
+        assert(user_memory);
+        const slice = new Uint8Array(user_memory.buffer, to, n);
         slice.fill(0);
         return n - slice.length;
       },
