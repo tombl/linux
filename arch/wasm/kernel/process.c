@@ -104,20 +104,13 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 
 	schedule_tail(prev);
 
-	if (unlikely(fn)) {
-		// callback returns only if the kernel thread execs a process
-		fn_ret = fn(fn_arg);
+	BUG_ON(!fn);
 
-		wasm_user_call();
-		do_exit(37);
-	} else {
-		// TODO: hmm this is a userspace thread
-		// we need to copy the instance and the memory from the current worker
-		// into the new one.
-		pr_warn("currently unsupported: a userspace thread called clone()\n");
-		do_exit(38);
-	}
+	// callback returns when the kernel thread execs a process
+	fn_ret = fn(fn_arg);
 
+	wasm_user_call();
+	do_exit(37);
 }
 
 static void task_entry(void *args)
@@ -126,6 +119,8 @@ static void task_entry(void *args)
 		task_pt_regs(((struct task_bootstrap_args *)args)->task) - 1);
 	task_entry_inner(args);
 }
+
+int wasm_call_clone_fn(void *arg);
 
 int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 {
@@ -153,7 +148,8 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 
 	name_len = snprintf(name, ARRAY_SIZE(name), "%s (%d)", p->comm, p->pid);
 
-	wasm_kernel_spawn_worker(&task_entry, bootstrap_args, name, name_len);
+	wasm_kernel_spawn_worker(&task_entry, bootstrap_args, name, name_len,
+				 args->fn == wasm_call_clone_fn);
 
 	return 0;
 }
