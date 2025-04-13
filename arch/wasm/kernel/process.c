@@ -104,7 +104,7 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 
 	schedule_tail(prev);
 
-	if (unlikely(args->fn)) {
+	if (unlikely(fn)) {
 		// callback returns only if the kernel thread execs a process
 		fn_ret = fn(fn_arg);
 
