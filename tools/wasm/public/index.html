@@ -114,7 +114,6 @@
 
       const term = new Terminal({
         convertEol: true,
-        disableStdin: true,
         fontFamily: "monospace",
       });
       const termFit = new FitAddon.FitAddon();
@@ -147,7 +146,7 @@
             controller.enqueue(data);
           });
         },
-      });
+      }).pipeThrough(new TextEncoderStream());
 
       const stdout = new WritableStream({
         write(chunk) {
