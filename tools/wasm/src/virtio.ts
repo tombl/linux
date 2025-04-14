@@ -325,6 +325,7 @@ export class ConsoleDevice extends VirtioDevice<EmptyStruct> {
         chunk = chunk.subarray(n);
         chain.release(n);
       }
+      this.trigger_interrupt("vring");
     }
   }
 
