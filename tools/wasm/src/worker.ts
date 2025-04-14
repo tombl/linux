@@ -6,9 +6,18 @@ export interface InitMessage {
   arg: number;
   vmlinux: WebAssembly.Module;
   memory: WebAssembly.Memory;
+  parent_user_module: WebAssembly.Module | null;
+  parent_user_memory: WebAssembly.Memory | null;
 }
 export type WorkerMessage =
-  | { type: "spawn_worker"; fn: number; arg: number; name: string }
+  | {
+    type: "spawn_worker";
+    fn: number;
+    arg: number;
+    name: string;
+    user_module: WebAssembly.Module | null;
+    user_memory: WebAssembly.Memory | null;
+  }
   | { type: "boot_console_write"; message: ArrayBuffer }
   | { type: "boot_console_close" }
   | { type: "run_on_main"; fn: number; arg: number };
@@ -23,8 +32,17 @@ let user_module: WebAssembly.Module | null = null;
 let user_instance: WebAssembly.Instance | null = null;
 let user_memory: WebAssembly.Memory | null = null;
 
+let call_user_entry = (): void => {
+  assert(user_instance);
+  const { _start } = user_instance.exports;
+  assert(typeof _start === "function", "_start not found");
+  _start();
+  throw new Error("_start reached the end without exiting");
+};
+
 self.onmessage = (event: MessageEvent<InitMessage>) => {
-  const { fn, arg, vmlinux, memory } = event.data;
+  const { fn, arg, vmlinux, memory, parent_user_module, parent_user_memory } =
+    event.data;
   const memory_buffer = new Uint8Array(memory.buffer);
 
   const imports = {
@@ -46,14 +64,15 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
       instantiate() {
         assert(user_module);
 
-        // TODO: shared memory support by postMessage-ing the buffer back to the main thread
-        // and having it pass all known memories back to newly spawned workers.
         // TODO: read the real initial size from the module.
         // TOOD: enforce rlimit via maximum.
-        user_memory = new WebAssembly.Memory({
-          initial: 2048,
-          maximum: 2048,
-        });
+        if (!user_memory) {
+          user_memory = new WebAssembly.Memory({
+            initial: 2048,
+            maximum: 2048,
+            shared: true,
+          });
+        }
 
         try {
           user_instance = new WebAssembly.Instance(user_module, {
@@ -75,16 +94,38 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
         }
       },
       call() {
-        assert(user_instance);
-
         try {
-          const { _start } = user_instance.exports;
-          assert(typeof _start === "function", "_start not found");
-          _start();
-          throw new Error("_start reached the end without exiting");
+          call_user_entry();
         } catch (error) {
           console.error("error running user module:", error);
         }
+      },
+      switch_entry(fn, arg) {
+        assert(parent_user_module);
+        assert(parent_user_memory);
+
+        user_module = parent_user_module;
+        user_memory = parent_user_memory;
+
+        call_user_entry = () => {
+          assert(user_instance);
+
+          const { __indirect_function_table } = user_instance.exports;
+          assert(
+            __indirect_function_table instanceof WebAssembly.Table,
+            "Invalid function table",
+          );
+
+          const f = __indirect_function_table.get(fn);
+          assert(
+            typeof f === "function" && f.length === 1,
+            "Invalid function signature",
+          );
+
+          f(arg);
+
+          // throw new Error("thread entrypoint reached the end without exiting");
+        };
       },
       read(to, from, n) {
         assert(user_memory);
@@ -108,10 +149,16 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
     kernel: kernel_imports({
       is_worker: true,
       memory,
-      spawn_worker(fn, arg, name) {
+      spawn_worker(fn, arg, name, user_module, user_memory) {
         // these should be non-null for threads spawned via clone()
-        console.log("spawning with", user_memory, user_module);
-        postMessage({ type: "spawn_worker", fn, arg, name });
+        postMessage({
+          type: "spawn_worker",
+          fn,
+          arg,
+          name,
+          user_module,
+          user_memory,
+        });
       },
       boot_console_write(message) {
         postMessage({ type: "boot_console_write", message });
@@ -121,6 +168,12 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
       },
       run_on_main(fn, arg) {
         postMessage({ type: "run_on_main", fn, arg });
+      },
+      get_user_module() {
+        return user_module;
+      },
+      get_user_memory() {
+        return user_memory;
       },
     }),
     virtio: {

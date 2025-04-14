@@ -4,6 +4,7 @@ obj-y += \
 	binfmt_wasm.o \
 	cpuinfo.o \
 	early_printk.o \
+	fork.o \
 	globals.o \
 	idle.o \
 	irq.o \

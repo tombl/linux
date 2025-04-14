@@ -33,13 +33,20 @@ export interface Imports {
     return_address(_level: number): number;
     get_now_nsec(): bigint;
     get_stacktrace(buf: number, size: number): void;
-    spawn_worker(fn: number, arg: number, comm: number, commLen: number): void;
+    spawn_worker(
+      fn: number,
+      arg: number,
+      comm: number,
+      comm_len: number,
+      share_user_memory: number,
+    ): void;
     run_on_main(fn: number, arg: number): void;
   };
   user: {
     compile(buf: number, size: number): number;
     instantiate(): void;
     call(): void;
+    switch_entry(fn: number, arg: number): void;
     read(to: number, from: number, n: number): number;
     write(to: number, from: number, n: number): number;
     write_zeroes(to: number, n: number): number;
@@ -76,13 +83,23 @@ export function kernel_imports(
     boot_console_write,
     boot_console_close,
     run_on_main,
+    get_user_module,
+    get_user_memory,
   }: {
     is_worker: boolean;
     memory: WebAssembly.Memory;
-    spawn_worker: (fn: number, arg: number, name: string) => void;
+    spawn_worker: (
+      fn: number,
+      arg: number,
+      name: string,
+      user_module: WebAssembly.Module | null,
+      user_memory: WebAssembly.Memory | null,
+    ) => void;
     boot_console_write: (message: ArrayBuffer) => void;
     boot_console_close: () => void;
     run_on_main: (fn: number, arg: number) => void;
+    get_user_module: () => WebAssembly.Module | null;
+    get_user_memory: () => WebAssembly.Memory | null;
   },
 ): Imports["kernel"] {
   const mem = new Uint8Array(memory.buffer);
@@ -138,11 +155,17 @@ export function kernel_imports(
       mem.set(trace.slice(0, size), buf);
     },
 
-    spawn_worker: (fn, arg, comm, commLen) => {
+    spawn_worker: (fn, arg, comm, comm_len, share_user_memory) => {
       const name = new TextDecoder().decode(
-        mem.slice(comm, comm + commLen),
+        mem.slice(comm, comm + comm_len),
       );
-      spawn_worker(fn, arg, name);
+      spawn_worker(
+        fn,
+        arg,
+        name,
+        share_user_memory ? get_user_module() : null,
+        share_user_memory ? get_user_memory() : null,
+      );
     },
 
     run_on_main,

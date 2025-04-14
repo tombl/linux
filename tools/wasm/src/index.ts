@@ -132,13 +132,25 @@ export class Machine extends EventEmitter<{
       this.#boot_console_writer.close();
     };
 
-    const spawn_worker = (fn: number, arg: number, name: string) => {
+    const spawn_worker = (
+      fn: number,
+      arg: number,
+      name: string,
+      user_module: WebAssembly.Module | null,
+      user_memory: WebAssembly.Memory | null,
+    ) => {
       const worker = new Worker(worker_url, { type: "module", name });
       this.#workers.push(worker);
       worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
         switch (event.data.type) {
           case "spawn_worker":
-            spawn_worker(event.data.fn, event.data.arg, event.data.name);
+            spawn_worker(
+              event.data.fn,
+              event.data.arg,
+              event.data.name,
+              event.data.user_module,
+              event.data.user_memory,
+            );
             break;
           case "boot_console_write":
             boot_console_write(event.data.message);
@@ -155,7 +167,14 @@ export class Machine extends EventEmitter<{
         }
       };
       worker.postMessage(
-        { fn, arg, vmlinux, memory: this.#memory } satisfies InitMessage,
+        {
+          fn,
+          arg,
+          vmlinux,
+          memory: this.#memory,
+          parent_user_module: user_module,
+          parent_user_memory: user_memory,
+        } satisfies InitMessage,
       );
     };
 
@@ -183,11 +202,14 @@ export class Machine extends EventEmitter<{
         boot_console_write,
         boot_console_close,
         run_on_main: unavailable,
+        get_user_module: () => null,
+        get_user_memory: () => null,
       }),
       user: {
         compile: unavailable,
         instantiate: unavailable,
         call: unavailable,
+        switch_entry: unavailable,
         read: unavailable,
         write: unavailable,
         write_zeroes: unavailable,
