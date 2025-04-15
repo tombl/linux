@@ -307,10 +307,15 @@ export class ConsoleDevice extends VirtioDevice<EmptyStruct> {
 
   #writing: Promise<void> | null = null;
   async #writer(queue: Virtqueue) {
-    const queueIter = queue[Symbol.iterator]();
-    for await (let chunk of this.#input) {
+    const queue_iter = queue[Symbol.iterator]();
+    const reader = this.#input.getReader();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      let chunk = value;
+
       while (chunk.length > 0) {
-        const chain = queueIter.next().value;
+        const chain = queue_iter.next().value;
         if (!chain) {
           console.warn("no more descriptors, dropping console input");
           break;
