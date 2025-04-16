@@ -110,6 +110,8 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 	fn_ret = fn(fn_arg);
 
 	wasm_user_call();
+
+	local_irq_enable();
 	do_exit(37);
 }
 

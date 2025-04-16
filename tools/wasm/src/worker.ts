@@ -28,17 +28,20 @@ const unavailable = () => {
 
 const postMessage = self.postMessage as (message: WorkerMessage) => void;
 
+const HALT_USER = Symbol("halt");
+
 let user_module: WebAssembly.Module | null = null;
 let user_instance: WebAssembly.Instance | null = null;
 let user_memory: WebAssembly.Memory | null = null;
 
-let call_user_entry = (): void => {
+function original_call_user_entry(): void {
   assert(user_instance);
   const { _start } = user_instance.exports;
   assert(typeof _start === "function", "_start not found");
   _start();
   throw new Error("_start reached the end without exiting");
-};
+}
+let call_user_entry = original_call_user_entry;
 
 self.onmessage = (event: MessageEvent<InitMessage>) => {
   const { fn, arg, vmlinux, memory, parent_user_module, parent_user_memory } =
@@ -78,7 +81,32 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
           user_instance = new WebAssembly.Instance(user_module, {
             env: { memory: user_memory },
             linux: {
-              syscall: instance.exports.syscall,
+              syscall: (
+                nr: number,
+                arg0: number,
+                arg1: number,
+                arg2: number,
+                arg3: number,
+                arg4: number,
+                arg5: number,
+              ) => {
+                const original_user_instance = user_instance;
+                const ret = instance.exports.syscall(
+                  nr,
+                  arg0,
+                  arg1,
+                  arg2,
+                  arg3,
+                  arg4,
+                  arg5,
+                );
+                if (user_instance !== original_user_instance) {
+                  call_user_entry = original_call_user_entry;
+                  call_user_entry();
+                  throw HALT_USER;
+                }
+                return ret;
+              },
               get_thread_area: instance.exports.get_thread_area,
               get_args_length: instance.exports.get_args_length,
               get_args: instance.exports.get_args,
@@ -90,14 +118,14 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
             user_memory = user_instance.exports.memory;
           }
         } catch (error) {
-          console.warn("error instantiating user module:", error);
+          console.log("error instantiating user module:", String(error));
         }
       },
       call() {
         try {
           call_user_entry();
         } catch (error) {
-          console.error("error running user module:", error);
+          console.log("error running user module:", String(error));
         }
       },
       switch_entry(fn, arg) {
