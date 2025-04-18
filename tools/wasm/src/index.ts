@@ -205,6 +205,8 @@ export class Machine {
         instantiate: unavailable,
         call: unavailable,
         switch_entry: unavailable,
+        call_signal_handler: unavailable,
+        halt_signal_handler: unavailable,
         read: unavailable,
         write: unavailable,
         write_zeroes: unavailable,

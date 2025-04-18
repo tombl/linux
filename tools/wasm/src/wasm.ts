@@ -46,6 +46,8 @@ export interface Imports {
     instantiate(): void;
     call(): void;
     switch_entry(fn: number, arg: number): void;
+    call_signal_handler(fn: number, sig: number): void;
+    halt_signal_handler(): void;
     read(to: number, from: number, n: number): number;
     write(to: number, from: number, n: number): number;
     write_zeroes(to: number, n: number): number;

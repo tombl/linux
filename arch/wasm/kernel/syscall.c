@@ -28,8 +28,6 @@ wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
 	if (nr < 0 || nr >= ARRAY_SIZE(syscall_table))
 		return -ENOSYS;
 
-	// TODO: something something check there's a pending signal
-
 	regs->syscall_nr = nr;
 	regs->syscall_args[0] = arg0;
 	regs->syscall_args[1] = arg1;

@@ -43,7 +43,8 @@ function user_imports({
   memory: WebAssembly.Memory | null;
   imports: Imports["user"];
 } {
-  const HALT_USER = Symbol("halt");
+  const HALT_USER = Symbol("halt user");
+  const HALT_SIGNAL = Symbol("halt signal");
 
   const kernel_memory_buffer = new Uint8Array(kernel_memory.buffer);
   let module: WebAssembly.Module | null = null;
@@ -180,7 +181,43 @@ function user_imports({
           f(arg);
 
           // throw new Error("thread entrypoint reached the end without exiting");
+          console.warn("thread entrypoint reached the end without exiting");
         };
+      },
+
+      // signal handling:
+      call_signal_handler(fn, sig) {
+        assert(instance);
+
+        const { __indirect_function_table } = instance.exports;
+        assert(
+          __indirect_function_table instanceof WebAssembly.Table,
+          "Invalid function table",
+        );
+
+        const f = __indirect_function_table.get(fn);
+        assert(
+          typeof f === "function" && f.length === 1,
+          "Invalid function signature",
+        );
+
+        try {
+          f(sig); // TODO: the siginfo overload
+        } catch (error) {
+          if (error === HALT_SIGNAL) return;
+          throw error;
+        }
+
+        // throw new Error(
+        //   "signal handler reached the end without calling sigreturn",
+        // );
+        console.warn(
+          "signal handler reached the end without calling sigreturn",
+        );
+      },
+      halt_signal_handler() {
+        // TODO: ensure we're actually in a signal handler
+        throw HALT_SIGNAL;
       },
 
       // memory:
@@ -210,12 +247,12 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
   const { fn, arg, vmlinux, memory, parent_user_module, parent_user_memory } =
     event.data;
 
-    const user = user_imports({
-        kernel_memory: memory,
-        get_kernel_instance: () => instance,
-        parent_user_module,
-        parent_user_memory,
-    });
+  const user = user_imports({
+    kernel_memory: memory,
+    get_kernel_instance: () => instance,
+    parent_user_module,
+    parent_user_memory,
+  });
 
   const imports = {
     env: { memory },
