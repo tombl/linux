@@ -52,25 +52,25 @@ static int copy_args(struct linux_binprm *bprm)
 	}
 
 	args->argv = (char **)(args->data);
-	for (int i = bprm->argc; i > 0; i--) {
+	for (int i = 0; i < bprm->argc; i++) {
 		len = strnlen(data, MAX_ARG_STRLEN);
 		if (!len || len > MAX_ARG_STRLEN) {
 			ret = -EINVAL;
 			goto err;
 		}
-		args->argv[i - 1] = data;
+		args->argv[i] = data;
 		data += len + 1;
 	}
 	args->argv[bprm->argc] = NULL;
 
 	args->envp = args->argv + bprm->argc + 1;
-	for (int i = bprm->envc; i > 0; i--) {
+	for (int i = 0; i < bprm->envc; i++) {
 		len = strnlen(data, MAX_ARG_STRLEN);
 		if (!len || len > MAX_ARG_STRLEN) {
 			ret = -EINVAL;
 			goto err;
 		}
-		args->envp[i - 1] = data;
+		args->envp[i] = data;
 		data += len + 1;
 	}
 	args->envp[bprm->envc] = NULL;
