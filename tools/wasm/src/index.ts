@@ -202,8 +202,8 @@ export class Machine extends EventEmitter<{
         boot_console_write,
         boot_console_close,
         run_on_main: unavailable,
-        get_user_module: () => null,
-        get_user_memory: () => null,
+        get_user_module: unavailable,
+        get_user_memory: unavailable,
       }),
       user: {
         compile: unavailable,

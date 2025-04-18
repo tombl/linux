@@ -28,58 +28,75 @@ const unavailable = () => {
 
 const postMessage = self.postMessage as (message: WorkerMessage) => void;
 
-const HALT_USER = Symbol("halt");
+function user_imports({
+  kernel_memory,
+  get_kernel_instance,
+  parent_user_module: parent_module,
+  parent_user_memory: parent_memory,
+}: {
+  kernel_memory: WebAssembly.Memory;
+  get_kernel_instance: () => Instance;
+  parent_user_module: WebAssembly.Module | null;
+  parent_user_memory: WebAssembly.Memory | null;
+}): {
+  module: WebAssembly.Module | null;
+  memory: WebAssembly.Memory | null;
+  imports: Imports["user"];
+} {
+  const HALT_USER = Symbol("halt");
 
-let user_module: WebAssembly.Module | null = null;
-let user_instance: WebAssembly.Instance | null = null;
-let user_memory: WebAssembly.Memory | null = null;
+  const kernel_memory_buffer = new Uint8Array(kernel_memory.buffer);
+  let module: WebAssembly.Module | null = null;
+  let instance: WebAssembly.Instance | null = null;
+  let memory: WebAssembly.Memory | null = null;
 
-function original_call_user_entry(): void {
-  assert(user_instance);
-  const { _start } = user_instance.exports;
-  assert(typeof _start === "function", "_start not found");
-  _start();
-  throw new Error("_start reached the end without exiting");
-}
-let call_user_entry = original_call_user_entry;
+  function call_start(): void {
+    assert(instance);
+    const { _start } = instance.exports;
+    assert(typeof _start === "function", "_start not found");
+    _start();
+    throw new Error("_start reached the end without exiting");
+  }
+  let call_entry = call_start;
 
-self.onmessage = (event: MessageEvent<InitMessage>) => {
-  const { fn, arg, vmlinux, memory, parent_user_module, parent_user_memory } =
-    event.data;
-  const memory_buffer = new Uint8Array(memory.buffer);
-
-  const imports = {
-    env: { memory },
-    boot: {
-      get_devicetree: unavailable,
-      get_initramfs: unavailable,
+  return {
+    get module() {
+      return module;
     },
-    user: {
+    get memory() {
+      return memory;
+    },
+    imports: {
+      // program management:
       compile(buf, size) {
-        const bytes = new Uint8Array(memory_buffer.slice(buf, buf + size));
+        const bytes = new Uint8Array(
+          kernel_memory_buffer.slice(buf, buf + size),
+        );
         try {
-          user_module = new WebAssembly.Module(bytes);
+          module = new WebAssembly.Module(bytes);
           return 0;
         } catch {
           return -8; // exec format error
         }
       },
       instantiate() {
-        assert(user_module);
+        assert(module);
 
         // TODO: read the real initial size from the module.
         // TOOD: enforce rlimit via maximum.
-        if (!user_memory) {
-          user_memory = new WebAssembly.Memory({
+        if (!memory) {
+          memory = new WebAssembly.Memory({
             initial: 2048,
             maximum: 2048,
             shared: true,
           });
         }
 
+        const kernel_instance = get_kernel_instance();
+
         try {
-          user_instance = new WebAssembly.Instance(user_module, {
-            env: { memory: user_memory },
+          instance = new WebAssembly.Instance(module, {
+            env: { memory: memory },
             linux: {
               syscall: (
                 nr: number,
@@ -90,8 +107,8 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
                 arg4: number,
                 arg5: number,
               ) => {
-                const original_user_instance = user_instance;
-                const ret = instance.exports.syscall(
+                const original_instance = instance;
+                const ret = kernel_instance.exports.syscall(
                   nr,
                   arg0,
                   arg1,
@@ -100,22 +117,27 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
                   arg4,
                   arg5,
                 );
-                if (user_instance !== original_user_instance) {
-                  call_user_entry = original_call_user_entry;
-                  call_user_entry();
+                if (instance !== original_instance) {
+                  // if the instance changed, then this was the exec syscall,
+                  // so call into the new instance:
+                  call_entry = call_start;
+                  call_entry();
+
+                  // and we never want to return to the caller of the syscall, so
+                  // skip straight to the catch block of the parent's call_entry
                   throw HALT_USER;
                 }
                 return ret;
               },
-              get_thread_area: instance.exports.get_thread_area,
-              get_args_length: instance.exports.get_args_length,
-              get_args: instance.exports.get_args,
+              get_thread_area: kernel_instance.exports.get_thread_area,
+              get_args_length: kernel_instance.exports.get_args_length,
+              get_args: kernel_instance.exports.get_args,
             },
           });
 
-          if ("memory" in user_instance.exports) {
-            assert(user_instance.exports.memory instanceof WebAssembly.Memory);
-            user_memory = user_instance.exports.memory;
+          if ("memory" in instance.exports) {
+            assert(instance.exports.memory instanceof WebAssembly.Memory);
+            memory = instance.exports.memory;
           }
         } catch (error) {
           console.log("error instantiating user module:", String(error));
@@ -123,22 +145,27 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
       },
       call() {
         try {
-          call_user_entry();
+          call_entry();
         } catch (error) {
           console.log("error running user module:", String(error));
         }
       },
       switch_entry(fn, arg) {
-        assert(parent_user_module);
-        assert(parent_user_memory);
+        // This is called if this thread was created by a clone call,
+        // and therefore we our entrypoint is a user-specified function.
+        // Our custom variant of the clone syscall spawns a worker that calls
+        // switch_entry, then immediately calls instantiate.
 
-        user_module = parent_user_module;
-        user_memory = parent_user_memory;
+        assert(parent_module);
+        assert(parent_memory);
 
-        call_user_entry = () => {
-          assert(user_instance);
+        module = parent_module;
+        memory = parent_memory;
 
-          const { __indirect_function_table } = user_instance.exports;
+        call_entry = () => {
+          assert(instance);
+
+          const { __indirect_function_table } = instance.exports;
           assert(
             __indirect_function_table instanceof WebAssembly.Table,
             "Invalid function table",
@@ -155,30 +182,52 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
           // throw new Error("thread entrypoint reached the end without exiting");
         };
       },
+
+      // memory:
       read(to, from, n) {
-        assert(user_memory);
-        const slice = new Uint8Array(user_memory.buffer, from, n);
-        memory_buffer.set(slice, to);
+        assert(memory);
+        const slice = new Uint8Array(memory.buffer, from, n);
+        kernel_memory_buffer.set(slice, to);
         return n - slice.length;
       },
       write(to, from, n) {
-        assert(user_memory);
-        const slice = memory_buffer.subarray(from, from + n);
-        new Uint8Array(user_memory.buffer, to, n).set(slice);
+        assert(memory);
+        const slice = kernel_memory_buffer.subarray(from, from + n);
+        new Uint8Array(memory.buffer, to, n).set(slice);
         return n - slice.length;
       },
       write_zeroes(to, n) {
-        assert(user_memory);
-        const slice = new Uint8Array(user_memory.buffer, to, n);
+        assert(memory);
+        const slice = new Uint8Array(memory.buffer, to, n);
         slice.fill(0);
         return n - slice.length;
       },
     },
+  };
+}
+
+self.onmessage = (event: MessageEvent<InitMessage>) => {
+  const { fn, arg, vmlinux, memory, parent_user_module, parent_user_memory } =
+    event.data;
+
+    const user = user_imports({
+        kernel_memory: memory,
+        get_kernel_instance: () => instance,
+        parent_user_module,
+        parent_user_memory,
+    });
+
+  const imports = {
+    env: { memory },
+    boot: {
+      get_devicetree: unavailable,
+      get_initramfs: unavailable,
+    },
+    user: user.imports,
     kernel: kernel_imports({
       is_worker: true,
       memory,
       spawn_worker(fn, arg, name, user_module, user_memory) {
-        // these should be non-null for threads spawned via clone()
         postMessage({
           type: "spawn_worker",
           fn,
@@ -198,10 +247,10 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
         postMessage({ type: "run_on_main", fn, arg });
       },
       get_user_module() {
-        return user_module;
+        return user.module;
       },
       get_user_memory() {
-        return user_memory;
+        return user.memory;
       },
     }),
     virtio: {
