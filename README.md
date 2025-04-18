@@ -13,7 +13,7 @@
 - [x] Jumping into userspace
 - [x] Expose syscall dispatch
 - [x] [Port musl](https://github.com/tombl/musl)
-- [ ] Port busybox
+- [x] [Port busybox](https://github.com/tombl/busybox)
 
 ## Eventually:
 
@@ -24,7 +24,7 @@
 - virtio-fs backed by the [File System API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API)
 - vsock to implement custom javascript integrations
   - unrestricted vscode in the browser?
-- port lots of software
+- [port lots of software](https://github.com/tombl/distro)
   - wrap/patch compilers to support `wasm32-linux`
     - both for cross-compilation and self-hosting
   - tailscale for full networking?
@@ -44,4 +44,3 @@
 
 > [If we add another architecture in the future, it may instead
 > be something like the LLVM bitcode or WebAssembly, who knows?](https://lore.kernel.org/all/CAK8P3a2-wyXxctVtJxniUoeShASMhF-6Z1vyvfBnr6wKJuioAQ@mail.gmail.com/)
-
