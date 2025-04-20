@@ -43,6 +43,10 @@ struct task_struct *__switch_to(struct task_struct *from,
 
 	// pr_info("waiting cpu=%i task=%p in switch\n", cpu, from);
 
+	// this is set to true in do_task_dead:
+	if (wasm_get_thread_done())
+		wasm_kernel_halt_worker();
+
 	// sleep this worker:
 	/* memory.atomic.wait32 returns:
 	 * 0 -> the thread blocked and was woken

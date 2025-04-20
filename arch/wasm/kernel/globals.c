@@ -11,7 +11,8 @@ struct task_struct *current_tasks[NR_CPUS] = { 0 };
 struct screen_info screen_info = {};
 
 __asm__(".globaltype current_cpu, i32\ncurrent_cpu:\n"
-	".globaltype current_task, i32\ncurrent_task:\n");
+	".globaltype current_task, i32\ncurrent_task:\n"
+	".globaltype thread_done, i32\nthread_done:\n");
 
 void set_current_cpu(int cpu)
 {
@@ -44,4 +45,18 @@ struct task_struct *get_current_task(void)
 struct task_struct *get_current_task_on(int cpu)
 {
 	return current_tasks[cpu];
+}
+
+void wasm_set_thread_done(int done)
+{
+	__asm__ volatile("local.get %0\n"
+			 "global.set thread_done" ::"r"(done));
+}
+int wasm_get_thread_done(void)
+{
+	int done;
+	__asm__ volatile("global.get thread_done\n"
+			 "local.set %0"
+			 : "=r"(done));
+	return done;
 }

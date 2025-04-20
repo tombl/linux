@@ -6578,6 +6578,9 @@ void __noreturn do_task_dead(void)
 	/* Tell freezer to ignore us: */
 	current->flags |= PF_NOFREEZE;
 
+#ifdef CONFIG_WASM
+	wasm_set_thread_done(true);
+#endif
 	__schedule(SM_NONE);
 	BUG();
 

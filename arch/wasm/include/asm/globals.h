@@ -18,6 +18,7 @@ static inline void *get_stack_pointer(void)
 	return ptr;
 }
 
+
 void set_current_cpu(int cpu);
 int get_current_cpu(void);
 
@@ -28,5 +29,8 @@ struct task_struct *get_current_task_on(int cpu);
 
 void set_irq_enabled(u32 flags);
 u32 get_irq_enabled(void);
+
+void wasm_set_thread_done(int done);
+int wasm_get_thread_done(void);
 
 #endif
