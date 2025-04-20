@@ -44,7 +44,6 @@ function user_imports({
   imports: Imports["user"];
 } {
   const HALT_USER = Symbol("halt user");
-  const HALT_SIGNAL = Symbol("halt signal");
 
   const kernel_memory_buffer = new Uint8Array(kernel_memory.buffer);
   let module: WebAssembly.Module | null = null;
@@ -201,23 +200,7 @@ function user_imports({
           "Invalid function signature",
         );
 
-        try {
-          f(sig); // TODO: the siginfo overload
-        } catch (error) {
-          if (error === HALT_SIGNAL) return;
-          throw error;
-        }
-
-        // throw new Error(
-        //   "signal handler reached the end without calling sigreturn",
-        // );
-        console.warn(
-          "signal handler reached the end without calling sigreturn",
-        );
-      },
-      halt_signal_handler() {
-        // TODO: ensure we're actually in a signal handler
-        throw HALT_SIGNAL;
+        f(sig); // TODO: the siginfo overload
       },
 
       // memory:

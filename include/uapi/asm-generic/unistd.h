@@ -439,8 +439,8 @@ __SC_COMP_3264(__NR_rt_sigtimedwait, sys_rt_sigtimedwait_time32, \
 #define __NR_rt_sigqueueinfo 138
 __SC_COMP(__NR_rt_sigqueueinfo, sys_rt_sigqueueinfo, \
 	  compat_sys_rt_sigqueueinfo)
-#define __NR_rt_sigreturn 139
-__SC_COMP(__NR_rt_sigreturn, sys_rt_sigreturn, compat_sys_rt_sigreturn)
+// #define __NR_rt_sigreturn 139
+// __SC_COMP(__NR_rt_sigreturn, sys_rt_sigreturn, compat_sys_rt_sigreturn)
 
 /* kernel/sys.c */
 #define __NR_setpriority 140
@@ -623,10 +623,10 @@ __SC_COMP(__NR_readahead, sys_readahead, compat_sys_readahead)
 /* mm/nommu.c, also with MMU */
 // #define __NR_brk 214
 // __SYSCALL(__NR_brk, sys_brk)
-#define __NR_munmap 215
-__SYSCALL(__NR_munmap, sys_munmap)
-#define __NR_mremap 216
-__SYSCALL(__NR_mremap, sys_mremap)
+// #define __NR_munmap 215
+// __SYSCALL(__NR_munmap, sys_munmap)
+// #define __NR_mremap 216
+// __SYSCALL(__NR_mremap, sys_mremap)
 
 /* security/keys/keyctl.c */
 #define __NR_add_key 217
