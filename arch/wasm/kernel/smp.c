@@ -187,7 +187,7 @@ static irqreturn_t handle_ipi(int irq, void *dev)
 
 		if (ops & (1 << IPI_CPU_STOP)) {
 			stats[IPI_CPU_STOP]++;
-			wasm_kernel_halt();
+			wasm_kernel_halt_worker();
 		}
 
 		if (ops & (1 << IPI_CALL_FUNC)) {

@@ -453,7 +453,7 @@ void panic(const char *fmt, ...)
 
 #ifdef CONFIG_WASM
 	wasm_kernel_breakpoint();
-	wasm_kernel_halt();
+	wasm_kernel_halt_worker();
 #endif
 
 	for (i = 0; ; i += PANIC_TIMER_STEP) {
