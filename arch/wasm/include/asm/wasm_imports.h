@@ -12,7 +12,6 @@ int wasm_import(boot, get_initramfs)(char *buf, size_t size);
 
 void wasm_import(kernel, breakpoint)(void);
 void wasm_import(kernel, halt)(void);
-void wasm_import(kernel, restart)(void);
 
 void wasm_import(kernel, boot_console_write)(const char *msg, size_t len);
 void wasm_import(kernel, boot_console_close)(void);

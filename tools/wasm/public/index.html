@@ -184,18 +184,6 @@
 
       machine.bootConsole.pipeTo(stdout2);
 
-      machine.on("halt", () => {
-        term.write("halting...");
-      });
-
-      machine.on("restart", () => {
-        location.reload();
-      });
-
-      machine.on("error", ({ error, threadName }) => {
-        term.write(`${error.name} in ${threadName}: ${error.message}\n`);
-      });
-
       machine.boot();
     </script>
   </body>

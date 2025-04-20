@@ -54,18 +54,4 @@ const machine = new Machine({
 
 machine.bootConsole.pipeTo(Deno.stderr.writable, { preventClose: true });
 
-machine.on("halt", () => {
-  console.log("halting...");
-  Deno.exit(1);
-});
-
-machine.on("restart", () => {
-  console.log("reboot requested. halting...");
-  Deno.exit(0);
-});
-
-machine.on("error", ({ error, threadName }) => {
-  console.log(`Error in ${threadName}:`, error);
-});
-
 machine.boot();
