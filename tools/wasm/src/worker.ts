@@ -121,7 +121,6 @@ function user_imports({
                   // if the instance changed, then this was the exec syscall,
                   // so call into the new instance:
                   call_entry = call_start;
-                  call_entry();
 
                   // and we never want to return to the caller of the syscall, so
                   // skip straight to the catch block of the parent's call_entry
@@ -144,10 +143,14 @@ function user_imports({
         }
       },
       call() {
-        try {
-          call_entry();
-        } catch (error) {
-          console.log("error running user module:", String(error));
+        for (;;) {
+          try {
+            call_entry();
+          } catch (error) {
+            if (error === HALT_USER) continue;
+            console.log("error running user module:", String(error));
+            return;
+          }
         }
       },
       switch_entry(fn, arg) {
