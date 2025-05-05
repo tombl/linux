@@ -79,24 +79,27 @@ function user_imports({
           return -8; // exec format error
         }
       },
-      instantiate() {
+      instantiate(fresh_memory) {
         assert(module);
 
-        // TODO: read the real initial size from the module.
-        // TOOD: enforce rlimit via maximum.
-        if (!memory) {
+        if (fresh_memory || !memory) {
+          const size = 2048 + Math.floor(Math.random() * 1000);
+
+          // TODO: read the real initial size from the module.
+          // TOOD: enforce rlimit via maximum.
           memory = new WebAssembly.Memory({
-            initial: 2048,
-            maximum: 2048,
+            initial: size,
+            maximum: size,
             shared: true,
           });
         }
 
         const kernel_instance = get_kernel_instance();
 
+        console.log("instantiating with", memory);
         try {
           instance = new WebAssembly.Instance(module, {
-            env: { memory: memory },
+            env: { memory },
             linux: {
               syscall: (
                 nr: number,

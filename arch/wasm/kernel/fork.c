@@ -11,7 +11,7 @@ int wasm_call_clone_fn(void *arg)
 	struct clone_fn *clone_fn = arg;
 	wasm_user_switch_entry((uintptr_t)clone_fn->fn,
 			       (uintptr_t)clone_fn->arg);
-	wasm_user_instantiate();
+	wasm_user_instantiate(false);
 	kfree(clone_fn);
 	return 0;
 }

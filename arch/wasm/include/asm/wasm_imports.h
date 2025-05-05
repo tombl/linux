@@ -28,7 +28,7 @@ void wasm_import(kernel, spawn_worker)(void (*fn)(void *), void *arg,
 void wasm_import(kernel, run_on_main)(void (*fn)(void *), void *arg);
 
 int wasm_import(user, compile)(u8 *bytes, u32 len);
-void wasm_import(user, instantiate)(void);
+void wasm_import(user, instantiate)(bool fresh_memory);
 void wasm_import(user, call)(void);
 void wasm_import(user, switch_entry)(u32 fn, u32 arg);
 void wasm_import(user, call_signal_handler)(u32 fn, u32 sig);

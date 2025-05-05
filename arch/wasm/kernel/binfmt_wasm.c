@@ -157,7 +157,7 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 
 	finalize_exec(bprm);
 
-	wasm_user_instantiate();
+	wasm_user_instantiate(true);
 
 	return 0;
 err:

@@ -43,7 +43,7 @@ export interface Imports {
   };
   user: {
     compile(buf: number, size: number): number;
-    instantiate(): void;
+    instantiate(fresh_memory: number): void;
     call(): void;
     switch_entry(fn: number, arg: number): void;
     call_signal_handler(fn: number, sig: number): void;
