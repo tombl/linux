@@ -4,24 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Linux</title>
-    <script
-      crossorigin="anonymous"
-      src="https://unpkg.com/@xterm/xterm@5.5.0/lib/xterm.js"
-    ></script>
-    <script
-      crossorigin="anonymous"
-      src="https://unpkg.com/@xterm/addon-fit@0.10.0/lib/addon-fit.js"
-    ></script>
-    <script
-      crossorigin="anonymous"
-      src="https://unpkg.com/@xterm/addon-webgl@0.18.0/lib/addon-webgl.js"
-    ></script>
-    <link
-      crossorigin="anonymous"
-      rel="stylesheet"
-      href="https://unpkg.com/@xterm/xterm@5.5.0/css/xterm.css"
-    />
     <style>
+      @import url(vendor/xterm/xterm.css);
       :root {
         color-scheme: light dark;
         font-family: system-ui, sans-serif;
@@ -123,6 +107,11 @@
     </script>
     <script type="module">
       import {
+        FitAddon,
+        Terminal,
+        WebglAddon,
+      } from "./vendor/xterm/dist.js";
+      import {
         BlockDevice,
         ConsoleDevice,
         EntropyDevice,
@@ -133,13 +122,13 @@
         convertEol: true,
         fontFamily: "monospace",
       });
-      const termFit = new FitAddon.FitAddon();
+      const termFit = new FitAddon();
       term.loadAddon(termFit);
       term.open(document.body);
       termFit.fit();
       window.onresize = () => termFit.fit();
       try {
-        term.loadAddon(new WebglAddon.WebglAddon());
+        term.loadAddon(new WebglAddon());
       } catch (err) {
         console.warn(err);
       }
@@ -155,7 +144,8 @@
       } = Object.fromEntries(new URLSearchParams(location.search));
       document.querySelector("input[name=cmdline]").value = cmdline;
       document.querySelector("input[name=memory]").value = memory;
-      document.querySelector("input[name=initcpio]").value = initcpioPath;
+      document.querySelector("input[name=initcpio]").value =
+        initcpioPath;
 
       const stdin = new ReadableStream({
         start(controller) {
@@ -176,7 +166,9 @@
         },
       });
 
-      const initcpio = await fetch(initcpioPath).then((res) => res.ok && res.arrayBuffer());
+      const initcpio = await fetch(initcpioPath).then((res) =>
+        res.ok && res.arrayBuffer()
+      );
       if (!initcpio) {
         term.write(`Failed to fetch initramfs.\n`);
       }
