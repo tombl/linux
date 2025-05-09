@@ -115,8 +115,12 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 
 	wasm_user_call();
 
+	// if we're here, either the thread returned from its entrypoint without exiting,
+	// or its entrypoint threw an error (likely either an `unreachable` instruction being
+	// executed, or an out of range memory access.)
+
 	local_irq_enable();
-	do_exit(37);
+	do_exit(SIGSEGV);
 }
 
 static void task_entry(void *args)
