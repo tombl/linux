@@ -3,3 +3,7 @@ config VIRTIO_WASM
 	select VIRTIO
 	help
 	 This driver supports virtio devices on the WebAssembly platform.
+
+config FB_WASM
+	tristate
+	depends on FB
