@@ -7,7 +7,12 @@
     "allowImportingTsExtensions": true,
 
     "target": "es2022",
-    "lib": ["es2022", "webworker", "webworker.iterable", "webworker.asynciterable"],
+    "lib": [
+      "es2022",
+      "webworker",
+      "webworker.iterable",
+      "webworker.asynciterable"
+    ],
     "skipLibCheck": true,
 
     "declaration": true,

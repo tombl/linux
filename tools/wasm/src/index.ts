@@ -2,7 +2,7 @@ import initramfs from "./build/initramfs_data.cpio";
 import sections from "./build/sections.json" with { type: "json" };
 import vmlinuxUrl from "./build/vmlinux.wasm";
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
-import { assert, get_script_path, unreachable } from "./util.ts";
+import { assert, EventEmitter, get_script_path, unreachable } from "./util.ts";
 import { virtio_imports, VirtioDevice } from "./virtio.ts";
 import { type Imports, type Instance, kernel_imports } from "./wasm.ts";
 import type { InitMessage, WorkerMessage } from "./worker.ts";
@@ -18,7 +18,7 @@ const vmlinux_promise = "compileStreaming" in WebAssembly
 
 const INITCPIO_ADDR = 0x200000;
 
-export class Machine {
+export class Machine extends EventEmitter<{ error: ErrorEvent }> {
   #boot_console: TransformStream<Uint8Array, Uint8Array>;
   #boot_console_writer: WritableStreamDefaultWriter<Uint8Array>;
   #workers: Worker[] = [];
@@ -40,6 +40,7 @@ export class Machine {
     devices: VirtioDevice[];
     initcpio?: ArrayBufferView;
   }) {
+    super();
     this.#boot_console = new TransformStream<Uint8Array, Uint8Array>();
     this.#boot_console_writer = this.#boot_console.writable.getWriter();
     this.#devices = options.devices;
@@ -160,6 +161,9 @@ export class Machine {
           default:
             unreachable(event.data);
         }
+      };
+      worker.onerror = (event) => {
+        this.emit("error", event);
       };
       worker.postMessage(
         {

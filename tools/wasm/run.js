@@ -54,4 +54,8 @@ const machine = new Machine({
 
 machine.bootConsole.pipeTo(Deno.stderr.writable, { preventClose: true });
 
+machine.on("error", ({ error }) => {
+  console.error(error);
+});
+
 machine.boot();

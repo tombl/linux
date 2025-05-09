@@ -103,6 +103,16 @@
       </form>
     </details>
     <script>
+      function reportError(error) {
+        alert(`${error}`);
+      }
+
+      addEventListener("error", (event) => reportError(event.error));
+      addEventListener(
+        "unhandledrejection",
+        (event) => reportError(event.reason),
+      );
+
       const details = document.querySelector("details");
       if (localStorage.getItem("detailsOpen") !== null) {
         details.open = localStorage.getItem("detailsOpen") === "true";
