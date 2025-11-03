@@ -8,6 +8,7 @@ config WASM
 	select ARCH_USE_QUEUED_SPINLOCKS
 	select BUG
 	select FLATMEM
+	select GENERIC_CPU_DEVICES
 	select GENERIC_CSUM
 	select GENERIC_ENTRY
 	select GENERIC_HWEIGHT
