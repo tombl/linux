@@ -96,7 +96,7 @@ function user_imports({
 
         const kernel_instance = get_kernel_instance();
 
-        console.log("instantiating with", memory);
+        // console.log("instantiating with", memory);
         try {
           instance = new WebAssembly.Instance(module, {
             env: { memory },

@@ -80,8 +80,6 @@ void arch_local_irq_restore(unsigned long flags)
 static int wasm_irq_map(struct irq_domain *d, unsigned int irq,
 			irq_hw_number_t hw)
 {
-	pr_info("map irq: %d -> %lu\n", irq, hw);
-
 	irq_set_chip_and_handler(irq, &dummy_irq_chip, handle_percpu_irq);
 
 	return 0;
