@@ -1,17 +1,22 @@
 import initramfs from "./build/initramfs_data.cpio";
 import sections from "./build/sections.json" with { type: "json" };
-import vmlinuxUrl from "./build/vmlinux.wasm";
+import vmlinux_url from "./build/vmlinux.wasm";
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
 import { assert, EventEmitter, get_script_path, unreachable } from "./util.ts";
 import { virtio_imports, VirtioDevice } from "./virtio.ts";
 import { type Imports, type Instance, kernel_imports } from "./wasm.ts";
 import type { InitMessage, WorkerMessage } from "./worker.ts";
 
-export { BlockDevice, ConsoleDevice, EntropyDevice } from "./virtio.ts";
+export {
+  BlockDevice,
+  type BlockDeviceStorage,
+  ConsoleDevice,
+  EntropyDevice,
+} from "./virtio.ts";
 
 const worker_url = get_script_path(() => import("./worker.ts"), import.meta);
 
-const vmlinux_response = fetch(new URL(vmlinuxUrl, import.meta.url));
+const vmlinux_response = fetch(new URL(vmlinux_url, import.meta.url));
 const vmlinux_promise = "compileStreaming" in WebAssembly
   ? WebAssembly.compileStreaming(vmlinux_response)
   : vmlinux_response.then((r) => r.arrayBuffer()).then(WebAssembly.compile);

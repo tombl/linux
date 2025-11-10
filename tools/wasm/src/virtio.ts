@@ -24,16 +24,6 @@ const DescriptorFlags = {
   USED: 1 << 15,
 } as const;
 
-function formatDescFlags(flags: number) {
-  const f = [];
-  if (flags & DescriptorFlags.NEXT) f.push("NEXT");
-  if (flags & DescriptorFlags.WRITE) f.push("WRITE");
-  if (flags & DescriptorFlags.INDIRECT) f.push("INDIRECT");
-  if (flags & DescriptorFlags.AVAIL) f.push("AVAIL");
-  if (flags & DescriptorFlags.USED) f.push("USED");
-  return f.join(" ");
-}
-
 class VirtqDescriptor extends Struct({
   addr: U64LE,
   len: U32LE,
@@ -229,58 +219,110 @@ const BlockDeviceStatus = {
   UNSUPP: 2,
 } as const;
 
+type MaybePromise<T> = T | Promise<T>;
+export interface BlockDeviceStorage {
+  read(offset: number, length: number): MaybePromise<Uint8Array>;
+  write?(offset: number, data: Uint8Array): MaybePromise<number>;
+  flush?(): MaybePromise<void>;
+  capacity: number;
+}
+
 export class BlockDevice extends VirtioDevice<BlockDeviceConfig> {
   ID = 2;
   config_bytes = new Uint8Array(BlockDeviceConfig.size);
   config = new BlockDeviceConfig(this.config_bytes);
 
-  #storage: Uint8Array;
+  #storage: BlockDeviceStorage;
 
-  constructor(storage: Uint8Array) {
+  constructor(storage: BlockDeviceStorage) {
     super();
     this.#storage = storage;
-    this.features |= BlockDeviceFeatures.FLUSH;
-    this.config.capacity = BigInt(this.#storage.byteLength / 512);
+
+    if (storage.flush) this.features |= BlockDeviceFeatures.FLUSH;
+    if (!storage.write) this.features |= BlockDeviceFeatures.RO;
+
+    this.config.capacity = BigInt(storage.capacity / 512);
   }
 
-  override notify(vq: number) {
+  override async notify(vq: number) {
     assert(vq === 0);
 
     const queue = this.vqs[vq];
     assert(queue);
 
     for (const chain of queue) {
-      const [header, data, status, trailing] = chain;
+      const descs = [...chain];
+      const header = descs[0];
+      const status = descs[descs.length - 1];
+      const data = descs.slice(1, -1);
+
       assert(header && !header.writable, "header must be readonly");
       assert(
         header.array.byteLength === BlockDeviceRequest.size,
         `header size is ${header.array.byteLength}`,
       );
-      assert(data, "data must exist");
       assert(status && status.writable, "status must be writable");
       assert(
         status.array.byteLength === 1,
         `status size is ${status.array.byteLength}`,
       );
-      assert(!trailing, "too many descriptors");
 
       const request = new BlockDeviceRequest(header.array);
 
+      function set_status(value: number) {
+        status.array[0] = value;
+      }
+
       let n = 0;
+      let offset = Number(request.sector) * 512;
       switch (request.type) {
         case BlockDeviceRequestType.IN: {
-          assert(data.writable, "data must be writable when IN");
-          const start = Number(request.sector) * 512;
-          let end = start + data.array.byteLength;
-          if (end >= this.#storage.length) end = this.#storage.length - 1;
-          data.array.set(this.#storage.subarray(start, end));
-          n = end - start;
-          status.array[0] = BlockDeviceStatus.OK;
+          for (const desc of data) {
+            assert(desc.writable, "data must be writable when IN");
+            const arr = await this.#storage.read(offset, desc.array.byteLength);
+            desc.array.set(arr);
+            n += arr.byteLength;
+            offset += arr.byteLength;
+          }
+          set_status(BlockDeviceStatus.OK);
+          break;
+        }
+        case BlockDeviceRequestType.OUT: {
+          if (!this.#storage.write) {
+            set_status(BlockDeviceStatus.UNSUPP);
+            break;
+          }
+          let ok = true;
+          for (const desc of data) {
+            assert(!desc.writable, "data must be readonly when OUT");
+            const written = await this.#storage.write(offset, desc.array);
+            if (written !== desc.array.byteLength) {
+              ok = false;
+              break;
+            }
+            n += written;
+            offset += written;
+          }
+          set_status(ok ? BlockDeviceStatus.OK : BlockDeviceStatus.IOERR);
+          break;
+        }
+        case BlockDeviceRequestType.FLUSH: {
+          if (!this.#storage.flush) {
+            set_status(BlockDeviceStatus.UNSUPP);
+            break;
+          }
+          await this.#storage.flush();
+          set_status(BlockDeviceStatus.OK);
+          break;
+        }
+        case BlockDeviceRequestType.GET_ID: {
+          console.log("GET_ID");
+          set_status(BlockDeviceStatus.OK);
           break;
         }
         default:
           console.error("unknown request type", request.type);
-          status.array[0] = BlockDeviceStatus.UNSUPP;
+          set_status(BlockDeviceStatus.UNSUPP);
       }
 
       chain.release(n);

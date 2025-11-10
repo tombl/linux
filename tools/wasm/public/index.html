@@ -83,6 +83,8 @@
         <input type="number" name="memory" id="memory" />
         <label for="initcpio">URL to an initramfs</label>
         <input type="text" name="initcpio" id="initcpio" />
+        <label for="rootfs">URL to a root filesystem</label>
+        <input type="text" name="rootfs" id="rootfs" />
         <button type="submit">Reboot</button>
       </form>
     </details>
@@ -141,11 +143,13 @@
         cmdline = "",
         memory = navigator.hardwareConcurrency > 16 ? 256 : 128,
         initcpio: initcpioPath = "initramfs.cpio",
+        rootfs: rootfsPath = "rootfs.ext4",
       } = Object.fromEntries(new URLSearchParams(location.search));
       document.querySelector("input[name=cmdline]").value = cmdline;
       document.querySelector("input[name=memory]").value = memory;
       document.querySelector("input[name=initcpio]").value =
         initcpioPath;
+      document.querySelector("input[name=rootfs]").value = rootfsPath;
 
       const stdin = new ReadableStream({
         start(controller) {
@@ -173,13 +177,31 @@
         term.write(`Failed to fetch initramfs.\n`);
       }
 
+      const rootfs = await fetch(rootfsPath).then((res) =>
+        res.ok && res.arrayBuffer()
+      );
+      if (!rootfs) {
+        term.write(`Failed to fetch root filesystem.\n`);
+      }
+
+      const rootfsData = new Uint8Array(rootfs);
+
       const machine = new Machine({
         cmdline: cmdline.replace(/\+/g, " "),
         memoryMib: memory,
         devices: [
           new ConsoleDevice(stdin, stdout),
           new EntropyDevice(),
-          new BlockDevice(new Uint8Array(8 * 1024 * 1024)),
+          new BlockDevice({
+            capacity: rootfsData.byteLength,
+            read(offset, length) {
+              return rootfsData.subarray(offset, offset + length);
+            },
+            write(offset, data) {
+              rootfsData.set(data, offset);
+              return data.byteLength;
+            },
+          }),
         ],
         initcpio: new Uint8Array(initcpio),
       });
