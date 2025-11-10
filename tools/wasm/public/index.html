@@ -112,7 +112,6 @@
         WebglAddon,
       } from "./vendor/xterm/dist.js";
       import {
-        BlockDevice,
         ConsoleDevice,
         EntropyDevice,
         Machine,
@@ -179,7 +178,6 @@
         devices: [
           new ConsoleDevice(stdin, stdout),
           new EntropyDevice(),
-          new BlockDevice(new Uint8Array(8 * 1024 * 1024)),
         ],
         initcpio: new Uint8Array(initcpio),
       });

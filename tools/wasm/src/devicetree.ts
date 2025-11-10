@@ -110,7 +110,7 @@ export function generate_devicetree(tree: DeviceTreeNode, {
       );
       (strings[name] ??= []).push(property);
 
-      let value: ArrayBuffer;
+      let value: ArrayBufferLike;
       switch (typeof prop) {
         case "number":
           value = new Uint32Array(1).buffer;
