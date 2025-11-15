@@ -1,5 +1,10 @@
 import { assert } from "./util.ts";
-import { type Imports, type Instance, kernel_imports } from "./wasm.ts";
+import {
+  HALT_KERNEL,
+  type Imports,
+  type Instance,
+  kernel_imports,
+} from "./wasm.ts";
 
 export interface InitMessage {
   fn: number;
@@ -151,6 +156,7 @@ function user_imports({
             call_entry();
           } catch (error) {
             if (error === HALT_USER) continue;
+            if (error === HALT_KERNEL) throw error;
             console.log("error running user module:", String(error));
             return;
           }
@@ -288,6 +294,11 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
     },
   } satisfies Imports;
 
-  const instance = (new WebAssembly.Instance(vmlinux, imports)) as Instance;
-  instance.exports.__indirect_function_table.get(fn)!(arg);
+  const instance = new WebAssembly.Instance(vmlinux, imports) as Instance;
+  try {
+    instance.exports.__indirect_function_table.get(fn)!(arg);
+  } catch (error) {
+    if (error === HALT_KERNEL) return;
+    throw error;
+  }
 };

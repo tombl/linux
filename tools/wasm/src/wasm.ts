@@ -75,6 +75,8 @@ export interface Imports {
   };
 }
 
+export const HALT_KERNEL = Symbol("halt kernel");
+
 export function kernel_imports(
   {
     is_worker,
@@ -111,6 +113,7 @@ export function kernel_imports(
     halt_worker: () => {
       if (!is_worker) throw new Error("Halt called in main thread");
       self.close();
+      throw HALT_KERNEL;
     },
 
     boot_console_write: (msg, len) => {

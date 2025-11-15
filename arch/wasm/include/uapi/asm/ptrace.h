@@ -6,9 +6,7 @@
 
 struct task_struct;
 
-#define user_mode(regs) (__builtin_trap(),0)
-#define kernel_mode(regs) (__builtin_trap(),0)
-#define profile_pc(regs) (__builtin_trap(),0)
+#define user_mode(regs) (regs->user_mode)
 #define instruction_pointer(regs) (-1)
 #define user_stack_pointer(regs) (__builtin_trap(),0)
 

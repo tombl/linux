@@ -4,6 +4,7 @@
 struct pt_regs {
 	long syscall_nr;
 	unsigned long syscall_args[6];
+	int user_mode;
 };
 
 struct sigcontext {

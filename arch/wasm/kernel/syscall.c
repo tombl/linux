@@ -23,6 +23,7 @@ wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
 	struct pt_regs *regs = current_pt_regs();
 	long ret;
 
+	regs->user_mode = 0;
 	nr = syscall_enter_from_user_mode(regs, nr);
 
 	if (nr < 0 || nr >= ARRAY_SIZE(syscall_table))
@@ -39,6 +40,7 @@ wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
 	ret = syscall_table[nr](regs);
 
 	syscall_exit_to_user_mode(regs);
+	regs->user_mode = 1;
 
 	return ret;
 }

@@ -1,4 +1,5 @@
 #include <asm/smp.h>
+#include <asm/timex.h>
 #include <linux/cpu.h>
 #include <linux/bitops.h>
 #include <linux/hardirq.h>
@@ -10,11 +11,47 @@
 
 static DEFINE_PER_CPU(unsigned long, irqflags);
 static DEFINE_PER_CPU(atomic64_t, irq_pending);
+static DEFINE_PER_CPU(u64, timer_deadline_ns);
+
+void wasm_set_timer_deadline(u64 deadline_ns)
+{
+	__this_cpu_write(timer_deadline_ns, deadline_ns);
+}
+
+u64 wasm_get_timer_deadline(void)
+{
+	return __this_cpu_read(timer_deadline_ns);
+}
 
 void __cpuidle arch_cpu_idle(void)
 {
 	atomic64_t *pending = this_cpu_ptr(&irq_pending);
-	__builtin_wasm_memory_atomic_wait64(&pending->counter, 0, -1);
+	u64 deadline = __this_cpu_read(timer_deadline_ns);
+	u64 now;
+	s64 timeout_ns;
+	int ret;
+
+	if (deadline == 0) {
+		timeout_ns = -1; // forever
+	} else {
+		now = wasm_kernel_get_now_nsec();
+		if ((s64)(deadline - now) <= 0) {
+			__this_cpu_write(timer_deadline_ns, 0);
+			atomic64_or(1 << TIMER_IRQ, pending);
+			raw_local_irq_enable();
+			return;
+		}
+		timeout_ns = deadline - now;
+	}
+
+	ret = __builtin_wasm_memory_atomic_wait64(&pending->counter, 0,
+						  timeout_ns);
+
+	if (ret == 2 /* timeout reached */) {
+		__this_cpu_write(timer_deadline_ns, 0);
+		atomic64_or(1 << TIMER_IRQ, pending);
+	}
+
 	raw_local_irq_enable();
 }
 
