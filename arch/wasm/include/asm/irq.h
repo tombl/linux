@@ -2,7 +2,8 @@
 #define _WASM_IRQ_H
 
 #define IPI_IRQ 1
-#define FIRST_EXT_IRQ 2
+#define TIMER_IRQ 2
+#define FIRST_EXT_IRQ 3
 #define NR_IRQS 64
 
 int wasm_alloc_irq(void);
