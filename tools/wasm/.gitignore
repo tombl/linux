@@ -1,5 +1,5 @@
 /.wrangler
 /dist
-/build
 /npm-package
+/vmlinux.wasm
 *.tgz

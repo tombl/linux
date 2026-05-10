@@ -21,7 +21,7 @@ jobs:
           path: linux.tgz
 
   publish:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/wasm'
     needs: build
     runs-on: ubuntu-24.04
     permissions:

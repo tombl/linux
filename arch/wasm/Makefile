@@ -17,18 +17,11 @@ arch/wasm/vmlinux.wat: vmlinux.o
 arch/wasm/sections.json: arch/wasm/scripts/sections.pl arch/wasm/vmlinux.wat
 	$(Q)$(PERL) arch/wasm/scripts/sections.pl <arch/wasm/vmlinux.wat >$@
 
-tools/wasm/build/vmlinux.wasm: vmlinux.o
-	$(Q)mkdir -p tools/wasm/build
-	$(Q)cp $< $@
-
-tools/wasm/build/sections.json: arch/wasm/sections.json
-	$(Q)mkdir -p tools/wasm/build
-	$(Q)cp $< $@
-
-tools/wasm/build/initramfs_data.cpio: FORCE
-	$(Q)mkdir -p tools/wasm/build
-	$(Q)$(MAKE) usr/initramfs_data.o
-	$(Q)cp usr/initramfs_inc_data $@
+tools/wasm/vmlinux.wasm: vmlinux.o arch/wasm/sections.json usr/initramfs_inc_data
+	$(Q)$(OBJCOPY) \
+		--add-section=.linux.sections=arch/wasm/sections.json \
+		--add-section=.linux.initramfs=usr/initramfs_inc_data \
+		$< $@
 
 define archhelp
   echo  '* tools/wasm       - WebAssembly host library'

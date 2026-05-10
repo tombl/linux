@@ -10,7 +10,7 @@ NPM ?= npm
 PACKAGE = linux.tgz
 PACKAGE_DIR = npm-package
 PACKAGE_VERSION ?=
-BUILD_ASSETS = build/vmlinux.wasm build/sections.json build/initramfs_data.cpio
+BUILD_ASSETS = vmlinux.wasm
 
 .PHONY: all clean pack _kernel
 all: dist/index.js dist/index.d.ts _kernel
@@ -19,8 +19,7 @@ clean:
 	$(Q)rm -rf dist $(PACKAGE_DIR) $(PACKAGE) $(BUILD_ASSETS)
 
 _kernel:
-	$(Q)$(MAKE) -C ../.. tools/wasm/build/vmlinux.wasm tools/wasm/build/sections.json
-	$(Q)$(MAKE) -C ../.. tools/wasm/build/initramfs_data.cpio
+	$(Q)$(MAKE) -C ../.. tools/wasm/vmlinux.wasm
 
 dist/index.js dist/index.d.ts &: $(shell find src -type f)
 	$(Q)$(TSC)
@@ -31,6 +30,7 @@ $(PACKAGE): all package.json
 	$(Q)rm -rf $(PACKAGE_DIR) $@
 	$(Q)mkdir -p $(PACKAGE_DIR)
 	$(Q)cp package.json $(PACKAGE_DIR)/
+	$(Q)cp vmlinux.wasm $(PACKAGE_DIR)/
 ifneq ($(PACKAGE_VERSION),)
 	$(Q)cd $(PACKAGE_DIR) && $(NPM) version --no-git-tag-version "$(PACKAGE_VERSION)" >/dev/null
 endif

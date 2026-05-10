@@ -12,24 +12,34 @@ export {
 } from "./virtio.ts";
 
 const resources = (async () => {
-  const sections = fetch(new URL("../build/sections.json", import.meta.url))
-    .then((r) => r.json());
-
   const vmlinux_response = fetch(
-    new URL("../build/vmlinux.wasm", import.meta.url),
+    new URL("../vmlinux.wasm", import.meta.url),
   );
-  const vmlinux = "compileStreaming" in WebAssembly
-    ? WebAssembly.compileStreaming(vmlinux_response)
-    : vmlinux_response.then((r) => r.arrayBuffer()).then(WebAssembly.compile);
 
-  const initramfs = fetch(
-    new URL("../build/initramfs_data.cpio", import.meta.url),
-  ).then((r) => r.arrayBuffer()).then((b) => new Uint8Array(b));
+  let vmlinux: WebAssembly.Module;
+  if ("compileStreaming" in WebAssembly) {
+    vmlinux = await WebAssembly.compileStreaming(vmlinux_response);
+  } else {
+    const buffer = await (await vmlinux_response).arrayBuffer();
+    vmlinux = await WebAssembly.compile(buffer);
+  }
+
+  const custom_section = (name: string) => {
+    const sections = WebAssembly.Module.customSections(vmlinux, name);
+    const section = sections[0];
+    assert(section && sections.length === 1, `Missing custom section: ${name}`);
+    return section;
+  };
+
+  const sections = JSON.parse(
+    new TextDecoder().decode(custom_section(".linux.sections")),
+  );
+  const initramfs = new Uint8Array(custom_section(".linux.initramfs"));
 
   return {
-    sections: await sections,
-    vmlinux: await vmlinux,
-    initramfs: await initramfs,
+    vmlinux,
+    sections,
+    initramfs,
   };
 })();
 
