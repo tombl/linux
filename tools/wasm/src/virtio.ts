@@ -266,11 +266,12 @@ export class BlockDevice extends VirtioDevice<BlockDeviceConfig> {
         status.array.byteLength === 1,
         `status size is ${status.array.byteLength}`,
       );
+      const status_desc = status;
 
       const request = new BlockDeviceRequest(header.array);
 
       function set_status(value: number) {
-        status.array[0] = value;
+        status_desc.array[0] = value;
       }
 
       let n = 0;

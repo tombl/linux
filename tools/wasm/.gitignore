@@ -1,3 +1,5 @@
 /.wrangler
 /dist
 /src/build
+/npm-package
+*.tgz
