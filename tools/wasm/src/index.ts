@@ -1,8 +1,5 @@
-import initramfs from "./build/initramfs_data.cpio";
-import sections from "./build/sections.json" with { type: "json" };
-import vmlinux_url from "./build/vmlinux.wasm";
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
-import { assert, EventEmitter, get_script_path, unreachable } from "./util.ts";
+import { assert, EventEmitter, unreachable } from "./util.ts";
 import { virtio_imports, VirtioDevice } from "./virtio.ts";
 import { type Imports, type Instance, kernel_imports } from "./wasm.ts";
 import type { InitMessage, WorkerMessage } from "./worker.ts";
@@ -14,12 +11,27 @@ export {
   EntropyDevice,
 } from "./virtio.ts";
 
-const worker_url = get_script_path(() => import("./worker.ts"), import.meta);
+const resources = (async () => {
+  const sections = fetch(new URL("../build/sections.json", import.meta.url))
+    .then((r) => r.json());
 
-const vmlinux_response = fetch(new URL(vmlinux_url, import.meta.url));
-const vmlinux_promise = "compileStreaming" in WebAssembly
-  ? WebAssembly.compileStreaming(vmlinux_response)
-  : vmlinux_response.then((r) => r.arrayBuffer()).then(WebAssembly.compile);
+  const vmlinux_response = fetch(
+    new URL("../build/vmlinux.wasm", import.meta.url),
+  );
+  const vmlinux = "compileStreaming" in WebAssembly
+    ? WebAssembly.compileStreaming(vmlinux_response)
+    : vmlinux_response.then((r) => r.arrayBuffer()).then(WebAssembly.compile);
+
+  const initramfs = fetch(
+    new URL("../build/initramfs_data.cpio", import.meta.url),
+  ).then((r) => r.arrayBuffer()).then((b) => new Uint8Array(b));
+
+  return {
+    sections: await sections,
+    vmlinux: await vmlinux,
+    initramfs: await initramfs,
+  };
+})();
 
 const INITCPIO_ADDR = 0x200000;
 
@@ -70,7 +82,6 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
         "rng-seed": crypto.getRandomValues(new Uint8Array(64)),
         bootargs: `console=hvc0 ${options.cmdline ?? ""}`,
         ncpus: options.cpus ?? navigator.hardwareConcurrency,
-        sections,
       },
       aliases: {},
       memory: {
@@ -119,10 +130,12 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
       });
     }
 
+    const { sections, vmlinux, initramfs } = await resources;
+    (this.devicetree.chosen as DeviceTreeNode).sections = sections;
+
     const devicetree = generate_devicetree(this.devicetree, {
       memory_reservations,
     });
-    const vmlinux = await vmlinux_promise;
 
     const boot_console_write = (message: ArrayBuffer) => {
       this.#boot_console_writer.write(new Uint8Array(message)).catch(() => {
@@ -140,7 +153,10 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
       user_module: WebAssembly.Module | null,
       user_memory: WebAssembly.Memory | null,
     ) => {
-      const worker = new Worker(worker_url, { type: "module", name });
+      const worker = new Worker(new URL("./worker.js", import.meta.url), {
+        type: "module",
+        name,
+      });
       this.#workers.push(worker);
       worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
         switch (event.data.type) {

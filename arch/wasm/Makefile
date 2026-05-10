@@ -17,16 +17,16 @@ arch/wasm/vmlinux.wat: vmlinux.o
 arch/wasm/sections.json: arch/wasm/scripts/sections.pl arch/wasm/vmlinux.wat
 	$(Q)$(PERL) arch/wasm/scripts/sections.pl <arch/wasm/vmlinux.wat >$@
 
-tools/wasm/src/build/vmlinux.wasm: vmlinux.o
-	$(Q)mkdir -p tools/wasm/src/build
+tools/wasm/build/vmlinux.wasm: vmlinux.o
+	$(Q)mkdir -p tools/wasm/build
 	$(Q)cp $< $@
 
-tools/wasm/src/build/sections.json: arch/wasm/sections.json
-	$(Q)mkdir -p tools/wasm/src/build
+tools/wasm/build/sections.json: arch/wasm/sections.json
+	$(Q)mkdir -p tools/wasm/build
 	$(Q)cp $< $@
 
-tools/wasm/src/build/initramfs_data.cpio: FORCE
-	$(Q)mkdir -p tools/wasm/src/build
+tools/wasm/build/initramfs_data.cpio: FORCE
+	$(Q)mkdir -p tools/wasm/build
 	$(Q)$(MAKE) usr/initramfs_data.o
 	$(Q)cp usr/initramfs_inc_data $@
 

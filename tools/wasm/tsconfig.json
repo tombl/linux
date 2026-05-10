@@ -5,6 +5,7 @@
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
 
     "target": "es2022",
     "lib": [
@@ -16,9 +17,8 @@
     "skipLibCheck": true,
 
     "declaration": true,
-    "emitDeclarationOnly": true,
     "stripInternal": true,
-    "declarationDir": "./dist",
+    "outDir": "./dist",
 
     "strict": true,
     "esModuleInterop": true,

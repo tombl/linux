@@ -1,4 +1,4 @@
-import { assert } from "./util";
+import { assert } from "./util.ts";
 
 export interface Type<T> {
   get(dv: DataView, offset: number): T;

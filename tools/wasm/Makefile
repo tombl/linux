@@ -5,27 +5,24 @@ ifneq ($(V),1)
 Q = @
 endif
 
-ESBUILD ?= esbuild
 TSC ?= tsc
 NPM ?= npm
 PACKAGE = linux.tgz
 PACKAGE_DIR = npm-package
 PACKAGE_VERSION ?=
+BUILD_ASSETS = build/vmlinux.wasm build/sections.json build/initramfs_data.cpio
 
 .PHONY: all clean pack _kernel
-all: dist/index.js dist/index.d.ts
+all: dist/index.js dist/index.d.ts _kernel
 
 clean:
-	$(Q)rm -rf dist $(PACKAGE_DIR) $(PACKAGE)
+	$(Q)rm -rf dist $(PACKAGE_DIR) $(PACKAGE) $(BUILD_ASSETS)
 
 _kernel:
-	$(Q)$(MAKE) -C ../.. tools/wasm/src/build/vmlinux.wasm tools/wasm/src/build/sections.json
-	$(Q)$(MAKE) -C ../.. tools/wasm/src/build/initramfs_data.cpio
+	$(Q)$(MAKE) -C ../.. tools/wasm/build/vmlinux.wasm tools/wasm/build/sections.json
+	$(Q)$(MAKE) -C ../.. tools/wasm/build/initramfs_data.cpio
 
-dist/index.js: _kernel $(shell find src -type f)
-	$(Q)$(ESBUILD) --bundle src/index.ts --outdir=dist --format=esm --splitting --sourcemap --loader:.wasm=file --loader:.img=file --loader:.cpio=binary
-
-dist/index.d.ts: _kernel $(shell find src -type f -name '*.ts')
+dist/index.js dist/index.d.ts &: $(shell find src -type f)
 	$(Q)$(TSC)
 
 pack: clean $(PACKAGE)
