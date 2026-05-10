@@ -18,6 +18,8 @@
             let
               pkgs = nixpkgs.legacyPackages.${system};
               llvm = pkgs.llvmPackages_19;
+              sourceRev = self.rev or self.dirtyRev or "unknown";
+              npmVersion = "0.0.0-${builtins.substring 0 8 sourceRev}";
             in
             {
               default = pkgs.stdenvNoCC.mkDerivation {
@@ -41,6 +43,7 @@
                   wabt
                   esbuild
                   typescript
+                  nodejs
 
                   just
                   miniserve
@@ -52,13 +55,16 @@
                 configurePhase = "make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES defconfig";
                 buildPhase = "
                   # this is a horrible dirty hack but there's some non-deterministic build failure
+                  built=0
                   for i in $(seq 1 3); do
-                    if make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES -C tools/wasm; then
+                    if make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES -C tools/wasm PACKAGE_VERSION=${npmVersion} pack; then
+                      built=1
                       break
                     fi
                   done
+                  test $built -eq 1
                 ";
-                installPhase = ''cp -r tools/wasm/dist $out'';
+                installPhase = "cp tools/wasm/linux.tgz $out";
               };
             }
           );
