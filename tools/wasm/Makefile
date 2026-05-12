@@ -6,19 +6,20 @@ Q = @
 endif
 
 TSC ?= tsc
-NPM ?= npm
+PERL ?= perl
+TAR ?= tar
 PACKAGE = linux.tgz
 PACKAGE_DIR = npm-package
 PACKAGE_VERSION ?=
 BUILD_ASSETS = vmlinux.wasm
 
-.PHONY: all clean pack _kernel
-all: dist/index.js dist/index.d.ts _kernel
+.PHONY: all clean pack
+all: dist/index.js dist/index.d.ts vmlinux.wasm
 
 clean:
 	$(Q)rm -rf dist $(PACKAGE_DIR) $(PACKAGE) $(BUILD_ASSETS)
 
-_kernel:
+vmlinux.wasm:
 	$(Q)$(MAKE) -C ../.. tools/wasm/vmlinux.wasm
 
 dist/index.js dist/index.d.ts &: $(shell find src -type f)
@@ -28,12 +29,11 @@ pack: clean $(PACKAGE)
 
 $(PACKAGE): all package.json
 	$(Q)rm -rf $(PACKAGE_DIR) $@
-	$(Q)mkdir -p $(PACKAGE_DIR)
-	$(Q)cp package.json $(PACKAGE_DIR)/
-	$(Q)cp vmlinux.wasm $(PACKAGE_DIR)/
+	$(Q)mkdir -p $(PACKAGE_DIR)/package
+	$(Q)cp package.json $(PACKAGE_DIR)/package/
+	$(Q)cp vmlinux.wasm $(PACKAGE_DIR)/package/
 ifneq ($(PACKAGE_VERSION),)
-	$(Q)cd $(PACKAGE_DIR) && $(NPM) version --no-git-tag-version "$(PACKAGE_VERSION)" >/dev/null
+	$(Q)$(PERL) -0pi -e 's/"version":\s*"[^"]+"/"version": "$(PACKAGE_VERSION)"/' $(PACKAGE_DIR)/package/package.json
 endif
-	$(Q)cp -r dist $(PACKAGE_DIR)/
-	$(Q)cd $(PACKAGE_DIR) && npm_config_cache="$${TMPDIR:-..}/npm-cache" $(NPM) pack --pack-destination ..
-	$(Q)mv *.tgz $@
+	$(Q)cp -r dist $(PACKAGE_DIR)/package/
+	$(Q)$(TAR) --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -czf $@ -C $(PACKAGE_DIR) package

@@ -43,24 +43,14 @@
 
                   wabt
                   typescript
-                  nodejs
                 ];
 
                 HOSTCC = "${llvm.clang}/bin/clang";
+                KBUILD_BUILD_TIMESTAMP = "1970-01-01 00:00:00 UTC";
 
                 enableParallelBuilding = true;
                 configurePhase = "make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES defconfig";
-                buildPhase = "
-                  # this is a horrible dirty hack but there's some non-deterministic build failure
-                  built=0
-                  for i in $(seq 1 3); do
-                    if make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES -C tools/wasm PACKAGE_VERSION=${npmVersion} pack; then
-                      built=1
-                      break
-                    fi
-                  done
-                  test $built -eq 1
-                ";
+                buildPhase = "make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES -C tools/wasm PACKAGE_VERSION=${npmVersion} pack";
                 installPhase = "cp tools/wasm/linux.tgz $out";
               };
             }

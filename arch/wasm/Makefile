@@ -11,17 +11,26 @@ KBUILD_LDFLAGS += $(ldflags-y)
 
 drivers-y += arch/wasm/drivers/
 
-arch/wasm/vmlinux.wat: vmlinux.o
-	$(Q)wasm2wat $< --enable-all -o $@
+quiet_cmd_wasm2wat = WAT     $@
+      cmd_wasm2wat = wasm2wat $< --enable-all -o $@
 
-arch/wasm/sections.json: arch/wasm/scripts/sections.pl arch/wasm/vmlinux.wat
-	$(Q)$(PERL) arch/wasm/scripts/sections.pl <arch/wasm/vmlinux.wat >$@
+arch/wasm/vmlinux.wat: vmlinux.o FORCE
+	$(call if_changed,wasm2wat)
 
-tools/wasm/vmlinux.wasm: vmlinux.o arch/wasm/sections.json usr/initramfs_inc_data
-	$(Q)$(OBJCOPY) \
+quiet_cmd_wasm_sections = GEN     $@
+      cmd_wasm_sections = $(PERL) arch/wasm/scripts/sections.pl <$< >$@
+
+arch/wasm/sections.json: arch/wasm/vmlinux.wat arch/wasm/scripts/sections.pl FORCE
+	$(call if_changed,wasm_sections)
+
+quiet_cmd_wasm_objcopy = OBJCOPY $@
+      cmd_wasm_objcopy = $(OBJCOPY) \
 		--add-section=.linux.sections=arch/wasm/sections.json \
 		--add-section=.linux.initramfs=usr/initramfs_inc_data \
 		$< $@
+
+tools/wasm/vmlinux.wasm: vmlinux.o arch/wasm/sections.json FORCE
+	$(call if_changed,wasm_objcopy)
 
 define archhelp
   echo  '* tools/wasm       - WebAssembly host library'
