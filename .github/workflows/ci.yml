@@ -36,10 +36,11 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
+      - run: npm install -g npm@latest
       - run: |
           version="0.0.0-${GITHUB_SHA::8}"
           if npm view "@tombl/linux@$version" version >/dev/null 2>&1; then
             echo "@tombl/linux@$version is already published"
           else
-            npm publish ./linux.tgz --access public --tag snapshot
+            npm stage publish ./linux.tgz --access public --tag latest
           fi
