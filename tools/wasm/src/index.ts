@@ -9,6 +9,8 @@ export {
   type BlockDeviceStorage,
   ConsoleDevice,
   EntropyDevice,
+  type VsockConnection,
+  VsockDevice,
 } from "./virtio.ts";
 
 const resources = (async () => {

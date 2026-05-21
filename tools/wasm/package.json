@@ -11,6 +11,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./bytes": {
+      "types": "./dist/bytes.d.ts",
+      "default": "./dist/bytes.js"
     }
   },
   "files": [

@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 
+# Keep this list in sync with init_sections() in arch/wasm/kernel/sections.c.
 my %keep = map { $_ => 1 } qw(
     .initcallearly.init
     .initcall1.init .initcall1s.init
@@ -35,7 +36,7 @@ print "{\n";
 my @stack;
 my $first = 1;
 while (<>) {
-    last if /data\.drop/;
+    last if /^\s*data\.drop\b/;
 
     if (/i32\.const (\d+)/) {
         push @stack, $1;

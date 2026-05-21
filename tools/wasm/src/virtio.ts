@@ -58,10 +58,11 @@ class Chain {
     assert(desc);
     const avail = (desc.flags & DescriptorFlags.AVAIL) !== 0;
     const used = (desc.flags & DescriptorFlags.USED) !== 0;
-    if (avail === used || avail !== queue.wrap) throw new Error("ring full");
+    if (avail === used || avail !== queue.used_wrap)
+      throw new Error("ring full");
 
     let flags = 0;
-    if (queue.wrap) flags |= DescriptorFlags.AVAIL | DescriptorFlags.USED;
+    if (queue.used_wrap) flags |= DescriptorFlags.AVAIL | DescriptorFlags.USED;
     if (written > 0) flags |= DescriptorFlags.WRITE;
 
     desc.id = this.id;
@@ -71,7 +72,7 @@ class Chain {
     queue.used_idx += this.skip;
     if (queue.used_idx >= queue.size) {
       queue.used_idx -= queue.size;
-      queue.wrap = !queue.wrap;
+      queue.used_wrap = !queue.used_wrap;
     }
   }
 
@@ -90,15 +91,12 @@ class Virtqueue {
 
   size: number;
   desc: VirtqDescriptor[];
-  wrap = true;
+  avail_wrap = true;
+  used_wrap = true;
   used_idx = 0;
   avail_idx = 0;
 
-  constructor(
-    mem: DataView,
-    size: number,
-    desc_addr: number,
-  ) {
+  constructor(mem: DataView, size: number, desc_addr: number) {
     assert(size !== 0);
     assert(mem.byteOffset === 0);
     this.#mem = mem;
@@ -135,8 +133,10 @@ class Virtqueue {
       if (desc.len % VirtqDescriptor.size !== 0) {
         throw new Error("malformed indirect buffer");
       }
-      chain.desc = FixedArray(VirtqDescriptor, desc.len / VirtqDescriptor.size)
-        .get(this.#mem, Number(desc.addr));
+      chain.desc = FixedArray(
+        VirtqDescriptor,
+        desc.len / VirtqDescriptor.size,
+      ).get(this.#mem, Number(desc.addr));
     }
 
     return chain;
@@ -144,7 +144,7 @@ class Virtqueue {
 
   *[Symbol.iterator]() {
     let chain;
-    while (chain = this.#pop()) yield chain;
+    while ((chain = this.#pop())) yield chain;
   }
 
   #advance() {
@@ -153,10 +153,14 @@ class Virtqueue {
 
     const avail = (desc.flags & DescriptorFlags.AVAIL) !== 0;
     const used = (desc.flags & DescriptorFlags.USED) !== 0;
-    if (avail === used || avail !== this.wrap) return null;
+    if (avail === used || avail !== this.avail_wrap) return null;
 
     const index = this.avail_idx;
-    this.avail_idx = (this.avail_idx + 1) % this.size;
+    this.avail_idx += 1;
+    if (this.avail_idx >= this.size) {
+      this.avail_idx = 0;
+      this.avail_wrap = !this.avail_wrap;
+    }
     return index;
   }
 }
@@ -166,7 +170,9 @@ export abstract class VirtioDevice<Config extends object = object> {
   abstract config_bytes: Uint8Array;
   abstract config: Config;
 
-  features = TransportFeatures.VERSION_1 | TransportFeatures.RING_PACKED |
+  features =
+    TransportFeatures.VERSION_1 |
+    TransportFeatures.RING_PACKED |
     TransportFeatures.INDIRECT_DESC;
 
   trigger_interrupt = (kind: "config" | "vring"): void => {
@@ -190,6 +196,333 @@ export abstract class VirtioDevice<Config extends object = object> {
 }
 
 class EmptyStruct extends Struct({}) {}
+
+class VsockConfig extends Struct({
+  guest_cid: U64LE,
+}) {}
+
+class VsockHeader extends Struct({
+  src_cid: U64LE,
+  dst_cid: U64LE,
+  src_port: U32LE,
+  dst_port: U32LE,
+  len: U32LE,
+  type: U16LE,
+  op: U16LE,
+  flags: U32LE,
+  buf_alloc: U32LE,
+  fwd_cnt: U32LE,
+}) {}
+
+const VsockType = {
+  STREAM: 1,
+} as const;
+
+const VsockOp = {
+  REQUEST: 1,
+  RESPONSE: 2,
+  RST: 3,
+  SHUTDOWN: 4,
+  RW: 5,
+  CREDIT_UPDATE: 6,
+  CREDIT_REQUEST: 7,
+} as const;
+
+const VsockShutdown = {
+  RCV: 1,
+  SEND: 2,
+} as const;
+
+const HOST_CID = 2n;
+const DEFAULT_VSOCK_BUF_ALLOC = 256 * 1024;
+const MAX_VSOCK_PAYLOAD = 2048;
+
+function concat_bytes(chunks: Uint8Array[]) {
+  const length = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+export class VsockConnection {
+  local_port: number;
+  peer_port: number;
+
+  #device: VsockDevice;
+  #read_buffer: Uint8Array[] = [];
+  #read_waiters: ((value: Uint8Array) => void)[] = [];
+  #closed = false;
+  #bytes_read = 0;
+  #peer_buf_alloc = DEFAULT_VSOCK_BUF_ALLOC;
+  #peer_fwd_cnt = 0;
+
+  constructor(device: VsockDevice, local_port: number, peer_port: number) {
+    this.#device = device;
+    this.local_port = local_port;
+    this.peer_port = peer_port;
+  }
+
+  get bytes_read() {
+    return this.#bytes_read;
+  }
+
+  update_credit(buf_alloc: number, fwd_cnt: number) {
+    this.#peer_buf_alloc = buf_alloc;
+    this.#peer_fwd_cnt = fwd_cnt;
+  }
+
+  enqueue(data: Uint8Array) {
+    if (data.byteLength === 0) return;
+    const waiter = this.#read_waiters.shift();
+    if (waiter) {
+      this.#bytes_read += data.byteLength;
+      waiter(data);
+    } else {
+      this.#read_buffer.push(data.slice());
+    }
+  }
+
+  close_from_peer() {
+    this.#closed = true;
+    while (this.#read_waiters.length > 0) {
+      this.#read_waiters.shift()!(new Uint8Array());
+    }
+  }
+
+  async read(): Promise<Uint8Array> {
+    const chunk = this.#read_buffer.shift();
+    if (chunk) {
+      this.#bytes_read += chunk.byteLength;
+      return chunk;
+    }
+    if (this.#closed) return new Uint8Array();
+    return new Promise((resolve) => this.#read_waiters.push(resolve));
+  }
+
+  async readExactly(length: number): Promise<Uint8Array> {
+    const out = new Uint8Array(length);
+    let offset = 0;
+    while (offset < length) {
+      const chunk = await this.read();
+      if (chunk.byteLength === 0) break;
+      const n = Math.min(chunk.byteLength, length - offset);
+      out.set(chunk.subarray(0, n), offset);
+      offset += n;
+      if (n < chunk.byteLength) this.#read_buffer.unshift(chunk.subarray(n));
+    }
+    return out.subarray(0, offset);
+  }
+
+  write(data: Uint8Array) {
+    if (this.#closed) throw new Error("vsock connection is closed");
+
+    // TODO: honor peer credit before queueing large writes. The guest-agent
+    // protocol uses bounded request chunks for now, but long-lived streaming
+    // needs transport-level backpressure here.
+    let offset = 0;
+    while (offset < data.byteLength) {
+      const n = Math.min(MAX_VSOCK_PAYLOAD, data.byteLength - offset);
+      this.#device.send_packet(
+        this,
+        VsockOp.RW,
+        0,
+        data.subarray(offset, offset + n),
+      );
+      offset += n;
+    }
+
+    void this.#peer_buf_alloc;
+    void this.#peer_fwd_cnt;
+  }
+
+  close() {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#device.send_packet(
+      this,
+      VsockOp.SHUTDOWN,
+      VsockShutdown.RCV | VsockShutdown.SEND,
+      new Uint8Array(),
+    );
+  }
+}
+
+export class VsockDevice extends VirtioDevice<VsockConfig> {
+  ID = 19;
+  config_bytes = new Uint8Array(VsockConfig.size);
+  config = new VsockConfig(this.config_bytes);
+
+  #guest_cid: bigint;
+  #rx_buffers: Chain[] = [];
+  #pending_packets: Uint8Array[] = [];
+  #connections = new Map<
+    number,
+    {
+      connection: VsockConnection;
+      connected: boolean;
+      resolve: (connection: VsockConnection) => void;
+      reject: (error: Error) => void;
+    }
+  >();
+  #next_port = 49152;
+
+  constructor({ guestCid = 3n }: { guestCid?: bigint } = {}) {
+    super();
+    this.#guest_cid = guestCid;
+    this.config.guest_cid = guestCid;
+  }
+
+  connect(port: number, { timeoutMs = 5000 } = {}): Promise<VsockConnection> {
+    // TODO: recycle local ports after close/reset. For current runner smoke
+    // tests the ephemeral range is effectively unbounded.
+    const local_port = this.#next_port++;
+    const connection = new VsockConnection(this, local_port, port);
+
+    const promise = new Promise<VsockConnection>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.#connections.delete(local_port);
+        reject(new Error(`timed out connecting to guest vsock port ${port}`));
+      }, timeoutMs);
+
+      this.#connections.set(local_port, {
+        connection,
+        connected: false,
+        resolve(value) {
+          clearTimeout(timeout);
+          resolve(value);
+        },
+        reject(error) {
+          clearTimeout(timeout);
+          reject(error);
+        },
+      });
+    });
+
+    this.send_packet(connection, VsockOp.REQUEST, 0, new Uint8Array());
+    return promise;
+  }
+
+  send_packet(
+    connection: VsockConnection,
+    op: number,
+    flags: number,
+    payload: Uint8Array,
+  ) {
+    const packet = new Uint8Array(VsockHeader.size + payload.byteLength);
+    const hdr = new VsockHeader(packet);
+    hdr.src_cid = HOST_CID;
+    hdr.dst_cid = this.#guest_cid;
+    hdr.src_port = connection.local_port;
+    hdr.dst_port = connection.peer_port;
+    hdr.len = payload.byteLength;
+    hdr.type = VsockType.STREAM;
+    hdr.op = op;
+    hdr.flags = flags;
+    hdr.buf_alloc = DEFAULT_VSOCK_BUF_ALLOC;
+    hdr.fwd_cnt = connection.bytes_read;
+    packet.set(payload, VsockHeader.size);
+
+    this.#pending_packets.push(packet);
+    this.#flush_rx();
+  }
+
+  #flush_rx() {
+    let sent = false;
+    while (this.#pending_packets.length > 0 && this.#rx_buffers.length > 0) {
+      const packet = this.#pending_packets.shift()!;
+      const chain = this.#rx_buffers.shift()!;
+      const [desc, next_desc] = chain;
+      assert(desc && desc.writable, "vsock rx buffer must be writable");
+      assert(!next_desc, "vsock rx buffer should be a single descriptor");
+      assert(
+        desc.array.byteLength >= packet.byteLength,
+        "vsock rx buffer too small",
+      );
+
+      desc.array.set(packet);
+      chain.release(packet.byteLength);
+      sent = true;
+    }
+
+    if (sent) this.trigger_interrupt("vring");
+  }
+
+  #read_tx_packet(chain: Chain) {
+    const readable = Array.from(chain, (desc) => {
+      assert(!desc.writable, "vsock tx descriptor must be readable");
+      return desc.array;
+    });
+    const header_bytes = concat_bytes(readable);
+    assert(header_bytes.byteLength >= VsockHeader.size, "short vsock header");
+    const header = new VsockHeader(header_bytes);
+    const payload = header_bytes.subarray(
+      VsockHeader.size,
+      VsockHeader.size + header.len,
+    );
+    return { header, payload };
+  }
+
+  #handle_tx_packet(header: VsockHeader, payload: Uint8Array) {
+    const local_port = header.dst_port;
+    const state = this.#connections.get(local_port);
+    if (!state) return;
+
+    state.connection.update_credit(header.buf_alloc, header.fwd_cnt);
+
+    switch (header.op) {
+      case VsockOp.RESPONSE:
+        state.connected = true;
+        state.resolve(state.connection);
+        break;
+      case VsockOp.RW:
+        state.connection.enqueue(payload);
+        break;
+      case VsockOp.CREDIT_UPDATE:
+      case VsockOp.CREDIT_REQUEST:
+        break;
+      case VsockOp.SHUTDOWN:
+      case VsockOp.RST:
+        if (!state.connected)
+          state.reject(new Error("guest reset vsock connection"));
+        state.connection.close_from_peer();
+        this.#connections.delete(local_port);
+        break;
+      default:
+        console.warn("unknown vsock op", header.op);
+    }
+  }
+
+  override notify(vq: number) {
+    const queue = this.vqs[vq];
+    assert(queue);
+
+    switch (vq) {
+      case 0:
+        for (const chain of queue) this.#rx_buffers.push(chain);
+        this.#flush_rx();
+        break;
+      case 1:
+        for (const chain of queue) {
+          const { header, payload } = this.#read_tx_packet(chain);
+          this.#handle_tx_packet(header, payload);
+          chain.release(0);
+        }
+        this.trigger_interrupt("vring");
+        break;
+      case 2:
+        // TODO: event buffers are needed for host transport reset
+        // notifications. We do not emit those until the host side supports
+        // device-wide reset and reconnect semantics.
+        break;
+      default:
+        console.error("VsockDevice: unknown vq", vq);
+    }
+  }
+}
 
 const BlockDeviceFeatures = {
   RO: 1n << 5n,
@@ -432,17 +765,15 @@ export class EntropyDevice extends VirtioDevice<EmptyStruct> {
   }
 }
 
-export function virtio_imports(
-  {
-    memory,
-    devices,
-    trigger_irq_for_cpu,
-  }: {
-    memory: WebAssembly.Memory;
-    devices: VirtioDevice[];
-    trigger_irq_for_cpu: (cpu: number, irq: number) => void;
-  },
-): Imports["virtio"] {
+export function virtio_imports({
+  memory,
+  devices,
+  trigger_irq_for_cpu,
+}: {
+  memory: WebAssembly.Memory;
+  devices: VirtioDevice[];
+  trigger_irq_for_cpu: (cpu: number, irq: number) => void;
+}): Imports["virtio"] {
   const dv = new DataView(memory.buffer);
 
   return {
@@ -458,10 +789,7 @@ export function virtio_imports(
     enable_vring(dev, vq, size, desc_addr) {
       const device = devices[dev];
       assert(device);
-      device.enable(
-        vq,
-        new Virtqueue(dv, size, desc_addr),
-      );
+      device.enable(vq, new Virtqueue(dv, size, desc_addr));
     },
     disable_vring(dev, vq) {
       const device = devices[dev];
@@ -469,14 +797,7 @@ export function virtio_imports(
       device.disable(vq);
     },
 
-    setup(
-      dev,
-      irq,
-      is_config_addr,
-      is_vring_addr,
-      config_addr,
-      config_len,
-    ) {
+    setup(dev, irq, is_config_addr, is_vring_addr, config_addr, config_len) {
       const device = devices[dev];
       assert(device);
 

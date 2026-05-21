@@ -25,7 +25,9 @@ vmlinux.wasm:
 dist/index.js dist/index.d.ts &: $(shell find src -type f)
 	$(Q)$(TSC)
 
-pack: clean $(PACKAGE)
+pack:
+	$(Q)rm -rf $(PACKAGE_DIR) $(PACKAGE) $(BUILD_ASSETS)
+	$(Q)$(MAKE) $(PACKAGE)
 
 $(PACKAGE): all package.json
 	$(Q)rm -rf $(PACKAGE_DIR) $@
