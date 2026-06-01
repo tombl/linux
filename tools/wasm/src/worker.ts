@@ -38,7 +38,8 @@ export type WorkerMessage =
   | { type: "boot_console_write"; message: ArrayBuffer }
   | { type: "boot_console_close" }
   | { type: "terminate_machine"; reason: MachineTerminationReason }
-  | { type: "run_on_main"; fn: number; arg: number }
+  | { type: "run_on_main"; fn: number; arg: number; sync?: Int32Array }
+  | { type: "virtio_config_changed"; dev: number; sync: Int32Array }
   | { type: "worker_exit" };
 
 const unavailable = () => {
@@ -540,7 +541,9 @@ function start({
         postMessage({ type: "terminate_machine", reason });
       },
       run_on_main(fn, arg) {
-        postMessage({ type: "run_on_main", fn, arg });
+        const sync = new Int32Array(new SharedArrayBuffer(4));
+        postMessage({ type: "run_on_main", fn, arg, sync });
+        Atomics.wait(sync, 0, 0);
       },
       get_user_context() {
         return user.context;
@@ -552,6 +555,11 @@ function start({
     virtio: {
       set_features: unavailable,
       setup: unavailable,
+      config_changed(dev) {
+        const sync = new Int32Array(new SharedArrayBuffer(4));
+        postMessage({ type: "virtio_config_changed", dev, sync });
+        Atomics.wait(sync, 0, 0);
+      },
       enable_vring: unavailable,
       disable_vring: unavailable,
       notify: unavailable,

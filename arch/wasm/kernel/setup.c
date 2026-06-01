@@ -28,7 +28,7 @@ static void do_start_kernel(void *unused)
 
 __attribute__((export_name("boot"))) void __init _start(void)
 {
-	static char devicetree[2048];
+	static char devicetree[8192];
 	static char initramfs[512];
 	int node;
 

@@ -59,6 +59,7 @@ static void vw_set(struct virtio_device *vdev, unsigned offset, const void *buf,
 	}
 
 	memcpy(vw_dev->config + offset, buf, len);
+	wasm_virtio_config_changed(vw_dev->host_id);
 }
 
 static void _notify(void *arg)

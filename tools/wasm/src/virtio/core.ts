@@ -240,6 +240,10 @@ export type VirtqueueHandler = (
 export interface VirtioDriver {
   /** One handler per virtqueue. */
   readonly queues: readonly VirtqueueHandler[];
+  /** Called after the guest writes the device configuration space. */
+  configChanged?(config: Uint8Array, controller: VirtioController): void;
+  /** Called when the guest disables a virtqueue. */
+  queueDisabled?(vq: number, controller: VirtioController): void;
   /** Called when the device is closed. */
   close?(controller: VirtioController): void;
 }
@@ -252,6 +256,8 @@ interface TransportDevice {
     get_config: () => Uint8Array,
     raise_config: RaiseConfigInterrupt,
   ): void;
+  configChanged(): void;
+  queueDisabled(vq: number): void;
   notify(vq: number, queue: Virtqueue): void | PromiseLike<void>;
   close(): void;
 }
@@ -318,6 +324,16 @@ export class VirtioController {
           config_pending = false;
           raise_config();
         }
+      },
+
+      configChanged: () => {
+        assert(get_guest_config, "virtio device is not attached");
+        config.set(get_guest_config().subarray(0, config.byteLength));
+        driver.configChanged?.(config, this);
+      },
+
+      queueDisabled: (vq) => {
+        driver.queueDisabled?.(vq, this);
       },
 
       notify: (vq, queue) => {
@@ -459,6 +475,7 @@ export function virtio_imports({
       const state = device.queues[vq];
       assert(state?.queue);
       state.queue = undefined;
+      device.device.queueDisabled(vq);
     },
 
     setup(dev, config_irq, config_addr, config_len) {
@@ -471,6 +488,12 @@ export function virtio_imports({
         () => new Uint8Array(memory.buffer, address, length),
         () => trigger_irq(config_irq),
       );
+    },
+
+    config_changed(dev) {
+      const device = states[dev]?.device;
+      assert(device);
+      device.configChanged();
     },
 
     notify(dev, vq) {

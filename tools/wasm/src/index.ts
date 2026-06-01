@@ -39,6 +39,16 @@ export { blockDevice, type BlockDeviceStorage } from "./virtio/block.ts";
 export { type ConsoleDevice, consoleDevice } from "./virtio/console.ts";
 export { entropyDevice } from "./virtio/entropy.ts";
 export {
+  InputButtonCode,
+  type InputDevice,
+  inputDevice,
+  type InputDeviceOptions,
+  InputEventType,
+  InputKeyCode,
+  InputRelCode,
+  InputSynCode,
+} from "./virtio/input.ts";
+export {
   type EthernetDevice,
   ethernetDevice,
   type EthernetDeviceOptions,
@@ -55,6 +65,11 @@ export {
 
 type MaybePromise<T> = T | PromiseLike<T>;
 
+export interface FramebufferOptions {
+  width?: number;
+  height?: number;
+}
+
 /** The resources and boot configuration of a Linux machine. */
 export interface SpawnMachineOptions {
   /** Kernel command line arguments, appended after `console=hvc0`. */
@@ -67,6 +82,59 @@ export interface SpawnMachineOptions {
   initcpio?: MaybePromise<ArrayBufferView>;
   /** Recursively merged over the generated device tree before boot. */
   devicetree?: DeviceTreeNode;
+  /** Reserves a simple x8r8g8b8 framebuffer, disabled by default. */
+  framebuffer?: false | FramebufferOptions;
+}
+
+/** A simple x8r8g8b8 framebuffer reserved from kernel memory. */
+export class Framebuffer {
+  readonly width: number;
+  readonly height: number;
+  readonly stride: number;
+  readonly format = "x8r8g8b8";
+  readonly address: number;
+  readonly size: number;
+
+  #memory: WebAssembly.Memory;
+
+  constructor({
+    memory,
+    address,
+    width,
+    height,
+  }: {
+    memory: WebAssembly.Memory;
+    address: number;
+    width: number;
+    height: number;
+  }) {
+    this.#memory = memory;
+    this.address = address;
+    this.width = width;
+    this.height = height;
+    this.stride = width * 4;
+    this.size = this.stride * height;
+  }
+
+  get xrgb() {
+    return new Uint8Array(this.#memory.buffer, this.address, this.size);
+  }
+
+  readRgba(target = new Uint8ClampedArray(this.size)) {
+    assert(
+      target.byteLength >= this.size,
+      "target buffer is too small for framebuffer",
+    );
+
+    const source = this.xrgb;
+    for (let i = 0; i < this.size; i += 4) {
+      target[i] = source[i + 2] ?? 0;
+      target[i + 1] = source[i + 1] ?? 0;
+      target[i + 2] = source[i] ?? 0;
+      target[i + 3] = 0xff;
+    }
+    return target;
+  }
 }
 
 /**
@@ -78,6 +146,8 @@ export interface Machine extends Disposable {
   readonly memory: WebAssembly.Memory;
   /** Kernel output from before the console device is available. */
   readonly bootConsole: ReadableStream<Uint8Array>;
+  /** The reserved simple framebuffer, when requested. */
+  readonly framebuffer?: Framebuffer;
   /** Settles when closed, rejecting if the machine failed unexpectedly. */
   readonly closed: Promise<void>;
   /** Idempotently shuts down the workers and owned devices. */
@@ -238,20 +308,54 @@ export async function spawnMachine(
     const initcpio = options.initcpio ? await options.initcpio : undefined;
     const module_pages = Number(memory_type.minimum);
     const initcpio_addr = module_pages * PAGE_SIZE;
-    const pages = kernel_initial_pages(
+    const framebuffer_width = options.framebuffer
+      ? (options.framebuffer.width ?? 800)
+      : 0;
+    const framebuffer_height = options.framebuffer
+      ? (options.framebuffer.height ?? 600)
+      : 0;
+    assert(
+      Number.isInteger(framebuffer_width) &&
+        Number.isInteger(framebuffer_height) &&
+        framebuffer_width >= 0 && framebuffer_height >= 0,
+      "framebuffer dimensions must be non-negative integers",
+    );
+    const framebuffer_size = framebuffer_width * framebuffer_height * 4;
+    assert(
+      Number.isSafeInteger(framebuffer_size),
+      "framebuffer dimensions are too large",
+    );
+    const framebuffer_pages = Math.ceil(framebuffer_size / PAGE_SIZE);
+    const base_pages = kernel_initial_pages(
       memory_type,
       initcpio?.byteLength ?? 0,
+    );
+    const pages = base_pages + framebuffer_pages;
+    assert(
+      pages <= KERNEL_MEMORY_MAXIMUM_PAGES,
+      "Framebuffer does not fit in kernel memory",
     );
     const { memory: wasm_memory, maximum_pages } = allocate_shared_memory(
       pages,
       KERNEL_MEMORY_MAXIMUM_PAGES,
     );
     assert(wasm_memory.buffer.byteLength === pages * PAGE_SIZE);
+    const framebuffer = options.framebuffer
+      ? new Framebuffer({
+        memory: wasm_memory,
+        address: base_pages * PAGE_SIZE,
+        width: framebuffer_width,
+        height: framebuffer_height,
+      })
+      : undefined;
 
     const devicetree: DeviceTreeNode = {
       "#address-cells": 1,
       "#size-cells": 1,
       chosen: {
+        "#address-cells": 1,
+        "#size-cells": 1,
+        ranges: undefined,
         "rng-seed": crypto.getRandomValues(new Uint8Array(64)),
         bootargs: `console=hvc0 ${options.cmdline ?? ""}`,
         ncpus: options.cpus ?? navigator.hardwareConcurrency,
@@ -279,6 +383,22 @@ export async function spawnMachine(
       };
     }
     const memory_reservations: { address: number; size: number }[] = [];
+
+    if (framebuffer) {
+      const chosen = devicetree.chosen as DeviceTreeNode;
+      chosen[`framebuffer@${framebuffer.address.toString(16)}`] = {
+        compatible: "simple-framebuffer",
+        reg: [framebuffer.address, framebuffer.size],
+        width: framebuffer.width,
+        height: framebuffer.height,
+        stride: framebuffer.stride,
+        format: framebuffer.format,
+      };
+      memory_reservations.push({
+        address: framebuffer.address,
+        size: framebuffer.size,
+      });
+    }
 
     if (initcpio) {
       const chosen = devicetree.chosen as DeviceTreeNode;
@@ -351,10 +471,25 @@ export async function spawnMachine(
               }
               break;
             case "run_on_main":
-              assert(instance);
-              instance.exports.__indirect_function_table.get(message.fn >>> 0)!(
-                message.arg,
-              );
+              try {
+                assert(instance);
+                instance.exports.__indirect_function_table.get(
+                  message.fn >>> 0,
+                )!(message.arg);
+              } finally {
+                if (message.sync) {
+                  Atomics.store(message.sync, 0, 1);
+                  Atomics.notify(message.sync, 0);
+                }
+              }
+              break;
+            case "virtio_config_changed":
+              try {
+                imports.virtio.config_changed(message.dev);
+              } finally {
+                Atomics.store(message.sync, 0, 1);
+                Atomics.notify(message.sync, 0);
+              }
               break;
             case "worker_exit": {
               // The worker closes itself after posting this message. Calling
@@ -469,6 +604,7 @@ export async function spawnMachine(
     return {
       memory: wasm_memory,
       bootConsole: boot_console.readable,
+      framebuffer,
       closed: closed_promise.promise,
       close,
       [Symbol.dispose]: close,
