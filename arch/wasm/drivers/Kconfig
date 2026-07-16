@@ -4,6 +4,16 @@ config VIRTIO_WASM
 	help
 	 This driver supports virtio devices on the WebAssembly platform.
 
+config JSEXEC
+	bool "JavaScript execution device (/dev/jsexec)"
+	default y
+	help
+	 This provides a /dev/jsexec character device that allows
+	 userspace to execute JavaScript code in the host environment.
+	 Write JS code to the device, then read back the result.
+
+	 If unsure, say Y.
+
 config FB_WASM
 	tristate
 	depends on FB

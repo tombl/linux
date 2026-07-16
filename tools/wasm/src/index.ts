@@ -1,7 +1,7 @@
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
 import { assert, EventEmitter, unreachable } from "./util.ts";
 import { virtio_imports, VirtioDevice } from "./virtio.ts";
-import { type Imports, type Instance, kernel_imports } from "./wasm.ts";
+import { type Imports, type Instance, jsexec_imports, kernel_imports } from "./wasm.ts";
 import type { InitMessage, WorkerMessage } from "./worker.ts";
 
 export {
@@ -254,6 +254,7 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
           instance.exports.trigger_irq_for_cpu(cpu, irq);
         },
       }),
+      jsexec: jsexec_imports({ memory: this.#memory }),
     } satisfies Imports;
 
     const instance =

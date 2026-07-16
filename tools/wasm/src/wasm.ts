@@ -73,6 +73,9 @@ export interface Imports {
 
     notify(dev: number, vq: number): void;
   };
+  jsexec: {
+    run(code: number, code_len: number, result: number, result_size: number): number;
+  };
 }
 
 export const HALT_KERNEL = Symbol("halt kernel");
@@ -168,5 +171,34 @@ export function kernel_imports(
     },
 
     run_on_main,
+  };
+}
+
+export function jsexec_imports({
+  memory,
+}: {
+  memory: WebAssembly.Memory;
+}): Imports["jsexec"] {
+  return {
+    run(code, code_len, result, result_size) {
+      const mem = new Uint8Array(memory.buffer);
+      const codeStr = new TextDecoder().decode(
+        mem.subarray(code, code + code_len),
+      );
+
+      let resultStr: string;
+      try {
+        // eslint-disable-next-line no-eval
+        const value = eval(codeStr);
+        resultStr = value === undefined ? "undefined" : String(value);
+      } catch (e) {
+        resultStr = `Error: ${e instanceof Error ? e.message : String(e)}`;
+      }
+
+      const resultBytes = new TextEncoder().encode(resultStr);
+      const len = Math.min(resultBytes.length, result_size);
+      mem.set(resultBytes.subarray(0, len), result);
+      return len;
+    },
   };
 }

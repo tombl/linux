@@ -38,6 +38,11 @@ int wasm_import(user, read)(void *to, const void __user *from, unsigned long n);
 int wasm_import(user, write)(void __user *to, const void *from, unsigned long n);
 int wasm_import(user, write_zeroes)(void __user *to, unsigned long n);
 
+#ifdef CONFIG_JSEXEC
+int wasm_import(jsexec, run)(const char *code, size_t code_len,
+			     char *result, size_t result_size);
+#endif
+
 #ifdef CONFIG_VIRTIO_WASM
 void wasm_import(virtio, set_features)(u32 id, u64 features);
 

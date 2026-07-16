@@ -3,6 +3,7 @@ import {
   HALT_KERNEL,
   type Imports,
   type Instance,
+  jsexec_imports,
   kernel_imports,
 } from "./wasm.ts";
 
@@ -292,6 +293,7 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
       disable_vring: unavailable,
       notify: unavailable,
     },
+    jsexec: jsexec_imports({ memory }),
   } satisfies Imports;
 
   const instance = new WebAssembly.Instance(vmlinux, imports) as Instance;
