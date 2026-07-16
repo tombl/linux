@@ -26,7 +26,14 @@ export type WorkerMessage =
   }
   | { type: "boot_console_write"; message: ArrayBuffer }
   | { type: "boot_console_close" }
-  | { type: "run_on_main"; fn: number; arg: number };
+  | { type: "run_on_main"; fn: number; arg: number }
+  | {
+    type: "jsexec_run";
+    code: string;
+    resultPtr: number;
+    resultSize: number;
+    sab: SharedArrayBuffer;
+  };
 
 const unavailable = () => {
   throw new Error("not available on worker thread");
@@ -293,7 +300,37 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
       disable_vring: unavailable,
       notify: unavailable,
     },
-    jsexec: jsexec_imports({ memory }),
+    jsexec: jsexec_imports({
+      memory,
+      is_worker: true,
+      delegate_to_main: (codeStr, resultPtr, resultSize) => {
+        // Create a shared control buffer for synchronous cross-thread
+        // communication: [0] = state flag, [1] = result length.
+        const sab = new SharedArrayBuffer(8);
+        const view = new Int32Array(sab);
+        view[0] = 0;
+
+        postMessage({
+          type: "jsexec_run",
+          code: codeStr,
+          resultPtr,
+          resultSize,
+          sab,
+        });
+
+        // Block until the main thread finishes eval and notifies us.
+        const status = Atomics.wait(view, 0, 0, 30000);
+        if (status === "timed-out") {
+          const errorStr = "Error: jsexec timed out waiting for main thread";
+          const errorBytes = new TextEncoder().encode(errorStr);
+          const len = Math.min(errorBytes.length, resultSize);
+          const mem = new Uint8Array(memory.buffer);
+          mem.set(errorBytes.subarray(0, len), resultPtr);
+          return len;
+        }
+        return view[1];
+      },
+    }),
   } satisfies Imports;
 
   const instance = new WebAssembly.Instance(vmlinux, imports) as Instance;

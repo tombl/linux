@@ -191,6 +191,29 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
             instance.exports.__indirect_function_table
               .get(event.data.fn)!(event.data.arg);
             break;
+          case "jsexec_run": {
+            const { code, resultPtr, resultSize, sab } = event.data;
+            const view = new Int32Array(sab);
+
+            let resultStr: string;
+            try {
+              // eslint-disable-next-line no-eval
+              const value = eval(code);
+              resultStr = value === undefined ? "undefined" : String(value);
+            } catch (e) {
+              resultStr = `Error: ${e instanceof Error ? e.message : String(e)}`;
+            }
+
+            const resultBytes = new TextEncoder().encode(resultStr);
+            const len = Math.min(resultBytes.length, resultSize);
+            const mem = new Uint8Array(this.#memory.buffer);
+            mem.set(resultBytes.subarray(0, len), resultPtr);
+
+            view[1] = len;
+            view[0] = 1;
+            Atomics.notify(view, 0);
+            break;
+          }
           default:
             unreachable(event.data);
         }
@@ -254,7 +277,10 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
           instance.exports.trigger_irq_for_cpu(cpu, irq);
         },
       }),
-      jsexec: jsexec_imports({ memory: this.#memory }),
+      jsexec: jsexec_imports({
+        memory: this.#memory,
+        is_worker: false,
+      }),
     } satisfies Imports;
 
     const instance =

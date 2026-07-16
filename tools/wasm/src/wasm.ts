@@ -176,8 +176,16 @@ export function kernel_imports(
 
 export function jsexec_imports({
   memory,
+  is_worker,
+  delegate_to_main,
 }: {
   memory: WebAssembly.Memory;
+  is_worker: boolean;
+  delegate_to_main?: (
+    code: string,
+    result_ptr: number,
+    result_size: number,
+  ) => number;
 }): Imports["jsexec"] {
   return {
     run(code, code_len, result, result_size) {
@@ -187,6 +195,13 @@ export function jsexec_imports({
       const codeBytes = new Uint8Array(code_len);
       codeBytes.set(mem.subarray(code, code + code_len));
       const codeStr = new TextDecoder().decode(codeBytes);
+
+      // Workers don't have access to window/DOM — delegate eval to the
+      // main thread via Atomics + postMessage for synchronous cross-thread
+      // communication.
+      if (is_worker && delegate_to_main) {
+        return delegate_to_main(codeStr, result, result_size);
+      }
 
       let resultStr: string;
       try {
