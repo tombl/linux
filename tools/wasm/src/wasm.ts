@@ -182,9 +182,11 @@ export function jsexec_imports({
   return {
     run(code, code_len, result, result_size) {
       const mem = new Uint8Array(memory.buffer);
-      const codeStr = new TextDecoder().decode(
-        mem.subarray(code, code + code_len),
-      );
+      // Copy from shared memory into a regular ArrayBuffer first,
+      // because TextDecoder rejects views of SharedArrayBuffer.
+      const codeBytes = new Uint8Array(code_len);
+      codeBytes.set(mem.subarray(code, code + code_len));
+      const codeStr = new TextDecoder().decode(codeBytes);
 
       let resultStr: string;
       try {
