@@ -115,6 +115,15 @@ export const U64LE: Type<bigint> = {
   },
   size: 8,
 };
+export const I64LE: Type<bigint> = {
+  get(dv, offset) {
+    return dv.getBigInt64(offset, true);
+  },
+  set(dv, offset, value) {
+    dv.setBigInt64(offset, value, true);
+  },
+  size: 8,
+};
 export const U16BE: Type<number> = {
   get(dv, offset) {
     return dv.getUint16(offset, false);

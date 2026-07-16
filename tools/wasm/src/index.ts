@@ -14,9 +14,20 @@ export {
   type BlockDeviceStorage,
   ConsoleDevice,
   EntropyDevice,
+  VirtioDevice,
   type VsockConnection,
   VsockDevice,
 } from "./virtio.ts";
+
+type MaybePromise<T> = T | PromiseLike<T>;
+
+export interface MachineOptions {
+  cmdline?: string;
+  memoryMib?: number;
+  cpus?: number;
+  devices: VirtioDevice[];
+  initcpio?: MaybePromise<ArrayBufferView>;
+}
 
 const resources = (async () => {
   const vmlinux_response = fetch(
@@ -58,7 +69,9 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
   #workers: Worker[] = [];
   #memory: WebAssembly.Memory;
   #devices: VirtioDevice[];
-  #initcpio?: ArrayBufferView;
+  #initcpio?: MaybePromise<ArrayBufferView>;
+  #boot_promise?: Promise<void>;
+  #closed = false;
 
   memory: Uint8Array;
   devicetree: DeviceTreeNode;
@@ -67,13 +80,7 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
     return this.#boot_console.readable;
   }
 
-  constructor(options: {
-    cmdline?: string;
-    memoryMib?: number;
-    cpus?: number;
-    devices: VirtioDevice[];
-    initcpio?: ArrayBufferView;
-  }) {
+  constructor(options: MachineOptions) {
     super();
     this.#boot_console = new TransformStream<Uint8Array, Uint8Array>();
     this.#boot_console_writer = this.#boot_console.writable.getWriter();
@@ -112,21 +119,6 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
       },
     };
 
-    if (this.#initcpio) {
-      const chosen = this.devicetree.chosen as DeviceTreeNode;
-      chosen["linux,initrd-start"] = INITCPIO_ADDR;
-      chosen["linux,initrd-end"] = INITCPIO_ADDR + this.#initcpio.byteLength;
-
-      this.memory.set(
-        new Uint8Array(
-          this.#initcpio.buffer,
-          this.#initcpio.byteOffset,
-          this.#initcpio.byteLength,
-        ),
-        INITCPIO_ADDR,
-      );
-    }
-
     for (const [i, dev] of this.#devices.entries()) {
       this.devicetree[`virtio${i}`] = {
         compatible: `virtio,wasm`,
@@ -138,12 +130,35 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
     }
   }
 
-  async boot() {
+  boot() {
+    if (this.#closed) return Promise.reject(new Error("machine is closed"));
+    return (this.#boot_promise ??= this.#boot());
+  }
+
+  async #boot() {
     const memory_reservations: { address: number; size: number }[] = [];
-    if (this.#initcpio) {
+    const initcpio = this.#initcpio ? await this.#initcpio : undefined;
+    if (this.#closed) throw new Error("machine is closed");
+
+    if (initcpio) {
+      assert(
+        INITCPIO_ADDR + initcpio.byteLength <= this.memory.byteLength,
+        "Initramfs does not fit in machine memory",
+      );
+      const chosen = this.devicetree.chosen as DeviceTreeNode;
+      chosen["linux,initrd-start"] = INITCPIO_ADDR;
+      chosen["linux,initrd-end"] = INITCPIO_ADDR + initcpio.byteLength;
+      this.memory.set(
+        new Uint8Array(
+          initcpio.buffer,
+          initcpio.byteOffset,
+          initcpio.byteLength,
+        ),
+        INITCPIO_ADDR,
+      );
       memory_reservations.push({
         address: INITCPIO_ADDR,
-        size: this.#initcpio.byteLength,
+        size: initcpio.byteLength,
       });
     }
 
@@ -262,6 +277,16 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
 
     const instance =
       (await WebAssembly.instantiate(vmlinux, imports)) as Instance;
+    if (this.#closed) return;
     instance.exports.boot();
+  }
+
+  close() {
+    if (this.#closed) return;
+    this.#closed = true;
+    for (const device of this.#devices) device.close();
+    for (const worker of this.#workers) worker.terminate();
+    this.#workers.length = 0;
+    void this.#boot_console_writer.close().catch(() => {});
   }
 }
