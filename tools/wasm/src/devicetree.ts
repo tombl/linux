@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import {
   type Allocated,
   Bytes,
@@ -17,6 +19,7 @@ const FDT_END = 0x00000009;
 const NODE_NAME_MAX_LEN = 31;
 const PROPERTY_NAME_MAX_LEN = 31;
 
+/** A node in the device tree: nested nodes with scalar or byte-array properties as leaves. */
 export interface DeviceTreeNode {
   [key: string]: DeviceTreeNode | DeviceTreeProperty;
 }

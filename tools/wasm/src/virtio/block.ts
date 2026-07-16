@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { Struct, U32LE, U64LE } from "../bytes.ts";
 import { assert } from "../util.ts";
 import {
@@ -34,13 +36,29 @@ const BlockDeviceStatus = {
 
 type MaybePromise<T> = T | Promise<T>;
 
+/** The storage behind a block device. */
 export interface BlockDeviceStorage {
+  /** Returns `length` bytes at `offset`. */
   read(offset: number, length: number): MaybePromise<Uint8Array>;
+  /** Writes `data` at `offset`, returning the bytes written. Without it the device is read-only. */
   write?(offset: number, data: Uint8Array): MaybePromise<number>;
+  /** Flushes completed writes. Its presence advertises the flush feature. */
   flush?(): MaybePromise<void>;
+  /** Total size in bytes. */
   capacity: number;
 }
 
+/**
+ * A virtio block device backed by a storage object.
+ *
+ * @example Serve a read-only root filesystem image
+ * ```ts
+ * blockDevice({
+ *   capacity: rootfs.byteLength,
+ *   read: (offset, length) => rootfs.subarray(offset, offset + length),
+ * })
+ * ```
+ */
 export function blockDevice(storage: BlockDeviceStorage): VirtioDevice {
   const config = new Uint8Array(BlockDeviceConfig.size);
   new BlockDeviceConfig(config).capacity = BigInt(storage.capacity / 512);

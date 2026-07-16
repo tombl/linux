@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 {
   "compilerOptions": {
     "module": "preserve",
@@ -20,6 +22,7 @@
 
     "declaration": true,
     "stripInternal": true,
+    "rootDir": "./src",
     "outDir": "./dist",
 
     "strict": true,

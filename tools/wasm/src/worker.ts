@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { platform } from "./platform.ts";
 import { assert } from "./util.ts";
 import { read_wasm_memories } from "./wasm_binary.ts";
