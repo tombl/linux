@@ -11,8 +11,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: NixOS/nix-installer-action@main
+      - uses: Mic92/hestia@v2
       - run: nix build . --print-build-logs
       - run: cp -L result linux.tgz
       - uses: actions/upload-artifact@v4
@@ -21,7 +21,7 @@ jobs:
           path: linux.tgz
 
   publish:
-    if: github.ref == 'refs/heads/wasm'
+    if: github.repository == 'tombl/linux' && github.ref == 'refs/heads/wasm'
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -35,7 +35,6 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-          package-manager-cache: false
       - run: npm install -g npm@latest
       - run: |
           version="0.0.0-${GITHUB_SHA::8}"
