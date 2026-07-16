@@ -3,6 +3,7 @@ import {
   HALT_KERNEL,
   type Imports,
   type Instance,
+  type UserContext,
   kernel_imports,
 } from "./wasm.ts";
 
@@ -11,8 +12,7 @@ export interface InitMessage {
   arg: number;
   vmlinux: WebAssembly.Module;
   memory: WebAssembly.Memory;
-  parent_user_module: WebAssembly.Module | null;
-  parent_user_memory: WebAssembly.Memory | null;
+  user: UserContext | null;
 }
 export type WorkerMessage =
   | {
@@ -20,8 +20,7 @@ export type WorkerMessage =
     fn: number;
     arg: number;
     name: string;
-    user_module: WebAssembly.Module | null;
-    user_memory: WebAssembly.Memory | null;
+    user: UserContext | null;
   }
   | { type: "boot_console_write"; message: ArrayBuffer }
   | { type: "boot_console_close" }
@@ -36,24 +35,40 @@ const postMessage = self.postMessage as (message: WorkerMessage) => void;
 function user_imports({
   kernel_memory,
   get_kernel_instance,
-  parent_user_module: parent_module,
-  parent_user_memory: parent_memory,
+  parent_user: parent,
 }: {
   kernel_memory: WebAssembly.Memory;
   get_kernel_instance: () => Instance;
-  parent_user_module: WebAssembly.Module | null;
-  parent_user_memory: WebAssembly.Memory | null;
+  parent_user: UserContext | null;
 }): {
   module: WebAssembly.Module | null;
   memory: WebAssembly.Memory | null;
+  prepare(): void;
   imports: Imports["user"];
 } {
   const HALT_USER = Symbol("halt user");
 
   const kernel_memory_buffer = new Uint8Array(kernel_memory.buffer);
-  let module: WebAssembly.Module | null = null;
+  let module: WebAssembly.Module | null = parent?.module ?? null;
   let instance: WebAssembly.Instance | null = null;
-  let memory: WebAssembly.Memory | null = null;
+  let memory: WebAssembly.Memory | null = parent?.memory ?? null;
+
+  function user_atomic_word(uaddr: number): Int32Array | null {
+    const address = uaddr >>> 0;
+    if (
+      !memory ||
+      (address & 3) !== 0 ||
+      address > memory.buffer.byteLength - Int32Array.BYTES_PER_ELEMENT
+    ) {
+      return null;
+    }
+
+    return new Int32Array(memory.buffer, address, 1);
+  }
+
+  function write_kernel_u32(addr: number, value: number): void {
+    new DataView(kernel_memory.buffer).setUint32(addr, value, true);
+  }
 
   function call_start(): void {
     assert(instance);
@@ -64,12 +79,71 @@ function user_imports({
   }
   let call_entry = call_start;
 
+  function instantiate(fresh_memory: boolean): void {
+    assert(module);
+
+    if (fresh_memory || !memory) {
+      const size = 2048 + Math.floor(Math.random() * 1000);
+
+      // TODO: read the real initial size from the module.
+      // TOOD: enforce rlimit via maximum.
+      memory = new WebAssembly.Memory({
+        initial: size,
+        maximum: size,
+        shared: true,
+      });
+    }
+
+    const kernel_instance = get_kernel_instance();
+    instance = new WebAssembly.Instance(module, {
+      env: { memory },
+      linux: {
+        syscall: (
+          nr: number,
+          arg0: number,
+          arg1: number,
+          arg2: number,
+          arg3: number,
+          arg4: number,
+          arg5: number,
+        ) => {
+          const original_instance = instance;
+          const ret = kernel_instance.exports.syscall(
+            nr,
+            arg0,
+            arg1,
+            arg2,
+            arg3,
+            arg4,
+            arg5,
+          );
+          if (instance !== original_instance) {
+            call_entry = call_start;
+            throw HALT_USER;
+          }
+          return ret;
+        },
+        get_thread_area: kernel_instance.exports.get_thread_area,
+        get_args_length: kernel_instance.exports.get_args_length,
+        get_args: kernel_instance.exports.get_args,
+      },
+    });
+
+    if ("memory" in instance.exports) {
+      assert(instance.exports.memory instanceof WebAssembly.Memory);
+      memory = instance.exports.memory;
+    }
+  }
+
   return {
     get module() {
       return module;
     },
     get memory() {
       return memory;
+    },
+    prepare() {
+      if (parent) instantiate(false);
     },
     imports: {
       // program management:
@@ -85,70 +159,7 @@ function user_imports({
         }
       },
       instantiate(fresh_memory) {
-        assert(module);
-
-        if (fresh_memory || !memory) {
-          const size = 2048 + Math.floor(Math.random() * 1000);
-
-          // TODO: read the real initial size from the module.
-          // TOOD: enforce rlimit via maximum.
-          memory = new WebAssembly.Memory({
-            initial: size,
-            maximum: size,
-            shared: true,
-          });
-        }
-
-        const kernel_instance = get_kernel_instance();
-
-        // console.log("instantiating with", memory);
-        try {
-          instance = new WebAssembly.Instance(module, {
-            env: { memory },
-            linux: {
-              syscall: (
-                nr: number,
-                arg0: number,
-                arg1: number,
-                arg2: number,
-                arg3: number,
-                arg4: number,
-                arg5: number,
-              ) => {
-                const original_instance = instance;
-                const ret = kernel_instance.exports.syscall(
-                  nr,
-                  arg0,
-                  arg1,
-                  arg2,
-                  arg3,
-                  arg4,
-                  arg5,
-                );
-                if (instance !== original_instance) {
-                  // if the instance changed, then this was the exec syscall,
-                  // so call into the new instance:
-                  call_entry = call_start;
-
-                  // and we never want to return to the caller of the syscall, so
-                  // skip straight to the catch block of the parent's call_entry
-                  throw HALT_USER;
-                }
-                return ret;
-              },
-              get_thread_area: kernel_instance.exports.get_thread_area,
-              get_args_length: kernel_instance.exports.get_args_length,
-              get_args: kernel_instance.exports.get_args,
-            },
-          });
-
-          if ("memory" in instance.exports) {
-            assert(instance.exports.memory instanceof WebAssembly.Memory);
-            memory = instance.exports.memory;
-          }
-        } catch (error) {
-          console.log("error instantiating user module:", String(error));
-        }
+        instantiate(Boolean(fresh_memory));
       },
       call() {
         for (;;) {
@@ -164,15 +175,11 @@ function user_imports({
       },
       switch_entry(fn, arg) {
         // This is called if this thread was created by a clone call,
-        // and therefore we our entrypoint is a user-specified function.
-        // Our custom variant of the clone syscall spawns a worker that calls
-        // switch_entry, then immediately calls instantiate.
+        // so its entrypoint is a user-specified function.
+        // The worker prepares an instance sharing the parent's user context
+        // before the kernel enters this callback.
 
-        assert(parent_module);
-        assert(parent_memory);
-
-        module = parent_module;
-        memory = parent_memory;
+        assert(parent);
 
         call_entry = () => {
           assert(instance);
@@ -234,19 +241,53 @@ function user_imports({
         slice.fill(0);
         return n - slice.length;
       },
+      futex_atomic_op(oldval, uaddr, op, oparg) {
+        const word = user_atomic_word(uaddr);
+        if (!word) return -14; // bad address
+
+        let old: number;
+        switch (op) {
+          case 0: // FUTEX_OP_SET
+            old = Atomics.exchange(word, 0, oparg);
+            break;
+          case 1: // FUTEX_OP_ADD
+            old = Atomics.add(word, 0, oparg);
+            break;
+          case 2: // FUTEX_OP_OR
+            old = Atomics.or(word, 0, oparg);
+            break;
+          case 3: // FUTEX_OP_ANDN
+            old = Atomics.and(word, 0, ~oparg);
+            break;
+          case 4: // FUTEX_OP_XOR
+            old = Atomics.xor(word, 0, oparg);
+            break;
+          default:
+            return -38; // function not implemented
+        }
+
+        write_kernel_u32(oldval, old);
+        return 0;
+      },
+      futex_atomic_cmpxchg(oldval, uaddr, expected, replacement) {
+        const word = user_atomic_word(uaddr);
+        if (!word) return -14; // bad address
+
+        const old = Atomics.compareExchange(word, 0, expected, replacement);
+        write_kernel_u32(oldval, old);
+        return 0;
+      },
     },
   };
 }
 
 self.onmessage = (event: MessageEvent<InitMessage>) => {
-  const { fn, arg, vmlinux, memory, parent_user_module, parent_user_memory } =
-    event.data;
+  const { fn, arg, vmlinux, memory, user: parent_user } = event.data;
 
   const user = user_imports({
     kernel_memory: memory,
     get_kernel_instance: () => instance,
-    parent_user_module,
-    parent_user_memory,
+    parent_user,
   });
 
   const imports = {
@@ -259,14 +300,13 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
     kernel: kernel_imports({
       is_worker: true,
       memory,
-      spawn_worker(fn, arg, name, user_module, user_memory) {
+      spawn_worker(fn, arg, name, user) {
         postMessage({
           type: "spawn_worker",
           fn,
           arg,
           name,
-          user_module,
-          user_memory,
+          user,
         });
       },
       boot_console_write(message) {
@@ -295,6 +335,7 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
   } satisfies Imports;
 
   const instance = new WebAssembly.Instance(vmlinux, imports) as Instance;
+  user.prepare();
   try {
     instance.exports.__indirect_function_table.get(fn)!(arg);
   } catch (error) {

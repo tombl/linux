@@ -1,7 +1,12 @@
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
 import { assert, EventEmitter, unreachable } from "./util.ts";
 import { virtio_imports, VirtioDevice } from "./virtio.ts";
-import { type Imports, type Instance, kernel_imports } from "./wasm.ts";
+import {
+  type Imports,
+  type Instance,
+  type UserContext,
+  kernel_imports,
+} from "./wasm.ts";
 import type { InitMessage, WorkerMessage } from "./worker.ts";
 
 export {
@@ -162,8 +167,7 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
       fn: number,
       arg: number,
       name: string,
-      user_module: WebAssembly.Module | null,
-      user_memory: WebAssembly.Memory | null,
+      user: UserContext | null,
     ) => {
       const worker = new Worker(new URL("./worker.js", import.meta.url), {
         type: "module",
@@ -177,8 +181,7 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
               event.data.fn,
               event.data.arg,
               event.data.name,
-              event.data.user_module,
-              event.data.user_memory,
+              event.data.user,
             );
             break;
           case "boot_console_write":
@@ -204,8 +207,7 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
           arg,
           vmlinux,
           memory: this.#memory,
-          parent_user_module: user_module,
-          parent_user_memory: user_memory,
+          user,
         } satisfies InitMessage,
       );
     };
@@ -246,6 +248,8 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
         read: unavailable,
         write: unavailable,
         write_zeroes: unavailable,
+        futex_atomic_op: unavailable,
+        futex_atomic_cmpxchg: unavailable,
       },
       virtio: virtio_imports({
         memory: this.#memory,

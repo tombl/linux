@@ -142,6 +142,8 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	memset(childregs, 0, sizeof(struct pt_regs));
 
 	atomic_set(&task_thread_info(p)->running_cpu, -1);
+	if (args->flags & CLONE_SETTLS)
+		task_thread_info(p)->tp_value = args->tls;
 
 	// don't spawn a worker for idle threads
 	// this is probably a bad idea
