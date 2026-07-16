@@ -123,7 +123,6 @@ export function kernel_imports(
   const mem = new Uint8Array(memory.buffer);
   return {
     breakpoint: () => {
-      // deno-lint-ignore no-debugger
       debugger;
     },
     halt_worker: () => {

@@ -1,14 +1,17 @@
+/// <reference lib="esnext.disposable" preserve="true" />
+
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
-import { assert, EventEmitter, unreachable } from "./util.ts";
+import { assert, unreachable } from "./util.ts";
 import { virtio_imports, VirtioDevice } from "./virtio.ts";
 import {
   type Imports,
   type Instance,
-  type UserContext,
   kernel_imports,
+  type UserContext,
 } from "./wasm.ts";
 import type { InitMessage, WorkerMessage } from "./worker.ts";
 
+export type { DeviceTreeNode } from "./devicetree.ts";
 export {
   BlockDevice,
   type BlockDeviceStorage,
@@ -21,18 +24,28 @@ export {
 
 type MaybePromise<T> = T | PromiseLike<T>;
 
-export interface MachineOptions {
+export interface SpawnMachineOptions {
   cmdline?: string;
   memoryMib?: number;
   cpus?: number;
-  devices: VirtioDevice[];
+  devices: readonly VirtioDevice[];
   initcpio?: MaybePromise<ArrayBufferView>;
+  /** Recursively merged over the generated device tree before boot. */
+  devicetree?: DeviceTreeNode;
+}
+
+export interface Machine extends Disposable {
+  readonly memory: Uint8Array;
+  /** Kernel output from before the console device is available. */
+  readonly bootConsole: ReadableStream<Uint8Array>;
+  /** Settles when closed, rejecting if the machine failed unexpectedly. */
+  readonly closed: Promise<void>;
+  /** Idempotently shuts down the workers and owned devices. */
+  close(): void;
 }
 
 const resources = (async () => {
-  const vmlinux_response = fetch(
-    new URL("../vmlinux.wasm", import.meta.url),
-  );
+  const vmlinux_response = fetch(new URL("../vmlinux.wasm", import.meta.url));
 
   let vmlinux: WebAssembly.Module;
   if ("compileStreaming" in WebAssembly) {
@@ -63,43 +76,68 @@ const resources = (async () => {
 
 const INITCPIO_ADDR = 0x200000;
 
-export class Machine extends EventEmitter<{ error: ErrorEvent }> {
-  #boot_console: TransformStream<Uint8Array, Uint8Array>;
-  #boot_console_writer: WritableStreamDefaultWriter<Uint8Array>;
-  #workers: Worker[] = [];
-  #memory: WebAssembly.Memory;
-  #devices: VirtioDevice[];
-  #initcpio?: MaybePromise<ArrayBufferView>;
-  #boot_promise?: Promise<void>;
-  #closed = false;
+function is_devicetree_node(value: unknown): value is DeviceTreeNode {
+  return typeof value === "object" && value?.constructor === Object;
+}
 
-  memory: Uint8Array;
-  devicetree: DeviceTreeNode;
-
-  get bootConsole() {
-    return this.#boot_console.readable;
+function merge_devicetree(target: DeviceTreeNode, source: DeviceTreeNode) {
+  for (const [name, value] of Object.entries(source)) {
+    const current = target[name];
+    if (is_devicetree_node(current) && is_devicetree_node(value)) {
+      merge_devicetree(current, value);
+    } else {
+      target[name] = value;
+    }
   }
+}
 
-  constructor(options: MachineOptions) {
-    super();
-    this.#boot_console = new TransformStream<Uint8Array, Uint8Array>();
-    this.#boot_console_writer = this.#boot_console.writable.getWriter();
-    this.#devices = options.devices;
-    this.#initcpio = options.initcpio;
+export async function spawnMachine(
+  options: SpawnMachineOptions,
+): Promise<Machine> {
+  const devices = options.devices;
+  const workers: Worker[] = [];
+  let closed = false;
 
+  const closed_promise = Promise.withResolvers<void>();
+  // Lifecycle promises on platform objects do not cause unhandled rejections
+  // merely because a consumer chooses not to observe them.
+  void closed_promise.promise.catch(() => {});
+
+  const boot_console = new TransformStream<Uint8Array, Uint8Array>();
+  const boot_console_writer = boot_console.writable.getWriter();
+  const boot_console_write = (message: ArrayBuffer) => {
+    void boot_console_writer.write(new Uint8Array(message)).catch(() => {});
+  };
+  const boot_console_close = () => {
+    void boot_console_writer.close().catch(() => {});
+  };
+
+  const finish = (error?: unknown) => {
+    if (closed) return;
+    closed = true;
+    for (const device of devices) device.close();
+    for (const worker of workers) worker.terminate();
+    workers.length = 0;
+    boot_console_close();
+    if (error === undefined) closed_promise.resolve();
+    else closed_promise.reject(error);
+  };
+  const close = () => finish();
+
+  try {
     const PAGE_SIZE = 0x10000;
     const BYTES_PER_MIB = 0x100000;
     const bytes = (options.memoryMib ?? 128) * BYTES_PER_MIB;
     const pages = bytes / PAGE_SIZE;
-    this.#memory = new WebAssembly.Memory({
+    const wasm_memory = new WebAssembly.Memory({
       initial: pages,
       maximum: pages,
       shared: true,
     });
-    assert(this.#memory.buffer.byteLength === bytes);
-    this.memory = new Uint8Array(this.#memory.buffer);
+    assert(wasm_memory.buffer.byteLength === bytes);
+    const memory = new Uint8Array(wasm_memory.buffer);
 
-    this.devicetree = {
+    const devicetree: DeviceTreeNode = {
       "#address-cells": 1,
       "#size-cells": 1,
       chosen: {
@@ -119,8 +157,8 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
       },
     };
 
-    for (const [i, dev] of this.#devices.entries()) {
-      this.devicetree[`virtio${i}`] = {
+    for (const [i, dev] of devices.entries()) {
+      devicetree[`virtio${i}`] = {
         compatible: `virtio,wasm`,
         "host-id": i,
         "virtio-device-id": dev.ID,
@@ -128,27 +166,18 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
         config: dev.config_bytes,
       };
     }
-  }
-
-  boot() {
-    if (this.#closed) return Promise.reject(new Error("machine is closed"));
-    return (this.#boot_promise ??= this.#boot());
-  }
-
-  async #boot() {
     const memory_reservations: { address: number; size: number }[] = [];
-    const initcpio = this.#initcpio ? await this.#initcpio : undefined;
-    if (this.#closed) throw new Error("machine is closed");
+    const initcpio = options.initcpio ? await options.initcpio : undefined;
 
     if (initcpio) {
       assert(
-        INITCPIO_ADDR + initcpio.byteLength <= this.memory.byteLength,
+        INITCPIO_ADDR + initcpio.byteLength <= memory.byteLength,
         "Initramfs does not fit in machine memory",
       );
-      const chosen = this.devicetree.chosen as DeviceTreeNode;
+      const chosen = devicetree.chosen as DeviceTreeNode;
       chosen["linux,initrd-start"] = INITCPIO_ADDR;
       chosen["linux,initrd-end"] = INITCPIO_ADDR + initcpio.byteLength;
-      this.memory.set(
+      memory.set(
         new Uint8Array(
           initcpio.buffer,
           initcpio.byteOffset,
@@ -163,20 +192,16 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
     }
 
     const { sections, vmlinux, initramfs } = await resources;
-    (this.devicetree.chosen as DeviceTreeNode).sections = sections;
+    (devicetree.chosen as DeviceTreeNode).sections = sections;
+    if (options.devicetree) merge_devicetree(devicetree, options.devicetree);
 
-    const devicetree = generate_devicetree(this.devicetree, {
+    const generated_devicetree = generate_devicetree(devicetree, {
       memory_reservations,
     });
 
-    const boot_console_write = (message: ArrayBuffer) => {
-      this.#boot_console_writer.write(new Uint8Array(message)).catch(() => {
-        // Ignore errors if the console is closed
-      });
-    };
-    const boot_console_close = () => {
-      this.#boot_console_writer.close();
-    };
+    // The imports must exist before instantiation returns the instance they
+    // call back into, but they only run once exports.boot() starts the kernel.
+    let instance: Instance | undefined;
 
     const spawn_worker = (
       fn: number,
@@ -184,11 +209,12 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
       name: string,
       user: UserContext | null,
     ) => {
+      if (closed) return;
       const worker = new Worker(new URL("./worker.js", import.meta.url), {
         type: "module",
         name,
       });
-      this.#workers.push(worker);
+      workers.push(worker);
       worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
         switch (event.data.type) {
           case "spawn_worker":
@@ -206,22 +232,29 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
             boot_console_close();
             break;
           case "run_on_main":
-            instance.exports.__indirect_function_table
-              .get(event.data.fn)!(event.data.arg);
+            assert(instance);
+            instance.exports.__indirect_function_table.get(event.data.fn)!(
+              event.data.arg,
+            );
             break;
           default:
             unreachable(event.data);
         }
       };
       worker.onerror = (event) => {
-        this.emit("error", event);
+        event.preventDefault();
+        finish(
+          event.error instanceof Error
+            ? event.error
+            : new Error(event.message || "machine worker failed"),
+        );
       };
       worker.postMessage(
         {
           fn,
           arg,
           vmlinux,
-          memory: this.#memory,
+          memory: wasm_memory,
           user,
         } satisfies InitMessage,
       );
@@ -232,21 +265,24 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
     };
 
     const imports = {
-      env: { memory: this.#memory },
+      env: { memory: wasm_memory },
       boot: {
         get_devicetree: (buf, size) => {
-          assert(size >= devicetree.byteLength, "Device tree truncated");
-          this.memory.set(devicetree, buf);
+          assert(
+            size >= generated_devicetree.byteLength,
+            "Device tree truncated",
+          );
+          memory.set(generated_devicetree, buf);
         },
         get_initramfs: (buf, size) => {
           assert(size >= initramfs.byteLength, "Initramfs truncated");
-          this.memory.set(initramfs, buf);
+          memory.set(initramfs, buf);
           return initramfs.byteLength;
         },
       },
       kernel: kernel_imports({
         is_worker: false,
-        memory: this.#memory,
+        memory: wasm_memory,
         spawn_worker,
         boot_console_write,
         boot_console_close,
@@ -267,26 +303,28 @@ export class Machine extends EventEmitter<{ error: ErrorEvent }> {
         futex_atomic_cmpxchg: unavailable,
       },
       virtio: virtio_imports({
-        memory: this.#memory,
-        devices: this.#devices,
+        memory: wasm_memory,
+        devices,
+        on_error: finish,
         trigger_irq_for_cpu(cpu, irq) {
+          assert(instance);
           instance.exports.trigger_irq_for_cpu(cpu, irq);
         },
       }),
     } satisfies Imports;
 
-    const instance =
-      (await WebAssembly.instantiate(vmlinux, imports)) as Instance;
-    if (this.#closed) return;
+    instance = (await WebAssembly.instantiate(vmlinux, imports)) as Instance;
     instance.exports.boot();
-  }
 
-  close() {
-    if (this.#closed) return;
-    this.#closed = true;
-    for (const device of this.#devices) device.close();
-    for (const worker of this.#workers) worker.terminate();
-    this.#workers.length = 0;
-    void this.#boot_console_writer.close().catch(() => {});
+    return {
+      memory,
+      bootConsole: boot_console.readable,
+      closed: closed_promise.promise,
+      close,
+      [Symbol.dispose]: close,
+    };
+  } catch (error) {
+    close();
+    throw error;
   }
 }

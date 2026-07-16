@@ -58,8 +58,9 @@ class Chain {
     assert(desc);
     const avail = (desc.flags & DescriptorFlags.AVAIL) !== 0;
     const used = (desc.flags & DescriptorFlags.USED) !== 0;
-    if (avail === used || avail !== queue.used_wrap)
+    if (avail === used || avail !== queue.used_wrap) {
       throw new Error("ring full");
+    }
 
     let flags = 0;
     if (queue.used_wrap) flags |= DescriptorFlags.AVAIL | DescriptorFlags.USED;
@@ -165,13 +166,19 @@ class Virtqueue {
   }
 }
 
+export interface VirtqueueState {
+  queue: Virtqueue | undefined;
+  /** A kernel notification arrived while a notify() call was in flight. */
+  pending: boolean;
+  notifying: boolean;
+}
+
 export abstract class VirtioDevice<Config extends object = object> {
   abstract readonly ID: number;
   abstract config_bytes: Uint8Array;
   abstract config: Config;
 
-  features =
-    TransportFeatures.VERSION_1 |
+  features = TransportFeatures.VERSION_1 |
     TransportFeatures.RING_PACKED |
     TransportFeatures.INDIRECT_DESC;
 
@@ -181,16 +188,24 @@ export abstract class VirtioDevice<Config extends object = object> {
     throw new Error("trigger_interrupt called before setup");
   };
 
-  vqs: Virtqueue[] = [];
+  /** Slots are created lazily: the kernel may notify a queue before enabling it. */
+  vqs: VirtqueueState[] = [];
+  vq(n: number): VirtqueueState {
+    return (this.vqs[n] ??= {
+      queue: undefined,
+      pending: false,
+      notifying: false,
+    });
+  }
   enable(vq: number, queue: Virtqueue) {
-    this.vqs[vq] = queue;
+    this.vq(vq).queue = queue;
   }
   disable(vq: number) {
-    const queue = this.vqs[vq];
-    assert(queue);
+    const state = this.vqs[vq];
+    assert(state?.queue);
+    state.queue = undefined;
   }
-
-  abstract notify(vq: number): void;
+  abstract notify(vq: number): void | PromiseLike<void>;
 
   setup_complete() {}
   close() {}
@@ -353,7 +368,9 @@ export class VsockConnection {
       const used = (this.#bytes_written - this.#peer_fwd_cnt) >>> 0;
       const available = Math.max(0, this.#peer_buf_alloc - used);
       if (available === 0) {
-        await new Promise<void>((resolve) => this.#credit_waiters.push(resolve));
+        await new Promise<void>((resolve) =>
+          this.#credit_waiters.push(resolve)
+        );
         continue;
       }
       const n = Math.min(
@@ -410,7 +427,9 @@ export class VsockDevice extends VirtioDevice<VsockConfig> {
   }
 
   connect(port: number, { timeoutMs = 5000 } = {}): Promise<VsockConnection> {
-    if (this.#closed) return Promise.reject(new Error("vsock device is closed"));
+    if (this.#closed) {
+      return Promise.reject(new Error("vsock device is closed"));
+    }
     const local_port = this.#allocate_port();
     const connection = new VsockConnection(this, local_port, port);
 
@@ -547,14 +566,16 @@ export class VsockDevice extends VirtioDevice<VsockConfig> {
         break;
       case VsockOp.SHUTDOWN:
         this.send_packet(state.connection, VsockOp.RST, 0, new Uint8Array());
-        if (!state.connected)
+        if (!state.connected) {
           state.reject(new Error("guest shut down vsock connection"));
+        }
         state.connection.close_from_peer();
         this.#connections.delete(local_port);
         break;
       case VsockOp.RST:
-        if (!state.connected)
+        if (!state.connected) {
           state.reject(new Error("guest reset vsock connection"));
+        }
         state.connection.close_from_peer();
         this.#connections.delete(local_port);
         break;
@@ -567,8 +588,9 @@ export class VsockDevice extends VirtioDevice<VsockConfig> {
     if (this.#closed) return;
     for (const state of this.#connections.values()) {
       this.send_packet(state.connection, VsockOp.RST, 0, new Uint8Array());
-      if (!state.connected)
+      if (!state.connected) {
         state.reject(new Error("vsock device closed while connecting"));
+      }
       state.connection.close_from_peer();
     }
     this.#connections.clear();
@@ -576,7 +598,7 @@ export class VsockDevice extends VirtioDevice<VsockConfig> {
   }
 
   override notify(vq: number) {
-    const queue = this.vqs[vq];
+    const queue = this.vqs[vq]?.queue;
     assert(queue);
 
     switch (vq) {
@@ -659,7 +681,7 @@ export class BlockDevice extends VirtioDevice<BlockDeviceConfig> {
   override async notify(vq: number) {
     assert(vq === 0);
 
-    const queue = this.vqs[vq];
+    const queue = this.vqs[vq]?.queue;
     assert(queue);
 
     for (const chain of queue) {
@@ -790,7 +812,7 @@ export class ConsoleDevice extends VirtioDevice<EmptyStruct> {
   }
 
   override async notify(vq: number) {
-    const queue = this.vqs[vq];
+    const queue = this.vqs[vq]?.queue;
     assert(queue);
 
     switch (vq) {
@@ -822,7 +844,7 @@ export class EntropyDevice extends VirtioDevice<EmptyStruct> {
   override notify(vq: number) {
     assert(vq === 0);
 
-    const queue = this.vqs[vq];
+    const queue = this.vqs[vq]?.queue;
     assert(queue);
 
     for (const chain of queue) {
@@ -848,12 +870,31 @@ export function virtio_imports({
   memory,
   devices,
   trigger_irq_for_cpu,
+  on_error,
 }: {
   memory: WebAssembly.Memory;
-  devices: VirtioDevice[];
+  devices: readonly VirtioDevice[];
   trigger_irq_for_cpu: (cpu: number, irq: number) => void;
+  on_error: (error: unknown) => void;
 }): Imports["virtio"] {
   const dv = new DataView(memory.buffer);
+
+  const drain_notifications = async (device: VirtioDevice, vq: number) => {
+    const state = device.vq(vq);
+    if (state.notifying || !state.queue) return;
+
+    state.notifying = true;
+    try {
+      do {
+        state.pending = false;
+        await device.notify(vq);
+      } while (state.pending && state.queue);
+    } catch (error) {
+      on_error(error);
+    } finally {
+      state.notifying = false;
+    }
+  };
 
   return {
     set_features(dev, features) {
@@ -869,6 +910,7 @@ export function virtio_imports({
       const device = devices[dev];
       assert(device);
       device.enable(vq, new Virtqueue(dv, size, desc_addr));
+      if (device.vq(vq).pending) void drain_notifications(device, vq);
     },
     disable_vring(dev, vq) {
       const device = devices[dev];
@@ -904,7 +946,8 @@ export function virtio_imports({
     notify(dev, vq) {
       const device = devices[dev];
       assert(device);
-      device.notify(vq);
+      device.vq(vq).pending = true;
+      void drain_notifications(device, vq);
     },
   };
 }

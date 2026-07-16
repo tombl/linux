@@ -4,10 +4,14 @@
     "moduleResolution": "bundler",
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
 
     "target": "es2022",
     "lib": [
       "es2022",
+      "esnext.disposable",
+      "es2024.promise",
       "webworker",
       "webworker.iterable",
       "webworker.asynciterable"

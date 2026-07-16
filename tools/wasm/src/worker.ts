@@ -3,8 +3,8 @@ import {
   HALT_KERNEL,
   type Imports,
   type Instance,
-  type UserContext,
   kernel_imports,
+  type UserContext,
 } from "./wasm.ts";
 
 export interface InitMessage {
@@ -16,12 +16,12 @@ export interface InitMessage {
 }
 export type WorkerMessage =
   | {
-    type: "spawn_worker";
-    fn: number;
-    arg: number;
-    name: string;
-    user: UserContext | null;
-  }
+      type: "spawn_worker";
+      fn: number;
+      arg: number;
+      name: string;
+      user: UserContext | null;
+    }
   | { type: "boot_console_write"; message: ArrayBuffer }
   | { type: "boot_console_close" }
   | { type: "run_on_main"; fn: number; arg: number };
