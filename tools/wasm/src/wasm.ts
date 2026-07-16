@@ -18,6 +18,11 @@ export interface Instance extends WebAssembly.Instance {
   };
 }
 
+export interface UserContext {
+  module: WebAssembly.Module;
+  memory: WebAssembly.Memory;
+}
+
 export interface Imports {
   env: { memory: WebAssembly.Memory };
   boot: {
@@ -50,6 +55,18 @@ export interface Imports {
     read(to: number, from: number, n: number): number;
     write(to: number, from: number, n: number): number;
     write_zeroes(to: number, n: number): number;
+    futex_atomic_op(
+      oldval: number,
+      uaddr: number,
+      op: number,
+      oparg: number,
+    ): number;
+    futex_atomic_cmpxchg(
+      oldval: number,
+      uaddr: number,
+      expected: number,
+      replacement: number,
+    ): number;
   };
   virtio: {
     set_features(dev: number, features: bigint): void;
@@ -94,8 +111,7 @@ export function kernel_imports(
       fn: number,
       arg: number,
       name: string,
-      user_module: WebAssembly.Module | null,
-      user_memory: WebAssembly.Memory | null,
+      user: UserContext | null,
     ) => void;
     boot_console_write: (message: ArrayBuffer) => void;
     boot_console_close: () => void;
@@ -158,13 +174,14 @@ export function kernel_imports(
       const name = new TextDecoder().decode(
         mem.slice(comm, comm + comm_len),
       );
-      spawn_worker(
-        fn,
-        arg,
-        name,
-        share_user_memory ? get_user_module() : null,
-        share_user_memory ? get_user_memory() : null,
-      );
+      let user: UserContext | null = null;
+      if (share_user_memory) {
+        const module = get_user_module();
+        const memory = get_user_memory();
+        if (!module || !memory) throw new Error("User context not available");
+        user = { module, memory };
+      }
+      spawn_worker(fn, arg, name, user);
     },
 
     run_on_main,

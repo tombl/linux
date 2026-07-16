@@ -37,6 +37,10 @@ void wasm_import(user, halt_signal_handler)(void);
 int wasm_import(user, read)(void *to, const void __user *from, unsigned long n);
 int wasm_import(user, write)(void __user *to, const void *from, unsigned long n);
 int wasm_import(user, write_zeroes)(void __user *to, unsigned long n);
+int wasm_import(user, futex_atomic_op)(int *oldval, u32 __user *uaddr,
+				       int op, int oparg);
+int wasm_import(user, futex_atomic_cmpxchg)(u32 *oldval, u32 __user *uaddr,
+					    u32 expected, u32 replacement);
 
 #ifdef CONFIG_VIRTIO_WASM
 void wasm_import(virtio, set_features)(u32 id, u64 features);

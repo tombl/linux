@@ -11,7 +11,6 @@ int wasm_call_clone_fn(void *arg)
 	struct clone_fn *clone_fn = arg;
 	wasm_user_switch_entry((uintptr_t)clone_fn->fn,
 			       (uintptr_t)clone_fn->arg);
-	wasm_user_instantiate(false);
 	kfree(clone_fn);
 	return 0;
 }
@@ -20,7 +19,13 @@ SYSCALL_DEFINE6(clone, void *__user, fn, void *__user, fn_arg, unsigned long,
 		clone_flags, int __user *, parent_tidptr, int __user *,
 		child_tidptr, unsigned long, tls)
 {
-	struct kernel_clone_args kargs = {
+	struct kernel_clone_args kargs;
+	struct clone_fn *clone_fn;
+
+	if (!(clone_flags & CLONE_VM))
+		return -EINVAL;
+
+	kargs = (struct kernel_clone_args) {
 		.flags = (lower_32_bits(clone_flags) & ~CSIGNAL),
 		.pidfd = parent_tidptr,
 		.child_tid = child_tidptr,
@@ -29,7 +34,7 @@ SYSCALL_DEFINE6(clone, void *__user, fn, void *__user, fn_arg, unsigned long,
 		.tls = tls,
 	};
 
-	struct clone_fn *clone_fn = kmalloc(sizeof(*clone_fn), GFP_KERNEL);
+	clone_fn = kmalloc(sizeof(*clone_fn), GFP_KERNEL);
 	if (!clone_fn)
 		return -ENOMEM;
 	clone_fn->fn = fn;
