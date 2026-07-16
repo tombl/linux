@@ -6,6 +6,7 @@ Q = @
 endif
 
 TSC ?= tsc
+HOSTCC ?= cc
 PERL ?= perl
 TAR ?= tar
 PACKAGE = linux.tgz
@@ -13,14 +14,14 @@ PACKAGE_DIR = npm-package
 PACKAGE_VERSION ?=
 BUILD_ASSETS = vmlinux.wasm
 
-.PHONY: all clean pack
+.PHONY: all clean pack vmlinux.wasm
 all: dist/index.js dist/index.d.ts vmlinux.wasm
 
 clean:
 	$(Q)rm -rf dist $(PACKAGE_DIR) $(PACKAGE) $(BUILD_ASSETS)
 
 vmlinux.wasm:
-	$(Q)$(MAKE) -C ../.. tools/wasm/vmlinux.wasm
+	$(Q)$(MAKE) -C ../.. HOSTCC="$(HOSTCC)" tools/wasm/vmlinux.wasm
 
 dist/index.js dist/index.d.ts &: $(shell find src -type f)
 	$(Q)$(TSC)
