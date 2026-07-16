@@ -303,7 +303,7 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
     jsexec: jsexec_imports({
       memory,
       is_worker: true,
-      delegate_to_main: (codeStr, resultPtr, resultSize) => {
+      delegate_to_main: (codeStr, resultPtr, resultSize): number => {
         // Create a shared control buffer for synchronous cross-thread
         // communication: [0] = state flag, [1] = result length.
         const sab = new SharedArrayBuffer(8);
@@ -328,7 +328,7 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
           mem.set(errorBytes.subarray(0, len), resultPtr);
           return len;
         }
-        return view[1];
+        return view[1] ?? 0;
       },
     }),
   } satisfies Imports;
