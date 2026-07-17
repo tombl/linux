@@ -106,6 +106,15 @@ export const U32LE: Type<number> = {
   },
   size: 4,
 };
+export const I32LE: Type<number> = {
+  get(dv, offset) {
+    return dv.getInt32(offset, true);
+  },
+  set(dv, offset, value) {
+    dv.setInt32(offset, value, true);
+  },
+  size: 4,
+};
 export const U64LE: Type<bigint> = {
   get(dv, offset) {
     return dv.getBigUint64(offset, true);
