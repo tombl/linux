@@ -9,12 +9,29 @@
 #include <linux/irqdomain.h>
 #include <linux/processor.h>
 
+/*
+ * Two-level pending bitmap. A wasm atomic wait can only watch a single
+ * address, so idle waits on the summary word; bit w of the summary means
+ * words[w] has pending irqs.
+ */
+struct pending_irqs {
+	atomic64_t summary;
+	atomic64_t words[NR_IRQS / 64];
+};
+
 static DEFINE_PER_CPU(unsigned long, irqflags);
-static DEFINE_PER_CPU(atomic64_t, irq_pending);
+static DEFINE_PER_CPU(struct pending_irqs, irq_pending);
 static DEFINE_PER_CPU(u64, timer_deadline_ns);
 
 /* delivery target per hwirq, maintained by wasm_irq_set_affinity */
 static u32 irq_target[NR_IRQS];
+
+/* set the pending bit, then the summary bit: consumers read in reverse */
+static void pend_irq(struct pending_irqs *pending, irq_hw_number_t irq)
+{
+	atomic64_or(BIT_ULL(irq % 64), &pending->words[irq / 64]);
+	atomic64_or(BIT_ULL(irq / 64), &pending->summary);
+}
 
 void wasm_set_timer_deadline(u64 deadline_ns)
 {
@@ -28,7 +45,7 @@ u64 wasm_get_timer_deadline(void)
 
 void __cpuidle arch_cpu_idle(void)
 {
-	atomic64_t *pending = this_cpu_ptr(&irq_pending);
+	struct pending_irqs *pending = this_cpu_ptr(&irq_pending);
 	u64 deadline = __this_cpu_read(timer_deadline_ns);
 	u64 now;
 	s64 timeout_ns;
@@ -40,19 +57,19 @@ void __cpuidle arch_cpu_idle(void)
 		now = wasm_kernel_get_now_nsec();
 		if ((s64)(deadline - now) <= 0) {
 			__this_cpu_write(timer_deadline_ns, 0);
-			atomic64_or(1 << TIMER_IRQ, pending);
+			pend_irq(pending, TIMER_IRQ);
 			raw_local_irq_enable();
 			return;
 		}
 		timeout_ns = deadline - now;
 	}
 
-	ret = __builtin_wasm_memory_atomic_wait64(&pending->counter, 0,
+	ret = __builtin_wasm_memory_atomic_wait64(&pending->summary.counter, 0,
 						  timeout_ns);
 
 	if (ret == 2 /* timeout reached */) {
 		__this_cpu_write(timer_deadline_ns, 0);
-		atomic64_or(1 << TIMER_IRQ, pending);
+		pend_irq(pending, TIMER_IRQ);
 	}
 
 	raw_local_irq_enable();
@@ -61,10 +78,10 @@ void __cpuidle arch_cpu_idle(void)
 void cpu_relax(void)
 {
 	unsigned long flags;
-	atomic64_t *pending;
+	struct pending_irqs *pending;
 	local_irq_save(flags);
 	pending = this_cpu_ptr(&irq_pending);
-	__builtin_wasm_memory_atomic_wait64(&pending->counter, 0,
+	__builtin_wasm_memory_atomic_wait64(&pending->summary.counter, 0,
 					    10 * 1000 * 1000);
 	local_irq_restore(flags);
 }
@@ -91,22 +108,32 @@ unsigned long arch_local_save_flags(void)
 
 static void run_irqs(void)
 {
-	int irq;
-	u64 pending = atomic64_xchg(this_cpu_ptr(&irq_pending), 0);
+	struct pending_irqs *p = this_cpu_ptr(&irq_pending);
+	u64 summary = atomic64_xchg(&p->summary, 0);
 
-	for_each_irq_nr(irq)
-		if (pending & (1ULL << irq))
-			run_irq(irq);
+	while (summary) {
+		int word = __ffs64(summary);
+		u64 pending = atomic64_xchg(&p->words[word], 0);
+
+		summary &= summary - 1;
+
+		while (pending) {
+			int bit = __ffs64(pending);
+
+			pending &= pending - 1;
+			run_irq(word * 64 + bit);
+		}
+	}
 }
 
 __attribute__((export_name("trigger_irq_for_cpu"))) void
 trigger_irq_for_cpu(unsigned int cpu, irq_hw_number_t irq)
 {
-	atomic64_t *pending = per_cpu_ptr(&irq_pending, cpu);
+	struct pending_irqs *pending = per_cpu_ptr(&irq_pending, cpu);
 
-	atomic64_or(1ULL << irq, pending);
+	pend_irq(pending, irq);
 
-	__builtin_wasm_memory_atomic_notify((void *)&pending->counter,
+	__builtin_wasm_memory_atomic_notify((void *)&pending->summary.counter,
 					    /* at most, wake up: */ 1);
 }
 
