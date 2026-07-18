@@ -1,5 +1,3 @@
-/// <reference lib="esnext.disposable" preserve="true" />
-
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
 import { assert, unreachable } from "./util.ts";
 import {
@@ -30,6 +28,15 @@ export {
 export { type BlockDeviceStorage, blockDevice } from "./virtio/block.ts";
 export { consoleDevice } from "./virtio/console.ts";
 export { entropyDevice } from "./virtio/entropy.ts";
+export {
+  ethernetDevice,
+  type EthernetDevice,
+  type EthernetDeviceOptions,
+  ethernetNetwork,
+  type EthernetNetwork,
+  type EthernetPort,
+  type MacAddress,
+} from "./virtio/net.ts";
 export {
   vsockDevice,
   type VsockConnection,

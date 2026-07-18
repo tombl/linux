@@ -233,7 +233,7 @@ export class VirtioController {
         (options.features ?? 0n),
       config,
 
-      attach(next_config, next_interrupt) {
+      attach: (next_config, next_interrupt) => {
         assert(!closed && !closing, "cannot attach a closed virtio device");
         assert(!guest_config, "virtio device is already attached");
         next_config.set(config);
@@ -243,17 +243,15 @@ export class VirtioController {
         pending_interrupts.clear();
       },
 
-      notify(vq, queue) {
+      notify: (vq, queue) => {
         if (closed) return;
         const handler = driver.queues[vq];
         assert(handler, `virtio device has no queue ${vq}`);
-        return handler(queue, this_controller);
+        return handler(queue, this);
       },
 
       close,
     };
-    const this_controller = this;
-
     const device = {} as VirtioDevice;
     Object.defineProperty(device, transport_device, { value: endpoint });
     this.device = device;
