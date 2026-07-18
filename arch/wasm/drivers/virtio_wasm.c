@@ -15,6 +15,10 @@
 #define to_virtio_wasm_device(_plat_dev) \
 	container_of(_plat_dev, struct virtio_wasm_device, vdev)
 
+/* matches the virtio ISR status register: bit 0 = vring, bit 1 = config */
+#define VIRTIO_WASM_ISR_VRING BIT(0)
+#define VIRTIO_WASM_ISR_CONFIG BIT(1)
+
 struct virtio_wasm_device {
 	struct virtio_device vdev;
 	struct platform_device *pdev;
@@ -27,8 +31,8 @@ struct virtio_wasm_device {
 	u8 *config;
 	u32 config_len;
 
-	bool interrupt_is_config;
-	bool interrupt_is_vring;
+	/* interrupt reasons; the host ORs bits in, vw_interrupt clears */
+	u32 isr_status;
 };
 
 static void vw_get(struct virtio_device *vdev, unsigned offset, void *buf,
@@ -62,6 +66,9 @@ static void _notify(void *arg)
 
 static bool vw_notify(struct virtqueue *vq)
 {
+	struct virtio_wasm_device *vw_dev = to_virtio_wasm_device(vq->vdev);
+
+	irq_set_affinity(vw_dev->irq, cpumask_of(raw_smp_processor_id()));
 	wasm_kernel_run_on_main(_notify, vq);
 	return true;
 }
@@ -124,16 +131,17 @@ static void vw_del_vqs(struct virtio_device *vdev)
 static irqreturn_t vw_interrupt(int irq, void *dev)
 {
 	struct virtio_wasm_device *vw_dev = dev;
+	u32 isr_status = xchg(&vw_dev->isr_status, 0);
 	unsigned long flags;
 	irqreturn_t ret = IRQ_NONE;
 	struct virtqueue *vq;
 
-	if (unlikely(vw_dev->interrupt_is_config)) {
+	if (unlikely(isr_status & VIRTIO_WASM_ISR_CONFIG)) {
 		virtio_config_changed(&vw_dev->vdev);
 		ret = IRQ_HANDLED;
 	}
 
-	if (likely(vw_dev->interrupt_is_vring)) {
+	if (likely(isr_status & VIRTIO_WASM_ISR_VRING)) {
 		spin_lock_irqsave(&vw_dev->vdev.vqs_list_lock, flags);
 
 		list_for_each_entry(vq, &vw_dev->vdev.vqs, list)
@@ -253,10 +261,8 @@ static void virtio_wasm_release_dev(struct device *_d)
 static void _setup(void *arg)
 {
 	struct virtio_wasm_device *vw_dev = arg;
-	wasm_virtio_setup(vw_dev->host_id, vw_dev->irq,
-			  &vw_dev->interrupt_is_config,
-			  &vw_dev->interrupt_is_vring, vw_dev->config,
-			  vw_dev->config_len);
+	wasm_virtio_setup(vw_dev->host_id, vw_dev->irq, &vw_dev->isr_status,
+			  vw_dev->config, vw_dev->config_len);
 }
 
 static int virtio_wasm_probe(struct platform_device *pdev)

@@ -13,6 +13,9 @@ static DEFINE_PER_CPU(unsigned long, irqflags);
 static DEFINE_PER_CPU(atomic64_t, irq_pending);
 static DEFINE_PER_CPU(u64, timer_deadline_ns);
 
+/* delivery target per hwirq, maintained by wasm_irq_set_affinity */
+static u32 irq_target[NR_IRQS];
+
 void wasm_set_timer_deadline(u64 deadline_ns)
 {
 	__this_cpu_write(timer_deadline_ns, deadline_ns);
@@ -92,7 +95,7 @@ static void run_irqs(void)
 	u64 pending = atomic64_xchg(this_cpu_ptr(&irq_pending), 0);
 
 	for_each_irq_nr(irq)
-		if (pending & (1 << irq))
+		if (pending & (1ULL << irq))
 			run_irq(irq);
 }
 
@@ -101,10 +104,16 @@ trigger_irq_for_cpu(unsigned int cpu, irq_hw_number_t irq)
 {
 	atomic64_t *pending = per_cpu_ptr(&irq_pending, cpu);
 
-	atomic64_or(1 << irq, pending);
+	atomic64_or(1ULL << irq, pending);
 
 	__builtin_wasm_memory_atomic_notify((void *)&pending->counter,
 					    /* at most, wake up: */ 1);
+}
+
+__attribute__((export_name("trigger_irq"))) void
+trigger_irq(irq_hw_number_t irq)
+{
+	trigger_irq_for_cpu(READ_ONCE(irq_target[irq]), irq);
 }
 
 void arch_local_irq_restore(unsigned long flags)
@@ -114,10 +123,59 @@ void arch_local_irq_restore(unsigned long flags)
 	__this_cpu_write(irqflags, flags);
 }
 
+#ifdef CONFIG_SMP
+static int wasm_irq_set_affinity(struct irq_data *data,
+				 const struct cpumask *dest, bool force)
+{
+	unsigned int cpu;
+
+	if (force)
+		cpu = cpumask_first_and(dest, cpu_online_mask);
+	else
+		cpu = cpumask_any_and_distribute(dest, cpu_online_mask);
+
+	if (cpu >= nr_cpu_ids)
+		return -EINVAL;
+
+	WRITE_ONCE(irq_target[data->hwirq], cpu);
+	irq_data_update_effective_affinity(data, cpumask_of(cpu));
+
+	return IRQ_SET_MASK_OK;
+}
+#endif
+
+static void wasm_irq_noop(struct irq_data *data)
+{
+}
+
+static int wasm_irq_retrigger(struct irq_data *data)
+{
+	trigger_irq(data->hwirq);
+	return 1;
+}
+
+static struct irq_chip wasm_irq_chip = {
+	.name = "wasm",
+	/* pending bits are latched per-cpu; there is nothing to ack or mask */
+	.irq_ack = wasm_irq_noop,
+	.irq_mask = wasm_irq_noop,
+	.irq_unmask = wasm_irq_noop,
+	.irq_retrigger = wasm_irq_retrigger,
+#ifdef CONFIG_SMP
+	.irq_set_affinity = wasm_irq_set_affinity,
+#endif
+};
+
 static int wasm_irq_map(struct irq_domain *d, unsigned int irq,
 			irq_hw_number_t hw)
 {
-	irq_set_chip_and_handler(irq, &dummy_irq_chip, handle_percpu_irq);
+	if (hw < FIRST_EXT_IRQ) {
+		/* IPI and timer fire on the cpu that handles them */
+		irq_set_chip_and_handler(irq, &dummy_irq_chip,
+					 handle_percpu_irq);
+	} else {
+		irq_set_chip_and_handler(irq, &wasm_irq_chip, handle_edge_irq);
+	}
 
 	return 0;
 }

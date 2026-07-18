@@ -1,4 +1,4 @@
-import { FixedArray, Struct, U16LE, U32LE, U64LE, U8 } from "../bytes.ts";
+import { FixedArray, Struct, U16LE, U32LE, U64LE } from "../bytes.ts";
 import { assert } from "../util.ts";
 import type { Imports } from "../wasm.ts";
 
@@ -166,6 +166,12 @@ class PackedVirtqueue implements Virtqueue {
 type InterruptKind = "config" | "vring";
 type Interrupt = (kind: InterruptKind) => void;
 
+/** Matches the virtio ISR status register: bit 0 = vring, bit 1 = config. */
+const InterruptStatus = {
+  VRING: 1 << 0,
+  CONFIG: 1 << 1,
+} as const;
+
 export interface VirtioDeviceOptions {
   deviceId: number;
   /** Device-specific feature bits; transport features are added automatically. */
@@ -310,15 +316,16 @@ export function close_virtio_device(device: VirtioDevice) {
 export function virtio_imports({
   memory,
   devices,
-  trigger_irq_for_cpu,
+  trigger_irq,
   on_error,
 }: {
   memory: WebAssembly.Memory;
   devices: readonly VirtioDevice[];
-  trigger_irq_for_cpu: (cpu: number, irq: number) => void;
+  trigger_irq: (irq: number) => void;
   on_error: (error: unknown) => void;
 }): Imports["virtio"] {
   const dv = new DataView(memory.buffer);
+  const isr = new Uint32Array(memory.buffer);
   const states: TransportState[] = devices.map((device) => ({
     device: device[transport_device],
     queues: [],
@@ -374,16 +381,20 @@ export function virtio_imports({
       state.queue = undefined;
     },
 
-    setup(dev, irq, is_config_addr, is_vring_addr, config_addr, config_len) {
+    setup(dev, irq, isr_addr, config_addr, config_len) {
       const device = states[dev]?.device;
       assert(device);
       assert(config_len >= device.config.byteLength, "config space too small");
+      assert(isr_addr % 4 === 0, "isr status must be 4-byte aligned");
       device.attach(
         new Uint8Array(dv.buffer, config_addr, config_len),
         (kind) => {
-          U8.set(dv, is_config_addr, kind === "config" ? 1 : 0);
-          U8.set(dv, is_vring_addr, kind === "vring" ? 1 : 0);
-          trigger_irq_for_cpu(0, irq); // TODO: balance?
+          Atomics.or(
+            isr,
+            isr_addr >> 2,
+            kind === "config" ? InterruptStatus.CONFIG : InterruptStatus.VRING,
+          );
+          trigger_irq(irq);
         },
       );
     },

@@ -328,9 +328,9 @@ export async function spawnMachine(
         memory: wasm_memory,
         devices,
         on_error: finish,
-        trigger_irq_for_cpu(cpu, irq) {
+        trigger_irq(irq) {
           assert(instance);
-          instance.exports.trigger_irq_for_cpu(cpu, irq);
+          instance.exports.trigger_irq(irq);
         },
       }),
     } satisfies Imports;
