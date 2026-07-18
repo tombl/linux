@@ -2,7 +2,12 @@
 
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
 import { assert, unreachable } from "./util.ts";
-import { virtio_imports, VirtioDevice } from "./virtio.ts";
+import {
+  close_virtio_device,
+  virtio_device_description,
+  virtio_imports,
+  type VirtioDevice,
+} from "./virtio/core.ts";
 import {
   type Imports,
   type Instance,
@@ -13,14 +18,23 @@ import type { InitMessage, WorkerMessage } from "./worker.ts";
 
 export type { DeviceTreeNode } from "./devicetree.ts";
 export {
-  BlockDevice,
-  type BlockDeviceStorage,
-  ConsoleDevice,
-  EntropyDevice,
-  VirtioDevice,
+  type VirtioDevice,
+  VirtioController,
+  type VirtioDeviceOptions,
+  type VirtioDriver,
+  type Virtqueue,
+  type VirtqueueBuffer,
+  type VirtqueueChain,
+  type VirtqueueHandler,
+} from "./virtio/core.ts";
+export { type BlockDeviceStorage, blockDevice } from "./virtio/block.ts";
+export { consoleDevice } from "./virtio/console.ts";
+export { entropyDevice } from "./virtio/entropy.ts";
+export {
+  vsockDevice,
   type VsockConnection,
-  VsockDevice,
-} from "./virtio.ts";
+  type VsockDevice,
+} from "./virtio/vsock.ts";
 
 type MaybePromise<T> = T | PromiseLike<T>;
 
@@ -115,7 +129,7 @@ export async function spawnMachine(
   const finish = (error?: unknown) => {
     if (closed) return;
     closed = true;
-    for (const device of devices) device.close();
+    for (const device of devices) close_virtio_device(device);
     for (const worker of workers) worker.terminate();
     workers.length = 0;
     boot_console_close();
@@ -158,12 +172,13 @@ export async function spawnMachine(
     };
 
     for (const [i, dev] of devices.entries()) {
+      const device = virtio_device_description(dev);
       devicetree[`virtio${i}`] = {
         compatible: `virtio,wasm`,
         "host-id": i,
-        "virtio-device-id": dev.ID,
-        features: dev.features,
-        config: dev.config_bytes,
+        "virtio-device-id": device.device_id,
+        features: device.features,
+        config: device.config,
       };
     }
     const memory_reservations: { address: number; size: number }[] = [];
