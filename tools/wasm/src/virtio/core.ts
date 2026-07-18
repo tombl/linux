@@ -1,4 +1,4 @@
-import { FixedArray, Struct, U16LE, U32LE, U64LE, U8 } from "../bytes.ts";
+import { FixedArray, Struct, U16LE, U32LE, U64LE } from "../bytes.ts";
 import { assert } from "../util.ts";
 import type { Imports } from "../wasm.ts";
 
@@ -67,17 +67,24 @@ class PackedVirtqueue implements Virtqueue {
   #mem: DataView;
   #size: number;
   #desc: VirtqDescriptor[];
+  #on_release: () => void;
   #avail_wrap = true;
   #used_wrap = true;
   #used_idx = 0;
   #avail_idx = 0;
 
-  constructor(mem: DataView, size: number, desc_addr: number) {
+  constructor(
+    mem: DataView,
+    size: number,
+    desc_addr: number,
+    on_release: () => void,
+  ) {
     assert(size !== 0);
     assert(mem.byteOffset === 0);
     this.#mem = mem;
     this.#size = size;
     this.#desc = FixedArray(VirtqDescriptor, size).get(mem, desc_addr);
+    this.#on_release = on_release;
   }
 
   #pop() {
@@ -160,11 +167,12 @@ class PackedVirtqueue implements Virtqueue {
       this.#used_idx -= this.#size;
       this.#used_wrap = !this.#used_wrap;
     }
+
+    this.#on_release();
   }
 }
 
-type InterruptKind = "config" | "vring";
-type Interrupt = (kind: InterruptKind) => void;
+type RaiseConfigInterrupt = () => void;
 
 export interface VirtioDeviceOptions {
   deviceId: number;
@@ -187,7 +195,7 @@ interface TransportDevice {
   readonly device_id: number;
   readonly features: bigint;
   readonly config: Uint8Array;
-  attach(config: Uint8Array, interrupt: Interrupt): void;
+  attach(config: Uint8Array, raise_config: RaiseConfigInterrupt): void;
   notify(vq: number, queue: Virtqueue): void | PromiseLike<void>;
   close(): void;
 }
@@ -200,7 +208,6 @@ export interface VirtioDevice {
 
 export class VirtioController {
   readonly device: VirtioDevice;
-  readonly raiseInterrupt: (kind: InterruptKind) => void;
   readonly updateConfig: (config: Uint8Array) => void;
   readonly close: () => void;
   readonly expose: <API extends object>(api: API) => VirtioDevice & API;
@@ -208,8 +215,8 @@ export class VirtioController {
   constructor(options: VirtioDeviceOptions, driver: VirtioDriver) {
     const config = options.config?.slice() ?? new Uint8Array();
     let guest_config: Uint8Array | undefined;
-    let interrupt: Interrupt | undefined;
-    const pending_interrupts = new Set<InterruptKind>();
+    let raise_config: RaiseConfigInterrupt | undefined;
+    let config_pending = false;
     let closed = false;
     let closing = false;
     let exposed = false;
@@ -233,14 +240,16 @@ export class VirtioController {
         (options.features ?? 0n),
       config,
 
-      attach(next_config, next_interrupt) {
+      attach(next_config, next_raise_config) {
         assert(!closed && !closing, "cannot attach a closed virtio device");
         assert(!guest_config, "virtio device is already attached");
         next_config.set(config);
         guest_config = next_config;
-        interrupt = next_interrupt;
-        for (const kind of pending_interrupts) interrupt(kind);
-        pending_interrupts.clear();
+        raise_config = next_raise_config;
+        if (config_pending) {
+          config_pending = false;
+          raise_config();
+        }
       },
 
       notify(vq, queue) {
@@ -258,12 +267,6 @@ export class VirtioController {
     Object.defineProperty(device, transport_device, { value: endpoint });
     this.device = device;
 
-    this.raiseInterrupt = (kind) => {
-      if (closed) return;
-      if (interrupt) interrupt(kind);
-      else pending_interrupts.add(kind);
-    };
-
     this.updateConfig = (next_config) => {
       assert(
         next_config.byteLength === config.byteLength,
@@ -271,7 +274,9 @@ export class VirtioController {
       );
       config.set(next_config);
       guest_config?.set(config);
-      this.raiseInterrupt("config");
+      if (closed) return;
+      if (raise_config) raise_config();
+      else config_pending = true;
     };
 
     this.close = close;
@@ -312,12 +317,12 @@ export function close_virtio_device(device: VirtioDevice) {
 export function virtio_imports({
   memory,
   devices,
-  trigger_irq_for_cpu,
+  trigger_irq,
   on_error,
 }: {
   memory: WebAssembly.Memory;
   devices: readonly VirtioDevice[];
-  trigger_irq_for_cpu: (cpu: number, irq: number) => void;
+  trigger_irq: (irq: number) => void;
   on_error: (error: unknown) => void;
 }): Imports["virtio"] {
   const dv = new DataView(memory.buffer);
@@ -361,11 +366,26 @@ export function virtio_imports({
       );
     },
 
-    enable_vring(dev, vq, size, desc_addr) {
+    enable_vring(dev, vq, size, desc_addr, irq) {
       const device = states[dev];
       assert(device);
       const state = queue_state(device, vq);
-      state.queue = new PackedVirtqueue(dv, size, desc_addr);
+      // Interrupt once per synchronous batch of released chains.
+      let armed = false;
+      const queue: PackedVirtqueue = new PackedVirtqueue(
+        dv,
+        size,
+        desc_addr,
+        () => {
+          if (armed) return;
+          armed = true;
+          queueMicrotask(() => {
+            armed = false;
+            if (state.queue === queue) trigger_irq(irq);
+          });
+        },
+      );
+      state.queue = queue;
       if (state.pending) void drain_notifications(device, vq);
     },
     disable_vring(dev, vq) {
@@ -376,17 +396,13 @@ export function virtio_imports({
       state.queue = undefined;
     },
 
-    setup(dev, irq, is_config_addr, is_vring_addr, config_addr, config_len) {
+    setup(dev, config_irq, config_addr, config_len) {
       const device = states[dev]?.device;
       assert(device);
       assert(config_len >= device.config.byteLength, "config space too small");
       device.attach(
         new Uint8Array(dv.buffer, config_addr, config_len),
-        (kind) => {
-          U8.set(dv, is_config_addr, kind === "config" ? 1 : 0);
-          U8.set(dv, is_vring_addr, kind === "vring" ? 1 : 0);
-          trigger_irq_for_cpu(0, irq); // TODO: balance?
-        },
+        () => trigger_irq(config_irq),
       );
     },
 

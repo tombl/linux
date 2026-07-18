@@ -242,7 +242,6 @@ export function vsockDevice(
   }
 
   function flush_rx(controller: VirtioController) {
-    let sent = false;
     while (pending_packets.length > 0 && rx_buffers.length > 0) {
       const packet = pending_packets.shift()!;
       const chain = rx_buffers.shift()!;
@@ -256,9 +255,7 @@ export function vsockDevice(
 
       desc.array.set(packet);
       chain.release(packet.byteLength);
-      sent = true;
     }
-    if (sent) controller.raiseInterrupt("vring");
   }
 
   function send_packet(
@@ -364,7 +361,6 @@ export function vsockDevice(
       handle_tx_packet(controller, header, payload);
       chain.release(0);
     }
-    controller.raiseInterrupt("vring");
   }
 
   function close_device(controller: VirtioController) {

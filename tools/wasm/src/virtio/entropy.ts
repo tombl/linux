@@ -6,7 +6,7 @@ import {
 } from "./core.ts";
 
 export function entropyDevice(): VirtioDevice {
-  function notify(queue: Virtqueue, controller: VirtioController) {
+  function notify(queue: Virtqueue) {
     for (const chain of queue) {
       let n = 0;
       for (const { array, writable } of chain) {
@@ -21,8 +21,6 @@ export function entropyDevice(): VirtioDevice {
       }
       chain.release(n);
     }
-
-    controller.raiseInterrupt("vring");
   }
 
   return new VirtioController(

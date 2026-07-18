@@ -2,7 +2,7 @@ export interface Instance extends WebAssembly.Instance {
   exports: {
     __indirect_function_table: WebAssembly.Table;
     boot(): void;
-    trigger_irq_for_cpu(cpu: number, irq: number): void;
+    trigger_irq(irq: number): void;
     syscall(
       nr: number,
       arg0: number,
@@ -73,9 +73,7 @@ export interface Imports {
 
     setup(
       dev: number,
-      irq: number,
-      is_config_addr: number,
-      is_vring_addr: number,
+      config_irq: number,
       config_addr: number,
       config_len: number,
     ): void;
@@ -85,6 +83,7 @@ export interface Imports {
       vq: number,
       size: number,
       desc_addr: number,
+      irq: number,
     ): void;
     disable_vring(dev: number, vq: number): void;
 

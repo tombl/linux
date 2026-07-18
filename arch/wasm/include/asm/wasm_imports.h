@@ -45,11 +45,11 @@ int wasm_import(user, futex_atomic_cmpxchg)(u32 *oldval, u32 __user *uaddr,
 #ifdef CONFIG_VIRTIO_WASM
 void wasm_import(virtio, set_features)(u32 id, u64 features);
 
-void wasm_import(virtio, setup)(u32 id, u32 irq, bool *is_config,
-				bool *is_vring, u8 *config, u32 config_len);
+void wasm_import(virtio, setup)(u32 id, u32 config_irq, u8 *config,
+				u32 config_len);
 
 void wasm_import(virtio, enable_vring)(u32 id, u32 index, u32 size,
-				       dma_addr_t desc);
+				       dma_addr_t desc, u32 irq);
 void wasm_import(virtio, disable_vring)(u32 id, u32 index);
 
 void wasm_import(virtio, notify)(u32 id, u32 index);

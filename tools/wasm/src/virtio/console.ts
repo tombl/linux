@@ -13,10 +13,7 @@ export function consoleDevice(
   const writer = output.getWriter();
   let writing: Promise<void> | undefined;
 
-  async function write_input(
-    queue: Virtqueue,
-    controller: VirtioController,
-  ) {
+  async function write_input(queue: Virtqueue) {
     const queue_iter = queue[Symbol.iterator]();
     for (;;) {
       const { value, done } = await reader.read();
@@ -39,18 +36,14 @@ export function consoleDevice(
         chunk = chunk.subarray(n);
         chain.release(n);
       }
-      controller.raiseInterrupt("vring");
     }
   }
 
-  function notify_input(queue: Virtqueue, controller: VirtioController) {
-    return (writing ??= write_input(queue, controller));
+  function notify_input(queue: Virtqueue) {
+    return (writing ??= write_input(queue));
   }
 
-  async function notify_output(
-    queue: Virtqueue,
-    controller: VirtioController,
-  ) {
+  async function notify_output(queue: Virtqueue) {
     for (const chain of queue) {
       let n = 0;
       for (const { array, writable } of chain) {
@@ -59,7 +52,6 @@ export function consoleDevice(
         n += array.byteLength;
       }
       chain.release(n);
-      controller.raiseInterrupt("vring");
     }
   }
 
