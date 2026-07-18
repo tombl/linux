@@ -66,8 +66,19 @@ export function FixedArray<T>(
     get(dv, offset) {
       const arr = Array<T>(length);
       for (let i = 0; i < length; i++) {
-        arr[i] = type.get(dv, offset + type.size * i);
+        const element_offset = offset + type.size * i;
+        let value = type.get(dv, element_offset);
+        Object.defineProperty(arr, i, {
+          enumerable: true,
+          get: () => value,
+          set: (next: T) => {
+            type.set(dv, element_offset, next);
+            value = type.get(dv, element_offset);
+          },
+        });
       }
+      // Keep the array's shape fixed; freezing leaves accessor setters usable.
+      Object.freeze(arr);
       return arr;
     },
     set(dv, offset, value) {
