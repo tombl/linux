@@ -1,3 +1,5 @@
+import { platform } from "./platform.ts";
+
 export interface Instance extends WebAssembly.Instance {
   exports: {
     __indirect_function_table: WebAssembly.Table;
@@ -126,7 +128,7 @@ export function kernel_imports(
     },
     halt_worker: () => {
       if (!is_worker) throw new Error("Halt called in main thread");
-      self.close();
+      platform.quit();
       throw HALT_KERNEL;
     },
 

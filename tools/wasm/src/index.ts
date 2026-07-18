@@ -1,6 +1,7 @@
 /// <reference lib="esnext.disposable" preserve="true" />
 
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
+import { platform, type WorkerHandle } from "./platform.ts";
 import { assert, unreachable } from "./util.ts";
 import {
   close_virtio_device,
@@ -59,15 +60,9 @@ export interface Machine extends Disposable {
 }
 
 const resources = (async () => {
-  const vmlinux_response = fetch(new URL("../vmlinux.wasm", import.meta.url));
-
-  let vmlinux: WebAssembly.Module;
-  if ("compileStreaming" in WebAssembly) {
-    vmlinux = await WebAssembly.compileStreaming(vmlinux_response);
-  } else {
-    const buffer = await (await vmlinux_response).arrayBuffer();
-    vmlinux = await WebAssembly.compile(buffer);
-  }
+  const vmlinux = await platform.compile_wasm(
+    new URL("../vmlinux.wasm", import.meta.url),
+  );
 
   const custom_section = (name: string) => {
     const sections = WebAssembly.Module.customSections(vmlinux, name);
@@ -109,7 +104,7 @@ export async function spawnMachine(
   options: SpawnMachineOptions,
 ): Promise<Machine> {
   const devices = options.devices;
-  const workers: Worker[] = [];
+  const workers: WorkerHandle[] = [];
   let closed = false;
 
   const closed_promise = Promise.withResolvers<void>();
@@ -225,46 +220,33 @@ export async function spawnMachine(
       user: UserContext | null,
     ) => {
       if (closed) return;
-      const worker = new Worker(new URL("./worker.js", import.meta.url), {
-        type: "module",
-        name,
+      const worker = platform.spawn_worker(name, {
+        on_message(raw) {
+          const message = raw as WorkerMessage;
+          switch (message.type) {
+            case "spawn_worker":
+              spawn_worker(message.fn, message.arg, message.name, message.user);
+              break;
+            case "boot_console_write":
+              boot_console_write(message.message);
+              break;
+            case "boot_console_close":
+              boot_console_close();
+              break;
+            case "run_on_main":
+              assert(instance);
+              instance.exports.__indirect_function_table.get(message.fn)!(
+                message.arg,
+              );
+              break;
+            default:
+              unreachable(message);
+          }
+        },
+        on_error: finish,
       });
       workers.push(worker);
-      worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
-        switch (event.data.type) {
-          case "spawn_worker":
-            spawn_worker(
-              event.data.fn,
-              event.data.arg,
-              event.data.name,
-              event.data.user,
-            );
-            break;
-          case "boot_console_write":
-            boot_console_write(event.data.message);
-            break;
-          case "boot_console_close":
-            boot_console_close();
-            break;
-          case "run_on_main":
-            assert(instance);
-            instance.exports.__indirect_function_table.get(event.data.fn)!(
-              event.data.arg,
-            );
-            break;
-          default:
-            unreachable(event.data);
-        }
-      };
-      worker.onerror = (event) => {
-        event.preventDefault();
-        finish(
-          event.error instanceof Error
-            ? event.error
-            : new Error(event.message || "machine worker failed"),
-        );
-      };
-      worker.postMessage(
+      worker.post(
         {
           fn,
           arg,
