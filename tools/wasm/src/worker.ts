@@ -1,3 +1,4 @@
+import { platform } from "./platform.ts";
 import { assert } from "./util.ts";
 import {
   HALT_KERNEL,
@@ -30,7 +31,8 @@ const unavailable = () => {
   throw new Error("not available on worker thread");
 };
 
-const postMessage = self.postMessage as (message: WorkerMessage) => void;
+const channel = platform.worker_channel();
+const postMessage = channel.post as (message: WorkerMessage) => void;
 
 function user_imports({
   kernel_memory,
@@ -281,8 +283,8 @@ function user_imports({
   };
 }
 
-self.onmessage = (event: MessageEvent<InitMessage>) => {
-  const { fn, arg, vmlinux, memory, user: parent_user } = event.data;
+channel.on_message((data) => {
+  const { fn, arg, vmlinux, memory, user: parent_user } = data as InitMessage;
 
   const user = user_imports({
     kernel_memory: memory,
@@ -342,4 +344,4 @@ self.onmessage = (event: MessageEvent<InitMessage>) => {
     if (error === HALT_KERNEL) return;
     throw error;
   }
-};
+});

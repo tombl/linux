@@ -1,0 +1,127 @@
+// The seam between web APIs (browsers) and node builtins (node, deno).
+// Selected at runtime by the presence of process.getBuiltinModule, so bundlers
+// only ever see the web path and never try to resolve node builtins.
+
+import { assert } from "./util.ts";
+
+export interface WorkerHandle {
+  post(message: unknown): void;
+  terminate(): void;
+}
+
+export interface WorkerHandlers {
+  on_message(message: unknown): void;
+  on_error(error: Error): void;
+}
+
+/** A worker's connection back to the thread that spawned it. */
+export interface WorkerChannel {
+  post(message: unknown): void;
+  on_message(handler: (message: unknown) => void): void;
+}
+
+interface Platform {
+  compile_wasm(url: URL): Promise<WebAssembly.Module>;
+  spawn_worker(name: string, handlers: WorkerHandlers): WorkerHandle;
+  worker_channel(): WorkerChannel;
+  quit(): void;
+}
+
+const web: Platform = {
+  compile_wasm(url) {
+    return WebAssembly.compileStreaming(fetch(url));
+  },
+  spawn_worker(name, handlers) {
+    const worker = new Worker(new URL("./worker.js", import.meta.url), {
+      type: "module",
+      name,
+    });
+    worker.onmessage = (event) => handlers.on_message(event.data);
+    worker.onerror = (event) => {
+      event.preventDefault();
+      handlers.on_error(
+        event.error instanceof Error
+          ? event.error
+          : new Error(event.message || "machine worker failed"),
+      );
+    };
+    return {
+      post: (message) => worker.postMessage(message),
+      terminate: () => worker.terminate(),
+    };
+  },
+  worker_channel() {
+    return {
+      post: (message) => self.postMessage(message),
+      on_message: (handler) => {
+        self.onmessage = (event) => handler(event.data);
+      },
+    };
+  },
+  quit() {
+    self.close()
+  },
+};
+
+// Hand-written types for the slices of the node builtins we use, so that
+// @types/node doesn't leak into a web-first package.
+interface NodeWorker {
+  postMessage(message: unknown): void;
+  terminate(): Promise<number>;
+  on(event: "message", handler: (message: unknown) => void): this;
+  on(event: "error", handler: (error: Error) => void): this;
+}
+
+interface NodeParentPort {
+  postMessage(message: unknown): void;
+  on(event: "message", handler: (message: unknown) => void): this;
+}
+
+interface GetBuiltinModule {
+  (id: "node:fs/promises"): {
+    readFile(path: URL): Promise<Uint8Array<ArrayBuffer>>;
+  };
+  (id: "node:worker_threads"): {
+    Worker: new (filename: URL, options: { name: string }) => NodeWorker;
+    parentPort: NodeParentPort | null;
+  };
+}
+
+function node(getBuiltinModule: GetBuiltinModule): Platform {
+  const { readFile } = getBuiltinModule("node:fs/promises");
+  const { Worker, parentPort } = getBuiltinModule("node:worker_threads");
+  return {
+    async compile_wasm(url) {
+      return await WebAssembly.compile(await readFile(url));
+    },
+    spawn_worker(name, handlers) {
+      const worker = new Worker(new URL("./worker.js", import.meta.url), {
+        name,
+      });
+      worker.on("message", handlers.on_message);
+      worker.on("error", handlers.on_error);
+      return {
+        post: (message) => worker.postMessage(message),
+        terminate: () => void worker.terminate(),
+      };
+    },
+    worker_channel() {
+      assert(parentPort, "not in a worker");
+      return {
+        post: (message) => parentPort.postMessage(message),
+        on_message: (handler) => parentPort.on("message", handler),
+      };
+    },
+    quit() {
+      process.exit(0);
+    },
+  };
+}
+
+const getBuiltinModule = (
+  globalThis as { process?: { getBuiltinModule?: GetBuiltinModule } }
+).process?.getBuiltinModule;
+
+export const platform: Platform = getBuiltinModule
+  ? node(getBuiltinModule)
+  : web;
