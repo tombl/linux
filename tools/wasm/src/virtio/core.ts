@@ -320,17 +320,15 @@ export class VirtioController {
         }
       },
 
-      notify(vq, queue) {
+      notify: (vq, queue) => {
         if (closed) return;
         const handler = driver.queues[vq];
         assert(handler, `virtio device has no queue ${vq}`);
-        return handler(queue, this_controller);
+        return handler(queue, this);
       },
 
       close,
     };
-    const this_controller = this;
-
     const device = {} as VirtioDevice;
     Object.defineProperty(device, transport_device, { value: endpoint });
     this.device = device;

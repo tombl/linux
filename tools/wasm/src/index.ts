@@ -34,6 +34,15 @@ export { blockDevice, type BlockDeviceStorage } from "./virtio/block.ts";
 export { type ConsoleDevice, consoleDevice } from "./virtio/console.ts";
 export { entropyDevice } from "./virtio/entropy.ts";
 export {
+  type EthernetDevice,
+  ethernetDevice,
+  type EthernetDeviceOptions,
+  type EthernetNetwork,
+  ethernetNetwork,
+  type EthernetPort,
+  type MacAddress,
+} from "./virtio/net.ts";
+export {
   type VsockConnection,
   type VsockDevice,
   vsockDevice,

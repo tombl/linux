@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ethernetNetwork } from "../dist/virtio/net.js";
 import {
   allocate_shared_memory,
   user_module_imports_supported,
@@ -94,4 +95,37 @@ test("userspace modules may only import the supported host ABI", () => {
 
   assert.equal(user_module_imports_supported(supported), true);
   assert.equal(user_module_imports_supported(unsupported), false);
+});
+
+test("closing an Ethernet network drops traffic from attached ports", async () => {
+  const network = ethernetNetwork();
+  let received = 0;
+  const sender = network.addPort(() => {});
+  network.addPort(() => {
+    received += 1;
+  });
+  const frame = Uint8Array.from([
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0x02,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    0x08,
+    0x00,
+  ]);
+
+  await sender.send(frame);
+  assert.equal(received, 1);
+
+  network.close();
+  await sender.send(frame);
+  assert.equal(received, 1);
+  assert.throws(() => network.addPort(() => {}));
 });
