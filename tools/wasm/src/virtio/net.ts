@@ -152,7 +152,6 @@ export function ethernetDevice(
   let controller: VirtioController;
 
   function flush_receive() {
-    let completed = false;
     while (receive_buffers.length > 0 && pending_frames.length > 0) {
       const frame = pending_frames.shift()!;
       const packet = new Bytes(VirtioNetHeader.size + frame.byteLength);
@@ -167,9 +166,7 @@ export function ethernetDevice(
       };
       packet.append(frame);
       copy_packet(receive_buffers.shift()!, packet.array);
-      completed = true;
     }
-    if (completed) controller.raiseInterrupt("vring");
   }
 
   const port = network.addPort((frame) => {
@@ -207,7 +204,6 @@ export function ethernetDevice(
       await port.send(frame.array);
       chain.release(0);
     }
-    controller.raiseInterrupt("vring");
   }
 
   const config = Uint8Array.from(macAddress);

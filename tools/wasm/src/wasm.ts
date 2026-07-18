@@ -73,8 +73,7 @@ export interface Imports {
 
     setup(
       dev: number,
-      irq: number,
-      isr_addr: number,
+      config_irq: number,
       config_addr: number,
       config_len: number,
     ): void;
@@ -84,6 +83,7 @@ export interface Imports {
       vq: number,
       size: number,
       desc_addr: number,
+      irq: number,
     ): void;
     disable_vring(dev: number, vq: number): void;
 

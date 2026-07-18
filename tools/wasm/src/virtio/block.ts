@@ -48,7 +48,7 @@ export function blockDevice(storage: BlockDeviceStorage): VirtioDevice {
   if (storage.flush) features |= BlockDeviceFeatures.FLUSH;
   if (!storage.write) features |= BlockDeviceFeatures.RO;
 
-  async function notify(queue: Virtqueue, controller: VirtioController) {
+  async function notify(queue: Virtqueue) {
     for (const chain of queue) {
       const descs = [...chain];
       const header = descs[0];
@@ -127,7 +127,6 @@ export function blockDevice(storage: BlockDeviceStorage): VirtioDevice {
 
       chain.release(n);
     }
-    controller.raiseInterrupt("vring");
   }
 
   return new VirtioController(
