@@ -3,6 +3,7 @@
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
 import { platform, type WorkerHandle } from "./platform.ts";
 import { assert, unreachable } from "./util.ts";
+import { read_wasm_memories, type WasmMemoryType } from "./wasm_binary.ts";
 import {
   close_virtio_device,
   virtio_device_description,
@@ -19,8 +20,8 @@ import type { InitMessage, WorkerMessage } from "./worker.ts";
 
 export type { DeviceTreeNode } from "./devicetree.ts";
 export {
-  type VirtioDevice,
   VirtioController,
+  type VirtioDevice,
   type VirtioDeviceOptions,
   type VirtioDriver,
   type Virtqueue,
@@ -28,20 +29,19 @@ export {
   type VirtqueueChain,
   type VirtqueueHandler,
 } from "./virtio/core.ts";
-export { type BlockDeviceStorage, blockDevice } from "./virtio/block.ts";
+export { blockDevice, type BlockDeviceStorage } from "./virtio/block.ts";
 export { consoleDevice } from "./virtio/console.ts";
 export { entropyDevice } from "./virtio/entropy.ts";
 export {
-  vsockDevice,
   type VsockConnection,
   type VsockDevice,
+  vsockDevice,
 } from "./virtio/vsock.ts";
 
 type MaybePromise<T> = T | PromiseLike<T>;
 
 export interface SpawnMachineOptions {
   cmdline?: string;
-  memoryMib?: number;
   cpus?: number;
   devices: readonly VirtioDevice[];
   initcpio?: MaybePromise<ArrayBufferView>;
@@ -50,7 +50,7 @@ export interface SpawnMachineOptions {
 }
 
 export interface Machine extends Disposable {
-  readonly memory: Uint8Array;
+  readonly memory: WebAssembly.Memory;
   /** Kernel output from before the console device is available. */
   readonly bootConsole: ReadableStream<Uint8Array>;
   /** Settles when closed, rejecting if the machine failed unexpectedly. */
@@ -60,8 +60,23 @@ export interface Machine extends Disposable {
 }
 
 const resources = (async () => {
-  const vmlinux = await platform.compile_wasm(
+  const { bytes, module: vmlinux } = await platform.load_wasm(
     new URL("../vmlinux.wasm", import.meta.url),
+  );
+
+  const memories = read_wasm_memories(bytes);
+  assert(
+    memories.imports.length === 1 && memories.definitions.length === 0,
+    "Kernel must define exactly one imported memory",
+  );
+  const memory = memories.imports[0]!;
+  assert(
+    memory.module === "env" && memory.name === "memory",
+    "Kernel memory must be imported as env.memory",
+  );
+  assert(
+    memory.type.address === "i32" && memory.type.shared,
+    "Kernel memory must be a shared memory32",
   );
 
   const custom_section = (name: string) => {
@@ -78,12 +93,35 @@ const resources = (async () => {
 
   return {
     vmlinux,
+    memory: memory.type,
     sections,
     initramfs,
   };
 })();
 
-const INITCPIO_ADDR = 0x200000;
+const PAGE_SIZE = 0x10000;
+// Leave the final wasm32 page out so the physical-memory size fits in u32.
+const KERNEL_MEMORY_MAXIMUM_PAGES = 0xffff;
+const KERNEL_MEMORY_BYTES = KERNEL_MEMORY_MAXIMUM_PAGES * PAGE_SIZE;
+
+function kernel_initial_pages(
+  memory: WasmMemoryType,
+  initcpio_size: number,
+): number {
+  const maximum = BigInt(KERNEL_MEMORY_MAXIMUM_PAGES);
+  assert(
+    memory.minimum <= maximum &&
+      memory.maximum !== undefined && memory.maximum >= maximum,
+    "Kernel memory limits are incompatible with a 4 GiB - 64 KiB memory",
+  );
+  const initcpio_pages = Math.ceil(initcpio_size / PAGE_SIZE);
+  const initial = Number(memory.minimum) + initcpio_pages;
+  assert(
+    initial <= KERNEL_MEMORY_MAXIMUM_PAGES,
+    "Initramfs does not fit in kernel memory",
+  );
+  return initial;
+}
 
 function is_devicetree_node(value: unknown): value is DeviceTreeNode {
   return typeof value === "object" && value?.constructor === Object;
@@ -134,17 +172,21 @@ export async function spawnMachine(
   const close = () => finish();
 
   try {
-    const PAGE_SIZE = 0x10000;
-    const BYTES_PER_MIB = 0x100000;
-    const bytes = (options.memoryMib ?? 128) * BYTES_PER_MIB;
-    const pages = bytes / PAGE_SIZE;
+    const { sections, vmlinux, initramfs, memory: memory_type } =
+      await resources;
+    const initcpio = options.initcpio ? await options.initcpio : undefined;
+    const module_pages = Number(memory_type.minimum);
+    const initcpio_addr = module_pages * PAGE_SIZE;
+    const pages = kernel_initial_pages(
+      memory_type,
+      initcpio?.byteLength ?? 0,
+    );
     const wasm_memory = new WebAssembly.Memory({
       initial: pages,
-      maximum: pages,
+      maximum: KERNEL_MEMORY_MAXIMUM_PAGES,
       shared: true,
     });
-    assert(wasm_memory.buffer.byteLength === bytes);
-    const memory = new Uint8Array(wasm_memory.buffer);
+    assert(wasm_memory.buffer.byteLength === pages * PAGE_SIZE);
 
     const devicetree: DeviceTreeNode = {
       "#address-cells": 1,
@@ -157,7 +199,7 @@ export async function spawnMachine(
       aliases: {},
       memory: {
         device_type: "memory",
-        reg: [0, bytes],
+        reg: [0, KERNEL_MEMORY_BYTES],
       },
       "reserved-memory": {
         "#address-cells": 1,
@@ -177,31 +219,25 @@ export async function spawnMachine(
       };
     }
     const memory_reservations: { address: number; size: number }[] = [];
-    const initcpio = options.initcpio ? await options.initcpio : undefined;
 
     if (initcpio) {
-      assert(
-        INITCPIO_ADDR + initcpio.byteLength <= memory.byteLength,
-        "Initramfs does not fit in machine memory",
-      );
       const chosen = devicetree.chosen as DeviceTreeNode;
-      chosen["linux,initrd-start"] = INITCPIO_ADDR;
-      chosen["linux,initrd-end"] = INITCPIO_ADDR + initcpio.byteLength;
-      memory.set(
+      chosen["linux,initrd-start"] = initcpio_addr;
+      chosen["linux,initrd-end"] = initcpio_addr + initcpio.byteLength;
+      new Uint8Array(wasm_memory.buffer).set(
         new Uint8Array(
           initcpio.buffer,
           initcpio.byteOffset,
           initcpio.byteLength,
         ),
-        INITCPIO_ADDR,
+        initcpio_addr,
       );
       memory_reservations.push({
-        address: INITCPIO_ADDR,
+        address: initcpio_addr,
         size: initcpio.byteLength,
       });
     }
 
-    const { sections, vmlinux, initramfs } = await resources;
     (devicetree.chosen as DeviceTreeNode).sections = sections;
     if (options.devicetree) merge_devicetree(devicetree, options.devicetree);
 
@@ -235,7 +271,7 @@ export async function spawnMachine(
               break;
             case "run_on_main":
               assert(instance);
-              instance.exports.__indirect_function_table.get(message.fn)!(
+              instance.exports.__indirect_function_table.get(message.fn >>> 0)!(
                 message.arg,
               );
               break;
@@ -265,15 +301,22 @@ export async function spawnMachine(
       env: { memory: wasm_memory },
       boot: {
         get_devicetree: (buf, size) => {
+          const address = buf >>> 0;
+          const capacity = size >>> 0;
           assert(
-            size >= generated_devicetree.byteLength,
+            capacity >= generated_devicetree.byteLength,
             "Device tree truncated",
           );
-          memory.set(generated_devicetree, buf);
+          new Uint8Array(wasm_memory.buffer).set(
+            generated_devicetree,
+            address,
+          );
         },
         get_initramfs: (buf, size) => {
-          assert(size >= initramfs.byteLength, "Initramfs truncated");
-          memory.set(initramfs, buf);
+          const address = buf >>> 0;
+          const capacity = size >>> 0;
+          assert(capacity >= initramfs.byteLength, "Initramfs truncated");
+          new Uint8Array(wasm_memory.buffer).set(initramfs, address);
           return initramfs.byteLength;
         },
       },
@@ -284,8 +327,7 @@ export async function spawnMachine(
         boot_console_write,
         boot_console_close,
         run_on_main: unavailable,
-        get_user_module: unavailable,
-        get_user_memory: unavailable,
+        get_user_context: unavailable,
       }),
       user: {
         compile_begin: unavailable,
@@ -317,7 +359,7 @@ export async function spawnMachine(
     instance.exports.boot();
 
     return {
-      memory,
+      memory: wasm_memory,
       bootConsole: boot_console.readable,
       closed: closed_promise.promise,
       close,

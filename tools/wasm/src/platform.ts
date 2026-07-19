@@ -21,15 +21,22 @@ export interface WorkerChannel {
 }
 
 interface Platform {
-  compile_wasm(url: URL): Promise<WebAssembly.Module>;
+  load_wasm(url: URL): Promise<{
+    bytes: Uint8Array<ArrayBuffer>;
+    module: WebAssembly.Module;
+  }>;
   spawn_worker(name: string, handlers: WorkerHandlers): WorkerHandle;
   worker_channel(): WorkerChannel;
   quit(): void;
 }
 
 const web: Platform = {
-  compile_wasm(url) {
-    return WebAssembly.compileStreaming(fetch(url));
+  async load_wasm(url) {
+    const response = await fetch(url);
+    // native code caching is only supported with the *Streaming functions, so use it:
+    const module = await WebAssembly.compileStreaming(response.clone());
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return { bytes, module };
   },
   spawn_worker(name, handlers) {
     const worker = new Worker(new URL("./worker.js", import.meta.url), {
@@ -59,7 +66,7 @@ const web: Platform = {
     };
   },
   quit() {
-    self.close()
+    self.close();
   },
 };
 
@@ -99,8 +106,9 @@ function node(
   const { readFile } = getBuiltinModule("node:fs/promises");
   const { Worker, parentPort } = getBuiltinModule("node:worker_threads");
   return {
-    async compile_wasm(url) {
-      return await WebAssembly.compile(await readFile(url));
+    async load_wasm(url) {
+      const bytes = await readFile(url);
+      return { bytes, module: await WebAssembly.compile(bytes) };
     },
     spawn_worker(name, handlers) {
       const worker = new Worker(new URL("./worker.js", import.meta.url), {

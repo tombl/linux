@@ -1,5 +1,6 @@
 import { platform } from "./platform.ts";
 import { assert } from "./util.ts";
+import { read_wasm_memories } from "./wasm_binary.ts";
 import {
   HALT_KERNEL,
   type Imports,
@@ -17,12 +18,12 @@ export interface InitMessage {
 }
 export type WorkerMessage =
   | {
-      type: "spawn_worker";
-      fn: number;
-      arg: number;
-      name: string;
-      user: UserContext | null;
-    }
+    type: "spawn_worker";
+    fn: number;
+    arg: number;
+    name: string;
+    user: UserContext | null;
+  }
   | { type: "boot_console_write"; message: ArrayBuffer }
   | { type: "boot_console_close" }
   | { type: "run_on_main"; fn: number; arg: number };
@@ -43,35 +44,33 @@ function user_imports({
   get_kernel_instance: () => Instance;
   parent_user: UserContext | null;
 }): {
-  module: WebAssembly.Module | null;
-  memory: WebAssembly.Memory | null;
+  context: UserContext | null;
   prepare(): void;
   imports: Imports["user"];
 } {
   const HALT_USER = Symbol("halt user");
 
-  const kernel_memory_buffer = new Uint8Array(kernel_memory.buffer);
-  let module: WebAssembly.Module | null = parent?.module ?? null;
+  let context: UserContext | null = parent;
   let instance: WebAssembly.Instance | null = null;
-  let memory: WebAssembly.Memory | null = parent?.memory ?? null;
   let pending_module_bytes: Uint8Array<ArrayBuffer> | null = null;
-  let pending_module: WebAssembly.Module | null = null;
+  let pending: UserContext | null = null;
 
   function user_atomic_word(uaddr: number): Int32Array | null {
     const address = uaddr >>> 0;
     if (
-      !memory ||
+      !context ||
       (address & 3) !== 0 ||
-      address > memory.buffer.byteLength - Int32Array.BYTES_PER_ELEMENT
+      address >
+        context.memory.buffer.byteLength - Int32Array.BYTES_PER_ELEMENT
     ) {
       return null;
     }
 
-    return new Int32Array(memory.buffer, address, 1);
+    return new Int32Array(context.memory.buffer, address, 1);
   }
 
   function write_kernel_u32(addr: number, value: number): void {
-    new DataView(kernel_memory.buffer).setUint32(addr, value, true);
+    new DataView(kernel_memory.buffer).setUint32(addr >>> 0, value, true);
   }
 
   function call_start(): void {
@@ -83,29 +82,10 @@ function user_imports({
   }
   let call_entry = call_start;
 
-  function instantiate(fresh_memory: boolean): void {
-    if (fresh_memory) {
-      assert(pending_module);
-      module = pending_module;
-      pending_module = null;
-    }
-    assert(module);
-
-    if (fresh_memory || !memory) {
-      const size = 2048 + Math.floor(Math.random() * 1000);
-
-      // TODO: read the real initial size from the module.
-      // TOOD: enforce rlimit via maximum.
-      memory = new WebAssembly.Memory({
-        initial: size,
-        maximum: size,
-        shared: true,
-      });
-    }
-
+  function create_instance(context: UserContext): WebAssembly.Instance {
     const kernel_instance = get_kernel_instance();
-    instance = new WebAssembly.Instance(module, {
-      env: { memory },
+    return new WebAssembly.Instance(context.module, {
+      env: { memory: context.memory },
       linux: {
         syscall: (
           nr: number,
@@ -139,12 +119,20 @@ function user_imports({
     });
   }
 
+  function instantiate(fresh_memory: boolean): void {
+    if (fresh_memory) {
+      assert(pending);
+      context = pending;
+      pending = null;
+    }
+
+    assert(context);
+    instance = create_instance(context);
+  }
+
   return {
-    get module() {
-      return module;
-    },
-    get memory() {
-      return memory;
+    get context() {
+      return context;
     },
     prepare() {
       if (parent) instantiate(false);
@@ -153,7 +141,7 @@ function user_imports({
       // program management:
       compile_begin(size) {
         pending_module_bytes = null;
-        pending_module = null;
+        pending = null;
         try {
           pending_module_bytes = new Uint8Array(size >>> 0);
           return 0;
@@ -179,33 +167,74 @@ function user_imports({
         );
         return 0;
       },
-      compile_end() {
+      compile_end(maximum_memory_pages) {
         const bytes = pending_module_bytes;
         pending_module_bytes = null;
         if (!bytes) return -22; // invalid argument
+
+        const rlimit_pages = maximum_memory_pages >>> 0;
+        let module: WebAssembly.Module;
+        let minimum: number;
+        let maximum: number;
         try {
-          const compiled = new WebAssembly.Module(bytes);
-          const memory_imports = WebAssembly.Module.imports(compiled).filter(
-            ({ kind }) => kind === "memory",
-          );
-          const memory_import = memory_imports[0];
+          const memories = read_wasm_memories(bytes);
+          const memory_import = memories.imports[0];
           if (
-            memory_imports.length !== 1 ||
+            memories.definitions.length !== 0 ||
+            memories.imports.length !== 1 ||
             !memory_import ||
             memory_import.module !== "env" ||
-            memory_import.name !== "memory"
+            memory_import.name !== "memory" ||
+            memory_import.type.address !== "i32" ||
+            !memory_import.type.shared ||
+            memory_import.type.maximum === undefined
           ) {
             return -8; // exec format error
           }
-          pending_module = compiled;
-          return 0;
+
+          module = new WebAssembly.Module(bytes);
+          const compiled_memory_imports = WebAssembly.Module.imports(
+            module,
+          ).filter(
+            ({ kind }) => kind === "memory",
+          );
+          if (
+            compiled_memory_imports.length !== 1 ||
+            compiled_memory_imports[0]?.module !== "env" ||
+            compiled_memory_imports[0]?.name !== "memory"
+          ) {
+            return -8; // exec format error
+          }
+
+          minimum = Number(memory_import.type.minimum);
+          maximum = Math.min(
+            Number(memory_import.type.maximum),
+            rlimit_pages,
+          );
         } catch {
           return -8; // exec format error
         }
+
+        if (maximum < minimum) return -12; // out of memory
+
+        let memory: WebAssembly.Memory;
+        try {
+          memory = new WebAssembly.Memory({
+            initial: minimum,
+            maximum,
+            shared: true,
+          });
+        } catch {
+          return -12; // out of memory
+        }
+
+        const next_context = { module, memory, maximum_pages: maximum };
+        pending = next_context;
+        return 0;
       },
       compile_abort() {
         pending_module_bytes = null;
-        pending_module = null;
+        pending = null;
       },
       instantiate(fresh_memory) {
         instantiate(Boolean(fresh_memory));
@@ -239,7 +268,7 @@ function user_imports({
             "Invalid function table",
           );
 
-          const f = __indirect_function_table.get(fn);
+          const f = __indirect_function_table.get(fn >>> 0);
           assert(
             typeof f === "function" && f.length === 1,
             "Invalid function signature",
@@ -262,7 +291,7 @@ function user_imports({
           "Invalid function table",
         );
 
-        const f = __indirect_function_table.get(fn);
+        const f = __indirect_function_table.get(fn >>> 0);
         assert(
           typeof f === "function" && f.length === 1,
           "Invalid function signature",
@@ -273,22 +302,31 @@ function user_imports({
 
       // memory:
       read(to, from, n) {
-        assert(memory);
-        const slice = new Uint8Array(memory.buffer, from, n);
-        kernel_memory_buffer.set(slice, to);
-        return n - slice.length;
+        assert(context);
+        const destination = to >>> 0;
+        const source = from >>> 0;
+        const length = n >>> 0;
+        new Uint8Array(kernel_memory.buffer, destination, length).set(
+          new Uint8Array(context.memory.buffer, source, length),
+        );
+        return 0;
       },
       write(to, from, n) {
-        assert(memory);
-        const slice = kernel_memory_buffer.subarray(from, from + n);
-        new Uint8Array(memory.buffer, to, n).set(slice);
-        return n - slice.length;
+        assert(context);
+        const destination = to >>> 0;
+        const source = from >>> 0;
+        const length = n >>> 0;
+        new Uint8Array(context.memory.buffer, destination, length).set(
+          new Uint8Array(kernel_memory.buffer, source, length),
+        );
+        return 0;
       },
       write_zeroes(to, n) {
-        assert(memory);
-        const slice = new Uint8Array(memory.buffer, to, n);
-        slice.fill(0);
-        return n - slice.length;
+        assert(context);
+        const destination = to >>> 0;
+        const length = n >>> 0;
+        new Uint8Array(context.memory.buffer, destination, length).fill(0);
+        return 0;
       },
       futex_atomic_op(oldval, uaddr, op, oparg) {
         const word = user_atomic_word(uaddr);
@@ -367,11 +405,8 @@ channel.on_message((data) => {
       run_on_main(fn, arg) {
         postMessage({ type: "run_on_main", fn, arg });
       },
-      get_user_module() {
-        return user.module;
-      },
-      get_user_memory() {
-        return user.memory;
+      get_user_context() {
+        return user.context;
       },
     }),
     virtio: {
@@ -386,7 +421,7 @@ channel.on_message((data) => {
   const instance = new WebAssembly.Instance(vmlinux, imports) as Instance;
   user.prepare();
   try {
-    instance.exports.__indirect_function_table.get(fn)!(arg);
+    instance.exports.__indirect_function_table.get(fn >>> 0)!(arg);
   } catch (error) {
     if (error === HALT_KERNEL) return;
     throw error;

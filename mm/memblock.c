@@ -455,6 +455,8 @@ static int __init_memblock memblock_double_array(struct memblock_type *type,
 				min(new_area_start, memblock.current_limit),
 				new_alloc_size, PAGE_SIZE);
 
+		if (addr)
+			arch_memblock_materialize(addr, new_alloc_size);
 		new_array = addr ? __va(addr) : NULL;
 	}
 	if (!addr) {
@@ -1411,6 +1413,7 @@ again:
 	return 0;
 
 done:
+	arch_memblock_materialize(found, size);
 	/*
 	 * Skip kmemleak for those places like kasan_init() and
 	 * early_pgtable_alloc() due to high volume.

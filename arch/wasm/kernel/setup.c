@@ -32,6 +32,7 @@ __attribute__((export_name("boot"))) void __init _start(void)
 	static char initramfs[512];
 	int node;
 
+	memblock_set_bottom_up(true);
 	set_current_cpu(0);
 	set_current_task(&init_task);
 

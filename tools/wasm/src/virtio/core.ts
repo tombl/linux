@@ -1,4 +1,4 @@
-import { FixedArray, Struct, U16LE, U32LE, U64LE } from "../bytes.ts";
+import { Struct, U16LE, U32LE, U64LE } from "../bytes.ts";
 import { assert } from "../util.ts";
 import type { Imports } from "../wasm.ts";
 
@@ -23,6 +23,13 @@ class VirtqDescriptor extends Struct({
   flags: U16LE,
 }) {}
 
+interface Descriptor {
+  addr: bigint;
+  len: number;
+  id: number;
+  flags: number;
+}
+
 export interface VirtqueueBuffer {
   readonly array: Uint8Array;
   readonly writable: boolean;
@@ -35,16 +42,16 @@ export interface VirtqueueChain extends Iterable<VirtqueueBuffer> {
 export interface Virtqueue extends Iterable<VirtqueueChain> {}
 
 class Chain implements VirtqueueChain {
-  #mem: DataView;
-  #desc: VirtqDescriptor[];
+  #memory: WebAssembly.Memory;
+  #desc: Descriptor[];
   #release: (written: number) => void;
 
   constructor(
-    mem: DataView,
-    desc: VirtqDescriptor[],
+    memory: WebAssembly.Memory,
+    desc: Descriptor[],
     release: (written: number) => void,
   ) {
-    this.#mem = mem;
+    this.#memory = memory;
     this.#desc = desc;
     this.#release = release;
   }
@@ -56,7 +63,11 @@ class Chain implements VirtqueueChain {
   *[Symbol.iterator]() {
     for (const desc of this.#desc) {
       yield {
-        array: new Uint8Array(this.#mem.buffer, Number(desc.addr), desc.len),
+        array: new Uint8Array(
+          this.#memory.buffer,
+          Number(desc.addr),
+          desc.len,
+        ),
         writable: (desc.flags & DescriptorFlags.WRITE) !== 0,
       };
     }
@@ -64,9 +75,9 @@ class Chain implements VirtqueueChain {
 }
 
 class PackedVirtqueue implements Virtqueue {
-  #mem: DataView;
+  #memory: WebAssembly.Memory;
   #size: number;
-  #desc: VirtqDescriptor[];
+  #desc_addr: number;
   #on_release: () => void;
   #avail_wrap = true;
   #used_wrap = true;
@@ -74,25 +85,53 @@ class PackedVirtqueue implements Virtqueue {
   #avail_idx = 0;
 
   constructor(
-    mem: DataView,
+    memory: WebAssembly.Memory,
     size: number,
     desc_addr: number,
     on_release: () => void,
   ) {
     assert(size !== 0);
-    assert(mem.byteOffset === 0);
-    this.#mem = mem;
+    this.#memory = memory;
     this.#size = size;
-    this.#desc = FixedArray(VirtqDescriptor, size).get(mem, desc_addr);
+    this.#desc_addr = desc_addr;
     this.#on_release = on_release;
+  }
+
+  #descriptor(index: number) {
+    const desc = VirtqDescriptor.get(
+      new DataView(this.#memory.buffer),
+      this.#desc_addr + VirtqDescriptor.size * index,
+    );
+    return {
+      addr: desc.addr,
+      len: desc.len,
+      id: desc.id,
+      flags: desc.flags,
+    };
+  }
+
+  #indirect_descriptors(address: number, count: number) {
+    const descriptors: Descriptor[] = [];
+    for (let i = 0; i < count; i++) {
+      const desc = VirtqDescriptor.get(
+        new DataView(this.#memory.buffer),
+        address + VirtqDescriptor.size * i,
+      );
+      descriptors.push({
+        addr: desc.addr,
+        len: desc.len,
+        id: desc.id,
+        flags: desc.flags,
+      });
+    }
+    return descriptors;
   }
 
   #pop() {
     let i = this.#advance();
     if (i === null) return null;
 
-    let desc = this.#desc[i];
-    assert(desc);
+    let desc = this.#descriptor(i);
     const id = desc.id;
     let skip = 1;
     let chain_desc = [desc];
@@ -101,8 +140,7 @@ class PackedVirtqueue implements Virtqueue {
       do {
         i = this.#advance();
         if (i === null) throw new Error("no next descriptor is available");
-        desc = this.#desc[i];
-        assert(desc);
+        desc = this.#descriptor(i);
         chain_desc.push(desc);
         skip += 1;
       } while (desc.flags & DescriptorFlags.NEXT);
@@ -110,14 +148,14 @@ class PackedVirtqueue implements Virtqueue {
       if (desc.len % VirtqDescriptor.size !== 0) {
         throw new Error("malformed indirect buffer");
       }
-      chain_desc = FixedArray(
-        VirtqDescriptor,
+      chain_desc = this.#indirect_descriptors(
+        Number(desc.addr),
         desc.len / VirtqDescriptor.size,
-      ).get(this.#mem, Number(desc.addr));
+      );
     }
 
     return new Chain(
-      this.#mem,
+      this.#memory,
       chain_desc,
       (written) => this.#release(id, skip, written),
     );
@@ -129,8 +167,7 @@ class PackedVirtqueue implements Virtqueue {
   }
 
   #advance() {
-    const desc = this.#desc[this.#avail_idx];
-    assert(desc);
+    const desc = this.#descriptor(this.#avail_idx);
 
     const avail = (desc.flags & DescriptorFlags.AVAIL) !== 0;
     const used = (desc.flags & DescriptorFlags.USED) !== 0;
@@ -146,8 +183,10 @@ class PackedVirtqueue implements Virtqueue {
   }
 
   #release(id: number, skip: number, written: number) {
-    const desc = this.#desc[this.#used_idx];
-    assert(desc);
+    const desc = VirtqDescriptor.get(
+      new DataView(this.#memory.buffer),
+      this.#desc_addr + VirtqDescriptor.size * this.#used_idx,
+    );
     const avail = (desc.flags & DescriptorFlags.AVAIL) !== 0;
     const used = (desc.flags & DescriptorFlags.USED) !== 0;
     if (avail === used || avail !== this.#used_wrap) {
@@ -195,7 +234,10 @@ interface TransportDevice {
   readonly device_id: number;
   readonly features: bigint;
   readonly config: Uint8Array;
-  attach(config: Uint8Array, raise_config: RaiseConfigInterrupt): void;
+  attach(
+    get_config: () => Uint8Array,
+    raise_config: RaiseConfigInterrupt,
+  ): void;
   notify(vq: number, queue: Virtqueue): void | PromiseLike<void>;
   close(): void;
 }
@@ -214,7 +256,7 @@ export class VirtioController {
 
   constructor(options: VirtioDeviceOptions, driver: VirtioDriver) {
     const config = options.config?.slice() ?? new Uint8Array();
-    let guest_config: Uint8Array | undefined;
+    let get_guest_config: (() => Uint8Array) | undefined;
     let raise_config: RaiseConfigInterrupt | undefined;
     let config_pending = false;
     let closed = false;
@@ -240,11 +282,11 @@ export class VirtioController {
         (options.features ?? 0n),
       config,
 
-      attach(next_config, next_raise_config) {
+      attach: (next_get_config, next_raise_config) => {
         assert(!closed && !closing, "cannot attach a closed virtio device");
-        assert(!guest_config, "virtio device is already attached");
-        next_config.set(config);
-        guest_config = next_config;
+        assert(!get_guest_config, "virtio device is already attached");
+        next_get_config().set(config);
+        get_guest_config = next_get_config;
         raise_config = next_raise_config;
         if (config_pending) {
           config_pending = false;
@@ -273,7 +315,7 @@ export class VirtioController {
         "virtio config size cannot change",
       );
       config.set(next_config);
-      guest_config?.set(config);
+      get_guest_config?.().set(config);
       if (closed) return;
       if (raise_config) raise_config();
       else config_pending = true;
@@ -325,7 +367,6 @@ export function virtio_imports({
   trigger_irq: (irq: number) => void;
   on_error: (error: unknown) => void;
 }): Imports["virtio"] {
-  const dv = new DataView(memory.buffer);
   const states: TransportState[] = devices.map((device) => ({
     device: device[transport_device],
     queues: [],
@@ -373,9 +414,9 @@ export function virtio_imports({
       // Interrupt once per synchronous batch of released chains.
       let armed = false;
       const queue: PackedVirtqueue = new PackedVirtqueue(
-        dv,
+        memory,
         size,
-        desc_addr,
+        desc_addr >>> 0,
         () => {
           if (armed) return;
           armed = true;
@@ -397,11 +438,13 @@ export function virtio_imports({
     },
 
     setup(dev, config_irq, config_addr, config_len) {
+      const address = config_addr >>> 0;
+      const length = config_len >>> 0;
       const device = states[dev]?.device;
       assert(device);
-      assert(config_len >= device.config.byteLength, "config space too small");
+      assert(length >= device.config.byteLength, "config space too small");
       device.attach(
-        new Uint8Array(dv.buffer, config_addr, config_len),
+        () => new Uint8Array(memory.buffer, address, length),
         () => trigger_irq(config_irq),
       );
     },
