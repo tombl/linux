@@ -56,7 +56,8 @@ __attribute__((export_name("boot"))) void __init _start(void)
 	set_current_cpu(-2); // -1 is reserved for unscheduled tasks
 	set_current_task(NULL);
 
-	wasm_kernel_spawn_worker(do_start_kernel, NULL, "boot", sizeof "boot" - 1, false);
+	wasm_kernel_spawn_worker(do_start_kernel, NULL, "boot", sizeof "boot" - 1,
+				 WASM_USER_MEMORY_NONE);
 }
 
 void __init setup_arch(char **cmdline_p)

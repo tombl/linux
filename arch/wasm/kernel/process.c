@@ -136,8 +136,10 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 {
 	struct pt_regs *childregs = task_pt_regs(p);
 	struct task_bootstrap_args *bootstrap_args;
+	enum wasm_user_memory user_memory = WASM_USER_MEMORY_NONE;
 	char name[TASK_COMM_LEN + 16] = { 0 };
 	int name_len;
+	int ret;
 
 	memset(childregs, 0, sizeof(struct pt_regs));
 
@@ -160,8 +162,16 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 
 	name_len = snprintf(name, ARRAY_SIZE(name), "%s (%d)", p->comm, p->pid);
 
-	wasm_kernel_spawn_worker(&task_entry, bootstrap_args, name, name_len,
-				 args->fn == wasm_call_clone_fn);
+	if (args->fn == wasm_call_clone_fn)
+		user_memory = args->flags & CLONE_VM ?
+			WASM_USER_MEMORY_SHARE : WASM_USER_MEMORY_COPY;
+
+	ret = wasm_kernel_spawn_worker(&task_entry, bootstrap_args, name,
+				       name_len, user_memory);
+	if (ret) {
+		kfree(bootstrap_args);
+		return ret;
+	}
 
 	return 0;
 }

@@ -25,6 +25,10 @@ export interface UserContext {
   memory: WebAssembly.Memory;
 }
 
+const WASM_USER_MEMORY_NONE = 0;
+const WASM_USER_MEMORY_SHARE = 1;
+const WASM_USER_MEMORY_COPY = 2;
+
 export interface Imports {
   env: { memory: WebAssembly.Memory };
   boot: {
@@ -44,8 +48,8 @@ export interface Imports {
       arg: number,
       comm: number,
       comm_len: number,
-      share_user_memory: number,
-    ): void;
+      user_memory: number,
+    ): number;
     run_on_main(fn: number, arg: number): void;
   };
   user: {
@@ -170,18 +174,42 @@ export function kernel_imports(
       mem.set(trace.slice(0, size), buf);
     },
 
-    spawn_worker: (fn, arg, comm, comm_len, share_user_memory) => {
+    spawn_worker: (fn, arg, comm, comm_len, user_memory) => {
       const name = new TextDecoder().decode(
         mem.slice(comm, comm + comm_len),
       );
       let user: UserContext | null = null;
-      if (share_user_memory) {
+      if (user_memory !== WASM_USER_MEMORY_NONE) {
         const module = get_user_module();
         const memory = get_user_memory();
-        if (!module || !memory) throw new Error("User context not available");
-        user = { module, memory };
+        if (!module || !memory) return -22; // invalid argument
+
+        const memory_pages = memory.buffer.byteLength / 0x10000;
+        switch (user_memory) {
+          case WASM_USER_MEMORY_SHARE:
+            user = { module, memory };
+            break;
+          case WASM_USER_MEMORY_COPY:
+            try {
+              const copied = new WebAssembly.Memory({
+                initial: memory_pages,
+                maximum: memory_pages,
+                shared: true,
+              });
+              new Uint8Array(copied.buffer).set(
+                new Uint8Array(memory.buffer),
+              );
+              user = { module, memory: copied };
+            } catch {
+              return -12; // out of memory
+            }
+            break;
+          default:
+            return -22; // invalid argument
+        }
       }
       spawn_worker(fn, arg, name, user);
+      return 0;
     },
 
     run_on_main,

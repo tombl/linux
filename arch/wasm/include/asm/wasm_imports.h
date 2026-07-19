@@ -22,8 +22,15 @@ unsigned long long wasm_import(kernel, get_now_nsec)(void);
 
 void wasm_import(kernel, get_stacktrace)(char *buf, size_t size);
 
-void wasm_import(kernel, spawn_worker)(void (*fn)(void *), void *arg,
-				       char *name, size_t name_len, u32 share_user_memory);
+enum wasm_user_memory {
+	WASM_USER_MEMORY_NONE = 0,
+	WASM_USER_MEMORY_SHARE = 1,
+	WASM_USER_MEMORY_COPY = 2,
+};
+
+int wasm_import(kernel, spawn_worker)(void (*fn)(void *), void *arg,
+				      char *name, size_t name_len,
+				      enum wasm_user_memory user_memory);
 
 void wasm_import(kernel, run_on_main)(void (*fn)(void *), void *arg);
 
