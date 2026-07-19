@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+import { Struct, U16LE } from "../bytes.ts";
 import { assert } from "../util.ts";
 import {
   VirtioController,
@@ -7,12 +8,29 @@ import {
   type Virtqueue,
 } from "./core.ts";
 
+const Features = {
+  SIZE: 1n << 0n,
+} as const;
+
+class ConsoleConfig extends Struct({
+  columns: U16LE,
+  rows: U16LE,
+}) {}
+
+export interface ConsoleDevice extends VirtioDevice {
+  resize(columns: number, rows: number): void;
+}
+
 export function consoleDevice(
   input: ReadableStream<Uint8Array> | null,
   output: WritableStream<Uint8Array> | null,
-): VirtioDevice {
+): ConsoleDevice {
   const reader = input?.getReader();
   const writer = output?.getWriter();
+  const config_bytes = new Uint8Array(ConsoleConfig.size);
+  const config = new ConsoleConfig(config_bytes);
+  config.columns = 80;
+  config.rows = 24;
   let writing: Promise<void> | undefined;
 
   async function write_input(queue: Virtqueue) {
@@ -58,8 +76,8 @@ export function consoleDevice(
     }
   }
 
-  return new VirtioController(
-    { deviceId: 3 },
+  const controller = new VirtioController(
+    { deviceId: 3, features: Features.SIZE, config: config_bytes },
     {
       queues: [reader ? notify_input : () => {}, notify_output],
       close() {
@@ -67,5 +85,22 @@ export function consoleDevice(
         void writer?.close().catch(() => {});
       },
     },
-  ).device;
+  );
+
+  function resize(columns: number, rows: number) {
+    assert(
+      Number.isInteger(columns) && columns > 0 && columns <= 0xffff,
+      "console columns must be a positive 16-bit integer",
+    );
+    assert(
+      Number.isInteger(rows) && rows > 0 && rows <= 0xffff,
+      "console rows must be a positive 16-bit integer",
+    );
+    if (config.columns === columns && config.rows === rows) return;
+    config.columns = columns;
+    config.rows = rows;
+    controller.updateConfig(config_bytes);
+  }
+
+  return controller.expose({ resize });
 }
