@@ -2,10 +2,13 @@
 
 #include <linux/binfmts.h>
 #include <linux/highmem.h>
-#include <linux/mman.h>
 #include <linux/personality.h>
 #include <linux/ptrace.h>
-#include <linux/syscalls.h>
+#include <linux/sizes.h>
+#include <linux/slab.h>
+
+/* Four pages amortize host calls without requiring a large kernel allocation. */
+#define WASM_EXEC_MAX_CHUNK_SIZE SZ_256K
 
 static int load_wasm_binary(struct linux_binprm *bprm);
 
@@ -114,9 +117,12 @@ __attribute__((export_name("get_args"))) int get_args(void *buf)
 
 static int load_wasm_binary(struct linux_binprm *bprm)
 {
+	loff_t offset = 0;
+	u8 *chunk = NULL;
 	int ret;
-	u8 *code = NULL;
 	loff_t filesize;
+	bool compiling = false;
+	u32 chunk_size;
 
 	if (strncmp(bprm->buf, "\0asm\1\0\0\0", 8))
 		return -ENOEXEC;
@@ -124,22 +130,44 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 	ret = file_get_size(bprm->file, &filesize);
 	if (ret < 0)
 		return ret;
+	if (filesize > U32_MAX)
+		return -EFBIG;
 
-	code = (char *)vm_mmap(bprm->file, 0, filesize, PROT_READ | PROT_WRITE,
-			       MAP_PRIVATE, 0);
-	if (IS_ERR(code)) {
-		ret = PTR_ERR(code);
+	chunk_size = min_t(loff_t, filesize, WASM_EXEC_MAX_CHUNK_SIZE);
+	chunk = kmalloc(chunk_size, GFP_KERNEL);
+	if (!chunk)
+		return -ENOMEM;
+
+	ret = wasm_user_compile_begin((u32)filesize);
+	if (ret)
 		goto err;
+	compiling = true;
+
+	while (offset < filesize) {
+		u32 size = min_t(loff_t, filesize - offset, chunk_size);
+		loff_t chunk_offset = offset;
+		ssize_t read = kernel_read(bprm->file, chunk, size, &offset);
+
+		if (read < 0) {
+			ret = read;
+			goto err;
+		}
+		if (!read) {
+			ret = -EIO;
+			goto err;
+		}
+		ret = wasm_user_compile_write(chunk, (u32)chunk_offset,
+					      (u32)read);
+		if (ret)
+			goto err;
 	}
 
-	ret = wasm_user_compile(code, filesize);
+	ret = wasm_user_compile_end();
 	if (ret)
 		goto err;
 
-	ret = vm_munmap((uintptr_t)code, filesize);
-	code = NULL;
-	if (ret)
-		goto err;
+	kfree(chunk);
+	chunk = NULL;
 
 	ret = copy_args(bprm);
 	if (ret)
@@ -161,8 +189,9 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 
 	return 0;
 err:
-	if (!IS_ERR_OR_NULL(code))
-		vm_munmap((uintptr_t)code, filesize);
+	if (compiling)
+		wasm_user_compile_abort();
+	kfree(chunk);
 	return ret;
 }
 
