@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { Struct, U16LE, U32LE, U64LE } from "../bytes.ts";
 import { assert } from "../util.ts";
 import {

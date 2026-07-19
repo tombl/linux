@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // The WebAssembly JavaScript API reports that an import is a memory, but not
 // the memory's limits. Those live in the module's import section, so read the
 // small part of the binary format that is needed to recover them.

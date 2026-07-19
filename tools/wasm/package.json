@@ -1,6 +1,9 @@
 {
   "name": "@tombl/linux",
   "version": "0.0.0",
+  "description": "Low-level Linux virtual machine and virtio device primitives for JavaScript.",
+  "license": "MIT AND (GPL-2.0-only WITH Linux-syscall-note)",
+  "homepage": "https://linux.tombl.dev/reference/linux/",
   "type": "module",
   "repository": {
     "type": "git",

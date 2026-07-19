@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { type DeviceTreeNode, generate_devicetree } from "./devicetree.ts";
 import { platform, type WorkerHandle } from "./platform.ts";
 import { assert, unreachable } from "./util.ts";

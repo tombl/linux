@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 declare module "*.wasm" {
   const url: string;
   export default url;

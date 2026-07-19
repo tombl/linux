@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { platform } from "./platform.ts";
 
 export interface Instance extends WebAssembly.Instance {

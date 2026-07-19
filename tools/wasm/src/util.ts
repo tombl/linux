@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 export function assert(
   cond: unknown,
   message = "Assertation failed",

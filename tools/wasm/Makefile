@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 .SUFFIXES:
 MAKEFLAGS += -r --no-print-directory
 
@@ -30,10 +32,11 @@ pack:
 	$(Q)rm -rf $(PACKAGE_DIR) $(PACKAGE) $(BUILD_ASSETS)
 	$(Q)$(MAKE) $(PACKAGE)
 
-$(PACKAGE): all package.json
+$(PACKAGE): all package.json README.md LICENSE
 	$(Q)rm -rf $(PACKAGE_DIR) $@
 	$(Q)mkdir -p $(PACKAGE_DIR)/package
 	$(Q)cp package.json $(PACKAGE_DIR)/package/
+	$(Q)cp README.md LICENSE $(PACKAGE_DIR)/package/
 	$(Q)cp vmlinux.wasm $(PACKAGE_DIR)/package/
 ifneq ($(PACKAGE_VERSION),)
 	$(Q)$(PERL) -0pi -e 's/"version":\s*"[^"]+"/"version": "$(PACKAGE_VERSION)"/' $(PACKAGE_DIR)/package/package.json

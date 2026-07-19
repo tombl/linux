@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { assert } from "../util.ts";
 import {
   VirtioController,

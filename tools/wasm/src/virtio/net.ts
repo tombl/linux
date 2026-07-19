@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { Bytes, FixedArray, Struct, U16BE, U16LE, U8 } from "../bytes.ts";
 import { assert } from "../util.ts";
 import {

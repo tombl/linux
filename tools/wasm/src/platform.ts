@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // The seam between web APIs (browsers) and node builtins (node, deno).
 // Selected at runtime by the presence of process.getBuiltinModule, so bundlers
 // only ever see the web path and never try to resolve node builtins.
