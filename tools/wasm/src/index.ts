@@ -288,7 +288,10 @@ export async function spawnMachine(
         get_user_memory: unavailable,
       }),
       user: {
-        compile: unavailable,
+        compile_begin: unavailable,
+        compile_write: unavailable,
+        compile_end: unavailable,
+        compile_abort: unavailable,
         instantiate: unavailable,
         call: unavailable,
         switch_entry: unavailable,

@@ -54,6 +54,8 @@ function user_imports({
   let module: WebAssembly.Module | null = parent?.module ?? null;
   let instance: WebAssembly.Instance | null = null;
   let memory: WebAssembly.Memory | null = parent?.memory ?? null;
+  let pending_module_bytes: Uint8Array<ArrayBuffer> | null = null;
+  let pending_module: WebAssembly.Module | null = null;
 
   function user_atomic_word(uaddr: number): Int32Array | null {
     const address = uaddr >>> 0;
@@ -82,6 +84,11 @@ function user_imports({
   let call_entry = call_start;
 
   function instantiate(fresh_memory: boolean): void {
+    if (fresh_memory) {
+      assert(pending_module);
+      module = pending_module;
+      pending_module = null;
+    }
     assert(module);
 
     if (fresh_memory || !memory) {
@@ -144,10 +151,38 @@ function user_imports({
     },
     imports: {
       // program management:
-      compile(buf, size) {
-        const bytes = new Uint8Array(
-          kernel_memory_buffer.slice(buf, buf + size),
+      compile_begin(size) {
+        pending_module_bytes = null;
+        pending_module = null;
+        try {
+          pending_module_bytes = new Uint8Array(size >>> 0);
+          return 0;
+        } catch {
+          return -12; // out of memory
+        }
+      },
+      compile_write(buf, offset, size) {
+        const source = buf >>> 0;
+        const destination = offset >>> 0;
+        const length = size >>> 0;
+        const kernel_buffer = kernel_memory.buffer;
+        if (
+          !pending_module_bytes ||
+          source > kernel_buffer.byteLength - length ||
+          destination > pending_module_bytes.length - length
+        ) {
+          return -22; // invalid argument
+        }
+        pending_module_bytes.set(
+          new Uint8Array(kernel_buffer, source, length),
+          destination,
         );
+        return 0;
+      },
+      compile_end() {
+        const bytes = pending_module_bytes;
+        pending_module_bytes = null;
+        if (!bytes) return -22; // invalid argument
         try {
           const compiled = new WebAssembly.Module(bytes);
           const memory_imports = WebAssembly.Module.imports(compiled).filter(
@@ -162,11 +197,15 @@ function user_imports({
           ) {
             return -8; // exec format error
           }
-          module = compiled;
+          pending_module = compiled;
           return 0;
         } catch {
           return -8; // exec format error
         }
+      },
+      compile_abort() {
+        pending_module_bytes = null;
+        pending_module = null;
       },
       instantiate(fresh_memory) {
         instantiate(Boolean(fresh_memory));
