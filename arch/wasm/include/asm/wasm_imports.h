@@ -18,6 +18,7 @@ void wasm_import(kernel, boot_console_close)(void);
 
 void *wasm_import(kernel, return_address)(int level);
 
+/* Unix time in nanoseconds, monotonically advancing during the host session. */
 unsigned long long wasm_import(kernel, get_now_nsec)(void);
 
 void wasm_import(kernel, get_stacktrace)(char *buf, size_t size);

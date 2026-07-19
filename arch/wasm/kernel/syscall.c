@@ -1,5 +1,6 @@
 #include <linux/entry-common.h>
 #include <linux/syscalls.h>
+#include <asm/irq.h>
 
 #undef __SYSCALL
 #define __SYSCALL(nr, sym) asmlinkage long sym(const struct pt_regs *regs);
@@ -24,6 +25,11 @@ wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
 	long ret;
 
 	regs->user_mode = 0;
+
+	/* Deliver timers armed against a busy task that only enters the kernel
+	 * for syscalls; nothing else polls the clockevent deadline for it. */
+	wasm_timer_check();
+
 	nr = syscall_enter_from_user_mode(regs, nr);
 
 	if (nr < 0 || nr >= ARRAY_SIZE(syscall_table))
