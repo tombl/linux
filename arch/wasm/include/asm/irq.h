@@ -8,6 +8,7 @@
 
 int wasm_alloc_irq(void);
 void wasm_free_irq(int irq);
+void wasm_timer_check(void);
 
 #include <asm-generic/irq.h>
 

@@ -75,6 +75,35 @@ void __cpuidle arch_cpu_idle(void)
 	raw_local_irq_enable();
 }
 
+/*
+ * A running task never enters arch_cpu_idle, so the per-cpu deadline armed by
+ * the clockevent's set_next_event would only be noticed once the cpu next goes
+ * idle. That starves timers for a busy task: setitimer()/alarm() and per-process
+ * posix timers program an hrtimer whose expiry raises SIGALRM, but with nothing
+ * polling the deadline the hrtimer never fires while the task keeps running (or
+ * spins in a tight syscall loop), so the signal is never delivered.
+ *
+ * Poll the deadline on every entry to the kernel from user mode. An expired
+ * deadline raises TIMER_IRQ; restoring the (enabled) irq state then runs
+ * hrtimer_interrupt, which expires the timer and makes the signal pending so it
+ * is delivered on the way back to user space. Cooperative-only: a task that
+ * never re-enters the kernel still cannot be preempted.
+ */
+void wasm_timer_check(void)
+{
+	unsigned long flags;
+	u64 deadline;
+
+	local_irq_save(flags);
+	deadline = __this_cpu_read(timer_deadline_ns);
+	if (deadline &&
+	    (s64)(wasm_kernel_get_now_nsec() - deadline) >= 0) {
+		__this_cpu_write(timer_deadline_ns, 0);
+		pend_irq(this_cpu_ptr(&irq_pending), TIMER_IRQ);
+	}
+	local_irq_restore(flags);
+}
+
 void cpu_relax(void)
 {
 	unsigned long flags;
