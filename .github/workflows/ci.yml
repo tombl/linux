@@ -12,34 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: NixOS/nix-installer-action@main
-      - uses: Mic92/hestia@v2
       - run: nix build . --print-build-logs
       - run: cp -L result linux.tgz
       - uses: actions/upload-artifact@v4
         with:
           name: kernel
           path: linux.tgz
-
-  publish:
-    if: github.repository == 'tombl/linux' && github.ref == 'refs/heads/wasm'
-    needs: build
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: kernel
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-      - run: npm install -g npm@latest
-      - run: |
-          version="0.0.0-${GITHUB_SHA::8}"
-          if npm view "@tombl/linux@$version" version >/dev/null 2>&1; then
-            echo "@tombl/linux@$version is already published"
-          else
-            npm stage publish ./linux.tgz --access public --tag latest
-          fi
