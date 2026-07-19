@@ -7,6 +7,7 @@ import {
   type Virtqueue,
 } from "./core.ts";
 
+/** A virtio entropy source, feeding the guest's randomness pool from `crypto.getRandomValues`. */
 export function entropyDevice(): VirtioDevice {
   function notify(queue: Virtqueue) {
     for (const chain of queue) {
