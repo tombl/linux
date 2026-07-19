@@ -4,13 +4,24 @@
 #include <linux/highmem.h>
 #include <linux/personality.h>
 #include <linux/ptrace.h>
+#include <linux/sched/signal.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
 
 /* Four pages amortize host calls without requiring a large kernel allocation. */
 #define WASM_EXEC_MAX_CHUNK_SIZE SZ_256K
+#define WASM32_MAX_MEMORY_PAGES (1U << (32 - PAGE_SHIFT))
 
 static int load_wasm_binary(struct linux_binprm *bprm);
+
+static u32 user_memory_limit_pages(void)
+{
+	unsigned long limit = rlimit(RLIMIT_AS);
+
+	/* WebAssembly memory limits are an intentional exec-time snapshot. */
+	return limit == RLIM_INFINITY ? WASM32_MAX_MEMORY_PAGES :
+				       limit / SZ_64K;
+}
 
 static struct linux_binfmt wasm_format = {
 	.module = THIS_MODULE,
@@ -162,7 +173,7 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 			goto err;
 	}
 
-	ret = wasm_user_compile_end();
+	ret = wasm_user_compile_end(user_memory_limit_pages());
 	if (ret)
 		goto err;
 

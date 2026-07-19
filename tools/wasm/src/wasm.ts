@@ -23,6 +23,8 @@ export interface Instance extends WebAssembly.Instance {
 export interface UserContext {
   module: WebAssembly.Module;
   memory: WebAssembly.Memory;
+  // The JS API cannot recover a memory's maximum after construction.
+  maximum_pages: number;
 }
 
 const WASM_USER_MEMORY_NONE = 0;
@@ -55,7 +57,7 @@ export interface Imports {
   user: {
     compile_begin(size: number): number;
     compile_write(buf: number, offset: number, size: number): number;
-    compile_end(): number;
+    compile_end(maximum_memory_pages: number): number;
     compile_abort(): void;
     instantiate(fresh_memory: number): void;
     call(): void;
@@ -110,8 +112,7 @@ export function kernel_imports(
     boot_console_write,
     boot_console_close,
     run_on_main,
-    get_user_module,
-    get_user_memory,
+    get_user_context,
   }: {
     is_worker: boolean;
     memory: WebAssembly.Memory;
@@ -124,11 +125,9 @@ export function kernel_imports(
     boot_console_write: (message: ArrayBuffer) => void;
     boot_console_close: () => void;
     run_on_main: (fn: number, arg: number) => void;
-    get_user_module: () => WebAssembly.Module | null;
-    get_user_memory: () => WebAssembly.Memory | null;
+    get_user_context: () => UserContext | null;
   },
 ): Imports["kernel"] {
-  const mem = new Uint8Array(memory.buffer);
   return {
     breakpoint: () => {
       debugger;
@@ -140,7 +139,11 @@ export function kernel_imports(
     },
 
     boot_console_write: (msg, len) => {
-      boot_console_write(memory.buffer.slice(msg, msg + len));
+      const address = msg >>> 0;
+      const length = len >>> 0;
+      boot_console_write(
+        new Uint8Array(memory.buffer, address, length).slice().buffer,
+      );
     },
     boot_console_close,
 
@@ -164,45 +167,55 @@ export function kernel_imports(
     },
 
     get_stacktrace: (buf, size) => {
+      const address = buf >>> 0;
+      const capacity = size >>> 0;
       // 5 lines: strip Error, strip 4 common lines of stack
       const trace = new TextEncoder().encode(
         new Error().stack?.split("\n").slice(5).join("\n"),
       );
-      if (trace.byteLength > size) {
+      if (trace.byteLength > capacity && capacity >= 3) {
         /// 46 = "."
-        trace[size - 1] = 46;
-        trace[size - 2] = 46;
-        trace[size - 3] = 46;
+        trace[capacity - 1] = 46;
+        trace[capacity - 2] = 46;
+        trace[capacity - 3] = 46;
       }
-      mem.set(trace.slice(0, size), buf);
+      new Uint8Array(memory.buffer).set(
+        trace.subarray(0, capacity),
+        address,
+      );
     },
 
     spawn_worker: (fn, arg, comm, comm_len, user_memory) => {
+      const comm_address = comm >>> 0;
+      const comm_length = comm_len >>> 0;
       const name = new TextDecoder().decode(
-        mem.slice(comm, comm + comm_len),
+        new Uint8Array(memory.buffer, comm_address, comm_length).slice(), // copy to transfer to non-shared backing
       );
       let user: UserContext | null = null;
       if (user_memory !== WASM_USER_MEMORY_NONE) {
-        const module = get_user_module();
-        const memory = get_user_memory();
-        if (!module || !memory) return -22; // invalid argument
+        const context = get_user_context();
+        if (!context) return -22; // invalid argument
 
-        const memory_pages = memory.buffer.byteLength / 0x10000;
+        const memory_pages = context.memory.buffer.byteLength / 0x10000;
         switch (user_memory) {
           case WASM_USER_MEMORY_SHARE:
-            user = { module, memory };
+            user = context;
             break;
           case WASM_USER_MEMORY_COPY:
             try {
               const copied = new WebAssembly.Memory({
                 initial: memory_pages,
-                maximum: memory_pages,
+                maximum: context.maximum_pages,
                 shared: true,
               });
               new Uint8Array(copied.buffer).set(
-                new Uint8Array(memory.buffer),
+                new Uint8Array(context.memory.buffer),
               );
-              user = { module, memory: copied };
+              user = {
+                module: context.module,
+                memory: copied,
+                maximum_pages: context.maximum_pages,
+              };
             } catch {
               return -12; // out of memory
             }

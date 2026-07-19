@@ -36,7 +36,7 @@ void wasm_import(kernel, run_on_main)(void (*fn)(void *), void *arg);
 
 int wasm_import(user, compile_begin)(u32 len);
 int wasm_import(user, compile_write)(u8 *bytes, u32 offset, u32 len);
-int wasm_import(user, compile_end)(void);
+int wasm_import(user, compile_end)(u32 maximum_memory_pages);
 void wasm_import(user, compile_abort)(void);
 void wasm_import(user, instantiate)(bool fresh_memory);
 void wasm_import(user, call)(void);
