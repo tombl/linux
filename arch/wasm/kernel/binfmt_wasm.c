@@ -1,9 +1,13 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/auxvec.h>
 #include <linux/binfmts.h>
+#include <linux/cred.h>
 #include <linux/highmem.h>
+#include <linux/jiffies.h>
 #include <linux/personality.h>
 #include <linux/ptrace.h>
+#include <linux/random.h>
 #include <linux/sched/signal.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
@@ -11,6 +15,17 @@
 /* Four pages amortize host calls without requiring a large kernel allocation. */
 #define WASM_EXEC_MAX_CHUNK_SIZE SZ_256K
 #define WASM32_MAX_MEMORY_PAGES (1U << (32 - PAGE_SHIFT))
+
+/*
+ * binfmt_wasm hands userland its arguments through a flat blob rather than the
+ * ELF stack, so nothing would otherwise supply an auxiliary vector. Unpatched
+ * musl still walks for one immediately past envp[]'s NULL terminator, so we lay
+ * a real auxv there (see copy_args). WASM_AUXV_PAIRS counts the id/value pairs
+ * emitted below, including the AT_NULL terminator; keep it in sync with the
+ * PUT_AUX() list. AT_RANDOM's 16 bytes live in the blob just after the vector.
+ */
+#define WASM_AUXV_PAIRS 10
+#define WASM_AT_RANDOM_SIZE 16
 
 static int load_wasm_binary(struct linux_binprm *bprm);
 
@@ -41,11 +56,18 @@ static int file_get_size(struct file *f, loff_t *size)
 
 static int copy_args(struct linux_binprm *bprm)
 {
+	const struct cred *cred = bprm->cred;
 	struct wasm_process_args *args;
 	int stop = bprm->p >> PAGE_SHIFT;
-	int len = ((bprm->argc + bprm->envc + 2) * sizeof(char *)) +
+	int ptr_bytes = (bprm->argc + bprm->envc + 2) * sizeof(char *);
+	int aux_bytes = WASM_AUXV_PAIRS * 2 * sizeof(size_t) + WASM_AT_RANDOM_SIZE;
+	int len = ptr_bytes + aux_bytes +
 		  (PAGE_SIZE * (MAX_ARG_PAGES - stop)) + (bprm->p & ~PAGE_MASK);
+	unsigned char *rand;
+	size_t *auxv;
 	char *data;
+	int slen;
+	int a = 0;
 	int ret;
 
 	args = kmalloc(sizeof(*args) + len, GFP_KERNEL);
@@ -56,6 +78,11 @@ static int copy_args(struct linux_binprm *bprm)
 	args->envc = bprm->envc;
 	args->len = len;
 
+	/*
+	 * Strings are copied to the tail of data[]; the pointer arrays sit at
+	 * the front. Growing len by aux_bytes therefore frees exactly the span
+	 * between envp[]'s NULL and the strings for the auxv laid out below.
+	 */
 	data = args->data + len;
 	for (int index = MAX_ARG_PAGES - 1; index >= stop; index--) {
 		unsigned int offset = index == stop ? bprm->p & ~PAGE_MASK : 0;
@@ -67,27 +94,57 @@ static int copy_args(struct linux_binprm *bprm)
 
 	args->argv = (char **)(args->data);
 	for (int i = 0; i < bprm->argc; i++) {
-		len = strnlen(data, MAX_ARG_STRLEN);
-		if (!len || len > MAX_ARG_STRLEN) {
+		slen = strnlen(data, MAX_ARG_STRLEN);
+		if (!slen || slen > MAX_ARG_STRLEN) {
 			ret = -EINVAL;
 			goto err;
 		}
 		args->argv[i] = data;
-		data += len + 1;
+		data += slen + 1;
 	}
 	args->argv[bprm->argc] = NULL;
 
 	args->envp = args->argv + bprm->argc + 1;
 	for (int i = 0; i < bprm->envc; i++) {
-		len = strnlen(data, MAX_ARG_STRLEN);
-		if (!len || len > MAX_ARG_STRLEN) {
+		slen = strnlen(data, MAX_ARG_STRLEN);
+		if (!slen || slen > MAX_ARG_STRLEN) {
 			ret = -EINVAL;
 			goto err;
 		}
 		args->envp[i] = data;
-		data += len + 1;
+		data += slen + 1;
 	}
 	args->envp[bprm->envc] = NULL;
+
+	/*
+	 * Lay a real ELF-style auxiliary vector immediately after envp[]'s NULL
+	 * terminator, where unpatched musl's __init_libc already walks for it.
+	 * The pointer arrays are pointer-aligned, and on wasm32 a size_t is the
+	 * same width as a pointer, so the vector is naturally aligned. The 16
+	 * AT_RANDOM bytes live in the blob right after the vector; get_args()
+	 * relocates that pointer along with argv/envp. Only entries meaningful
+	 * on wasm are emitted (no AT_PHDR/AT_BASE/AT_ENTRY/AT_EXECFN).
+	 */
+	auxv = (size_t *)(args->envp + bprm->envc + 1);
+	rand = (unsigned char *)(auxv + WASM_AUXV_PAIRS * 2);
+	get_random_bytes(rand, WASM_AT_RANDOM_SIZE);
+
+#define PUT_AUX(id, val)                   \
+	do {                               \
+		auxv[a++] = (id);          \
+		auxv[a++] = (size_t)(val); \
+	} while (0)
+	PUT_AUX(AT_HWCAP, 0);
+	PUT_AUX(AT_PAGESZ, PAGE_SIZE);
+	PUT_AUX(AT_CLKTCK, CLOCKS_PER_SEC);
+	PUT_AUX(AT_UID, from_kuid_munged(cred->user_ns, cred->uid));
+	PUT_AUX(AT_EUID, from_kuid_munged(cred->user_ns, cred->euid));
+	PUT_AUX(AT_GID, from_kgid_munged(cred->user_ns, cred->gid));
+	PUT_AUX(AT_EGID, from_kgid_munged(cred->user_ns, cred->egid));
+	PUT_AUX(AT_SECURE, bprm->secureexec);
+	PUT_AUX(AT_RANDOM, (unsigned long)rand);
+	PUT_AUX(AT_NULL, 0);
+#undef PUT_AUX
 
 	current_thread_info()->args = args;
 	return 0;
@@ -106,6 +163,7 @@ __attribute__((export_name("get_args"))) int get_args(void *buf)
 {
 	struct wasm_process_args *args = current_thread_info()->args;
 	long offset = ((long)buf - (long)args);
+	size_t *auxv;
 	if (!args)
 		return -EINVAL;
 
@@ -113,6 +171,16 @@ __attribute__((export_name("get_args"))) int get_args(void *buf)
 		args->argv[i] += offset;
 	for (int i = 0; i < args->envc; i++)
 		args->envp[i] += offset;
+
+	/*
+	 * Pointer-valued auxv entries index into the blob and must be relocated
+	 * like argv/envp. Read the vector via the still-kernel envp base before
+	 * it is shifted below.
+	 */
+	auxv = (size_t *)(args->envp + args->envc + 1);
+	for (int i = 0; auxv[i]; i += 2)
+		if (auxv[i] == AT_RANDOM)
+			auxv[i + 1] += offset;
 
 	args->argv += offset / sizeof(void *);
 	args->envp += offset / sizeof(void *);
