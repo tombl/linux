@@ -31,7 +31,7 @@ export {
   type VirtqueueHandler,
 } from "./virtio/core.ts";
 export { blockDevice, type BlockDeviceStorage } from "./virtio/block.ts";
-export { consoleDevice } from "./virtio/console.ts";
+export { type ConsoleDevice, consoleDevice } from "./virtio/console.ts";
 export { entropyDevice } from "./virtio/entropy.ts";
 export {
   type VsockConnection,

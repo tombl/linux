@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+import { Struct, U16LE } from "../bytes.ts";
 import { assert } from "../util.ts";
 import {
   VirtioController,
@@ -7,15 +8,50 @@ import {
   type Virtqueue,
 } from "./core.ts";
 
+const Features = {
+  SIZE: 1n << 0n,
+} as const;
+
+class ConsoleConfig extends Struct({
+  columns: U16LE,
+  rows: U16LE,
+}) {}
+
+/**
+ * The console device: a `VirtioDevice` whose dimensions can be changed
+ * after boot.
+ */
+export interface ConsoleDevice extends VirtioDevice {
+  /**
+   * Changes the console's dimensions; the console boots at 80×24. The guest
+   * sees the new size and delivers `SIGWINCH` to the foreground process.
+   */
+  resize(columns: number, rows: number): void;
+}
+
+/**
+ * A virtio console: a byte pipe to a tty, visible in the guest as
+ * `/dev/hvc0`.
+ *
+ * `input` is a `ReadableStream` of bytes to the tty — what a keyboard would
+ * send. `output` is a `WritableStream` of bytes from the tty — what a
+ * terminal would render. Either may be `null`: `consoleDevice(null, output)`
+ * is a read-only console, such as a boot log.
+ */
 export function consoleDevice(
-  input: ReadableStream<Uint8Array>,
-  output: WritableStream<Uint8Array>,
-): VirtioDevice {
-  const reader = input.getReader();
-  const writer = output.getWriter();
+  input: ReadableStream<Uint8Array> | null,
+  output: WritableStream<Uint8Array> | null,
+): ConsoleDevice {
+  const reader = input?.getReader();
+  const writer = output?.getWriter();
+  const config_bytes = new Uint8Array(ConsoleConfig.size);
+  const config = new ConsoleConfig(config_bytes);
+  config.columns = 80;
+  config.rows = 24;
   let writing: Promise<void> | undefined;
 
   async function write_input(queue: Virtqueue) {
+    assert(reader);
     const queue_iter = queue[Symbol.iterator]();
     for (;;) {
       const { value, done } = await reader.read();
@@ -50,21 +86,38 @@ export function consoleDevice(
       let n = 0;
       for (const { array, writable } of chain) {
         assert(!writable, "transmitter must be readable");
-        await writer.write(array);
+        await writer?.write(array);
         n += array.byteLength;
       }
       chain.release(n);
     }
   }
 
-  return new VirtioController(
-    { deviceId: 3 },
+  const controller = new VirtioController(
+    { deviceId: 3, features: Features.SIZE, config: config_bytes },
     {
-      queues: [notify_input, notify_output],
+      queues: [reader ? notify_input : () => {}, notify_output],
       close() {
-        void reader.cancel().catch(() => {});
-        void writer.close().catch(() => {});
+        void reader?.cancel().catch(() => {});
+        void writer?.close().catch(() => {});
       },
     },
-  ).device;
+  );
+
+  function resize(columns: number, rows: number) {
+    assert(
+      Number.isInteger(columns) && columns > 0 && columns <= 0xffff,
+      "console columns must be a positive 16-bit integer",
+    );
+    assert(
+      Number.isInteger(rows) && rows > 0 && rows <= 0xffff,
+      "console rows must be a positive 16-bit integer",
+    );
+    if (config.columns === columns && config.rows === rows) return;
+    config.columns = columns;
+    config.rows = rows;
+    controller.updateConfig(config_bytes);
+  }
+
+  return controller.expose({ resize });
 }
