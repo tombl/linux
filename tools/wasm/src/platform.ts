@@ -87,7 +87,15 @@ interface GetBuiltinModule {
   };
 }
 
-function node(getBuiltinModule: GetBuiltinModule): Platform {
+interface NodeProcess {
+  getBuiltinModule?: GetBuiltinModule;
+  exit(code: number): never;
+}
+
+function node(
+  getBuiltinModule: GetBuiltinModule,
+  process: NodeProcess,
+): Platform {
   const { readFile } = getBuiltinModule("node:fs/promises");
   const { Worker, parentPort } = getBuiltinModule("node:worker_threads");
   return {
@@ -118,10 +126,9 @@ function node(getBuiltinModule: GetBuiltinModule): Platform {
   };
 }
 
-const getBuiltinModule = (
-  globalThis as { process?: { getBuiltinModule?: GetBuiltinModule } }
-).process?.getBuiltinModule;
+const process = (globalThis as { process?: NodeProcess }).process;
+const getBuiltinModule = process?.getBuiltinModule;
 
-export const platform: Platform = getBuiltinModule
-  ? node(getBuiltinModule)
+export const platform: Platform = getBuiltinModule && process
+  ? node(getBuiltinModule, process)
   : web;

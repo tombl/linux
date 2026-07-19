@@ -1,4 +1,5 @@
 #include <asm/wasm_imports.h>
+#include <linux/mm_types.h>
 #include <linux/syscalls.h>
 
 struct clone_fn {
@@ -22,8 +23,14 @@ SYSCALL_DEFINE6(clone, void *__user, fn, void *__user, fn_arg, unsigned long,
 	struct kernel_clone_args kargs;
 	struct clone_fn *clone_fn;
 
-	if (!(clone_flags & CLONE_VM))
-		return -EINVAL;
+	/*
+	 * Copying WebAssembly memory is synchronous, but there is no way to
+	 * stop other workers while taking the snapshot.  Refuse to produce an
+	 * incoherent address space when another task shares this one.
+	 */
+	if (!(clone_flags & CLONE_VM) &&
+	    atomic_read(&current->mm->mm_users) > 1)
+		return -EOPNOTSUPP;
 
 	kargs = (struct kernel_clone_args) {
 		.flags = (lower_32_bits(clone_flags) & ~CSIGNAL),

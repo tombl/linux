@@ -130,11 +130,6 @@ function user_imports({
         get_args: kernel_instance.exports.get_args,
       },
     });
-
-    if ("memory" in instance.exports) {
-      assert(instance.exports.memory instanceof WebAssembly.Memory);
-      memory = instance.exports.memory;
-    }
   }
 
   return {
@@ -154,7 +149,20 @@ function user_imports({
           kernel_memory_buffer.slice(buf, buf + size),
         );
         try {
-          module = new WebAssembly.Module(bytes);
+          const compiled = new WebAssembly.Module(bytes);
+          const memory_imports = WebAssembly.Module.imports(compiled).filter(
+            ({ kind }) => kind === "memory",
+          );
+          const memory_import = memory_imports[0];
+          if (
+            memory_imports.length !== 1 ||
+            !memory_import ||
+            memory_import.module !== "env" ||
+            memory_import.name !== "memory"
+          ) {
+            return -8; // exec format error
+          }
+          module = compiled;
           return 0;
         } catch {
           return -8; // exec format error
