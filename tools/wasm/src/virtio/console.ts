@@ -8,14 +8,15 @@ import {
 } from "./core.ts";
 
 export function consoleDevice(
-  input: ReadableStream<Uint8Array>,
-  output: WritableStream<Uint8Array>,
+  input: ReadableStream<Uint8Array> | null,
+  output: WritableStream<Uint8Array> | null,
 ): VirtioDevice {
-  const reader = input.getReader();
-  const writer = output.getWriter();
+  const reader = input?.getReader();
+  const writer = output?.getWriter();
   let writing: Promise<void> | undefined;
 
   async function write_input(queue: Virtqueue) {
+    assert(reader);
     const queue_iter = queue[Symbol.iterator]();
     for (;;) {
       const { value, done } = await reader.read();
@@ -50,7 +51,7 @@ export function consoleDevice(
       let n = 0;
       for (const { array, writable } of chain) {
         assert(!writable, "transmitter must be readable");
-        await writer.write(array);
+        await writer?.write(array);
         n += array.byteLength;
       }
       chain.release(n);
@@ -60,10 +61,10 @@ export function consoleDevice(
   return new VirtioController(
     { deviceId: 3 },
     {
-      queues: [notify_input, notify_output],
+      queues: [reader ? notify_input : () => {}, notify_output],
       close() {
-        void reader.cancel().catch(() => {});
-        void writer.close().catch(() => {});
+        void reader?.cancel().catch(() => {});
+        void writer?.close().catch(() => {});
       },
     },
   ).device;
