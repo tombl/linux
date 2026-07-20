@@ -10,6 +10,7 @@ obj-y += \
 	irq.o \
 	process.o \
 	ptrace.o \
+	semaphore.o \
 	sections.o \
 	setup.o \
 	signal.o \
