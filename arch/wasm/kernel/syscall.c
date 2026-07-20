@@ -1,4 +1,5 @@
 #include <linux/entry-common.h>
+#include <linux/rcupdate.h>
 #include <linux/syscalls.h>
 #include <asm/irq.h>
 
@@ -24,26 +25,32 @@ wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
 	struct pt_regs *regs = current_pt_regs();
 	long ret;
 
+	/* WebAssembly has no asynchronous trap from user mode.  Reaching this
+	 * boundary therefore proves that the CPU passed through a userspace RCU
+	 * quiescent state.  It also gives the generic entry code the IRQ-disabled
+	 * state it expects. */
+	local_irq_disable();
+	rcu_note_context_switch(false);
 	regs->user_mode = 0;
+	nr = syscall_enter_from_user_mode(regs, nr);
 
 	/* Deliver timers armed against a busy task that only enters the kernel
 	 * for syscalls; nothing else polls the clockevent deadline for it. */
 	wasm_timer_check();
 
-	nr = syscall_enter_from_user_mode(regs, nr);
+	if (nr < 0 || nr >= ARRAY_SIZE(syscall_table)) {
+		ret = -ENOSYS;
+	} else {
+		regs->syscall_nr = nr;
+		regs->syscall_args[0] = arg0;
+		regs->syscall_args[1] = arg1;
+		regs->syscall_args[2] = arg2;
+		regs->syscall_args[3] = arg3;
+		regs->syscall_args[4] = arg4;
+		regs->syscall_args[5] = arg5;
 
-	if (nr < 0 || nr >= ARRAY_SIZE(syscall_table))
-		return -ENOSYS;
-
-	regs->syscall_nr = nr;
-	regs->syscall_args[0] = arg0;
-	regs->syscall_args[1] = arg1;
-	regs->syscall_args[2] = arg2;
-	regs->syscall_args[3] = arg3;
-	regs->syscall_args[4] = arg4;
-	regs->syscall_args[5] = arg5;
-
-	ret = syscall_table[nr](regs);
+		ret = syscall_table[nr](regs);
+	}
 
 	syscall_exit_to_user_mode(regs);
 	regs->user_mode = 1;
