@@ -4,6 +4,7 @@ import { platform } from "./platform.ts";
 import { assert } from "./util.ts";
 import { read_wasm_memories } from "./wasm_binary.ts";
 import {
+  allocate_shared_memory,
   HALT_KERNEL,
   type Imports,
   type Instance,
@@ -14,19 +15,22 @@ import {
 } from "./wasm.ts";
 
 export interface InitMessage {
+  type: "init";
   fn: number;
   arg: number;
   vmlinux: WebAssembly.Module;
   memory: WebAssembly.Memory;
   user: UserContext | null;
 }
+export interface ForwardedInitMessage {
+  type: "forwarded_init";
+  port: MessagePort;
+}
 export type WorkerMessage =
   | {
     type: "spawn_worker";
-    fn: number;
-    arg: number;
     name: string;
-    user: UserContext | null;
+    port: MessagePort;
   }
   | { type: "boot_console_write"; message: ArrayBuffer }
   | { type: "boot_console_close" }
@@ -39,7 +43,10 @@ const unavailable = () => {
 };
 
 const channel = platform.worker_channel();
-const postMessage = channel.post as (message: WorkerMessage) => void;
+const postMessage = channel.post as (
+  message: WorkerMessage,
+  transfer?: Transferable[],
+) => void;
 
 function user_imports({
   kernel_memory,
@@ -223,18 +230,14 @@ function user_imports({
 
         if (maximum < minimum) return -12; // out of memory
 
-        let memory: WebAssembly.Memory;
+        let allocated: ReturnType<typeof allocate_shared_memory>;
         try {
-          memory = new WebAssembly.Memory({
-            initial: minimum,
-            maximum,
-            shared: true,
-          });
+          allocated = allocate_shared_memory(minimum, maximum);
         } catch {
           return -12; // out of memory
         }
 
-        const next_context = { module, memory, maximum_pages: maximum };
+        const next_context = { module, ...allocated };
         pending = next_context;
         return 0;
       },
@@ -402,8 +405,7 @@ function user_imports({
   };
 }
 
-channel.on_message((data) => {
-  const { fn, arg, vmlinux, memory, user: parent_user } = data as InitMessage;
+function start({ fn, arg, vmlinux, memory, user: parent_user }: InitMessage) {
 
   const user = user_imports({
     kernel_memory: memory,
@@ -422,13 +424,23 @@ channel.on_message((data) => {
       is_worker: true,
       memory,
       spawn_worker(fn, arg, name, user) {
-        postMessage({
-          type: "spawn_worker",
+        const direct = new MessageChannel();
+        postMessage(
+          {
+            type: "spawn_worker",
+            name,
+            port: direct.port1,
+          },
+          [direct.port1],
+        );
+        direct.port2.postMessage({
+          type: "init",
           fn,
           arg,
-          name,
+          vmlinux,
+          memory,
           user,
-        });
+        } satisfies InitMessage);
       },
       boot_console_write(message) {
         postMessage({ type: "boot_console_write", message });
@@ -466,4 +478,22 @@ channel.on_message((data) => {
     if (error === HALT_KERNEL) return;
     throw error;
   }
+}
+
+channel.on_message((raw) => {
+  const message = raw as InitMessage | ForwardedInitMessage;
+
+  // Initial workers receive InitMessage directly from the page. Workers
+  // spawned by another worker receive their InitMessage over this port, which
+  // works around a WebKit bug reclaiming shared Wasm memory across JS VMs.
+  if (message.type === "forwarded_init") {
+    message.port.onmessage = ({ data }) => {
+      message.port.close();
+      start(data as InitMessage);
+    };
+    message.port.start();
+    return;
+  }
+
+  start(message);
 });

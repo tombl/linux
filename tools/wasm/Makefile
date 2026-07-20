@@ -8,6 +8,7 @@ Q = @
 endif
 
 TSC ?= tsc
+NODE ?= node
 HOSTCC ?= cc
 PERL ?= perl
 TAR ?= tar
@@ -16,8 +17,11 @@ PACKAGE_DIR = npm-package
 PACKAGE_VERSION ?=
 BUILD_ASSETS = vmlinux.wasm
 
-.PHONY: all clean pack vmlinux.wasm
+.PHONY: all check clean pack vmlinux.wasm
 all: dist/index.js dist/index.d.ts vmlinux.wasm
+
+check: dist/index.js dist/index.d.ts
+	$(Q)$(NODE) --test
 
 clean:
 	$(Q)rm -rf dist $(PACKAGE_DIR) $(PACKAGE) $(BUILD_ASSETS)

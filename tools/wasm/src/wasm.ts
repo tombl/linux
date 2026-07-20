@@ -294,18 +294,16 @@ export function kernel_imports(
             break;
           case WASM_USER_MEMORY_COPY:
             try {
-              const copied = new WebAssembly.Memory({
-                initial: memory_pages,
-                maximum: context.maximum_pages,
-                shared: true,
-              });
-              new Uint8Array(copied.buffer).set(
+              const copied = allocate_shared_memory(
+                memory_pages,
+                context.maximum_pages,
+              );
+              new Uint8Array(copied.memory.buffer).set(
                 new Uint8Array(context.memory.buffer),
               );
               user = {
                 module: context.module,
-                memory: copied,
-                maximum_pages: context.maximum_pages,
+                ...copied,
               };
             } catch {
               return -12; // out of memory

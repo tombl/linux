@@ -10,6 +10,9 @@
     "url": "git+https://github.com/tombl/linux.git",
     "directory": "tools/wasm"
   },
+  "scripts": {
+    "check": "make check"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

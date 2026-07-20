@@ -11,13 +11,18 @@ import {
   type VirtioDevice,
 } from "./virtio/core.ts";
 import {
+  allocate_shared_memory,
   type Imports,
   type Instance,
   kernel_imports,
   MachineTerminationReason,
   type UserContext,
 } from "./wasm.ts";
-import type { InitMessage, WorkerMessage } from "./worker.ts";
+import type {
+  ForwardedInitMessage,
+  InitMessage,
+  WorkerMessage,
+} from "./worker.ts";
 
 export type { DeviceTreeNode } from "./devicetree.ts";
 export {
@@ -129,7 +134,6 @@ const resources = (async () => {
 const PAGE_SIZE = 0x10000;
 // Leave the final wasm32 page out so the physical-memory size fits in u32.
 const KERNEL_MEMORY_MAXIMUM_PAGES = 0xffff;
-const KERNEL_MEMORY_BYTES = KERNEL_MEMORY_MAXIMUM_PAGES * PAGE_SIZE;
 
 function kernel_initial_pages(
   memory: WasmMemoryType,
@@ -238,11 +242,10 @@ export async function spawnMachine(
       memory_type,
       initcpio?.byteLength ?? 0,
     );
-    const wasm_memory = new WebAssembly.Memory({
-      initial: pages,
-      maximum: KERNEL_MEMORY_MAXIMUM_PAGES,
-      shared: true,
-    });
+    const { memory: wasm_memory, maximum_pages } = allocate_shared_memory(
+      pages,
+      KERNEL_MEMORY_MAXIMUM_PAGES,
+    );
     assert(wasm_memory.buffer.byteLength === pages * PAGE_SIZE);
 
     const devicetree: DeviceTreeNode = {
@@ -256,7 +259,7 @@ export async function spawnMachine(
       aliases: {},
       memory: {
         device_type: "memory",
-        reg: [0, KERNEL_MEMORY_BYTES],
+        reg: [0, maximum_pages * PAGE_SIZE],
       },
       "reserved-memory": {
         "#address-cells": 1,
@@ -306,11 +309,9 @@ export async function spawnMachine(
     // call back into, but they only run once exports.boot() starts the kernel.
     let instance: Instance | undefined;
 
-    const spawn_worker = (
-      fn: number,
-      arg: number,
+    const start_worker = (
       name: string,
-      user: UserContext | null,
+      init: InitMessage | ForwardedInitMessage,
     ) => {
       if (closed) return;
       const worker = platform.spawn_worker(name, {
@@ -318,7 +319,10 @@ export async function spawnMachine(
           const message = raw as WorkerMessage;
           switch (message.type) {
             case "spawn_worker":
-              spawn_worker(message.fn, message.arg, message.name, message.user);
+              start_worker(message.name, {
+                type: "forwarded_init",
+                port: message.port,
+              });
               break;
             case "boot_console_write":
               boot_console_write(message.message);
@@ -363,14 +367,25 @@ export async function spawnMachine(
       });
       workers.add(worker);
       worker.post(
-        {
-          fn,
-          arg,
-          vmlinux,
-          memory: wasm_memory,
-          user,
-        } satisfies InitMessage,
+        init,
+        init.type === "forwarded_init" ? [init.port] : undefined,
       );
+    };
+
+    const spawn_worker = (
+      fn: number,
+      arg: number,
+      name: string,
+      user: UserContext | null,
+    ) => {
+      start_worker(name, {
+        type: "init",
+        fn,
+        arg,
+        vmlinux,
+        memory: wasm_memory,
+        user,
+      });
     };
 
     const unavailable = () => {
