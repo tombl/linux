@@ -30,7 +30,8 @@ struct task_struct *__switch_to(struct task_struct *from,
 	int cpu, other_cpu;
 
 	cpu = atomic_xchg(&from_info->running_cpu, -1);
-	BUG_ON(cpu < 0); // current process must be scheduled to a cpu
+	BUG_ON(current != from);
+	BUG_ON(cpu < 0 || cpu != get_current_cpu());
 
 	// give the current cpu to the new worker
 	other_cpu = atomic_cmpxchg(&to_info->running_cpu, -1, cpu);
@@ -49,19 +50,20 @@ struct task_struct *__switch_to(struct task_struct *from,
 		wasm_kernel_halt_worker();
 
 	// sleep this worker:
-	/* memory.atomic.wait32 returns:
-	 * 0 -> the thread blocked and was woken
-		= we slept and were woken
-	 * 1 -> the value at the pointer didn't match the passed value
-	 	= somebody gave us their cpu straight away
-	 * 2 -> the thread blocked but timed out
-	 	= not possible because we pass an infinite timeout
-	*/
-	__builtin_wasm_memory_atomic_wait32(&from_info->running_cpu.counter,
-					    /* block if the value is: */ -1,
-					    /* timeout: */ -1);
-	cpu = atomic_read(&from_info->running_cpu);
-	BUG_ON(cpu < 0); // we should be given a new cpu
+	/*
+	 * A wake is only a hint that ownership may have changed. Recheck the
+	 * predicate: engines may return from an infinite atomic wait while the
+	 * value still matches, without another worker assigning us a CPU.
+	 */
+	do {
+		__builtin_wasm_memory_atomic_wait32(
+			&from_info->running_cpu.counter,
+			/* block if the value is: */ -1,
+			/* timeout: */ -1);
+		cpu = atomic_read(&from_info->running_cpu);
+	} while (cpu < 0);
+
+	BUG_ON(cpu >= nr_cpu_ids || cpu != from_info->cpu);
 	set_current_cpu(cpu);
 	prev = get_current_task_on(cpu);
 	set_current_task(current);
@@ -79,24 +81,28 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 	void *fn_arg = args->fn_arg;
 	struct thread_info *info = task_thread_info(task);
 	struct task_struct *prev;
+	int cpu, ret;
 
 	// early_printk("                       waiting cpu=%i task=%p in entry\n",
 	// 	     atomic_read(&info->running_cpu), task);
 
 	// if we don't currently have a cpu, wait for one
 	for (;;) {
-		int ret = __builtin_wasm_memory_atomic_wait32(
+		cpu = atomic_read(&info->running_cpu);
+		if (cpu >= 0)
+			break;
+
+		ret = __builtin_wasm_memory_atomic_wait32(
 			&info->running_cpu.counter,
 			/* block if the value is: */ -1,
 			/* timeout: 1s */ 1000 * 1000 * 1000);
-		if (ret != 2) // 2 means timeout
-			break;
-		early_printk("task %p %s %d is waiting for cpu in entry\n",
-			     task, task->comm, task->pid);
+		if (ret == 2 && atomic_read(&info->running_cpu) < 0)
+			early_printk("task %p %s %d is waiting for cpu in entry\n",
+				     task, task->comm, task->pid);
 	}
 
-	set_current_cpu(atomic_read(&info->running_cpu));
-	BUG_ON(raw_smp_processor_id() < 0);
+	BUG_ON(cpu >= nr_cpu_ids || cpu != info->cpu);
+	set_current_cpu(cpu);
 
 	prev = get_current_task_on(raw_smp_processor_id());
 	set_current_task(task);

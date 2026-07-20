@@ -30,7 +30,8 @@ export type WorkerMessage =
   | { type: "boot_console_write"; message: ArrayBuffer }
   | { type: "boot_console_close" }
   | { type: "terminate_machine"; reason: MachineTerminationReason }
-  | { type: "run_on_main"; fn: number; arg: number };
+  | { type: "run_on_main"; fn: number; arg: number }
+  | { type: "worker_exit" };
 
 const unavailable = () => {
   throw new Error("not available on worker thread");
@@ -451,6 +452,9 @@ channel.on_message((data) => {
       },
       get_user_context() {
         return user.context;
+      },
+      worker_exit() {
+        postMessage({ type: "worker_exit" });
       },
     }),
     virtio: {
