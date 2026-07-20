@@ -298,7 +298,28 @@ function user_imports({
           "Invalid function signature",
         );
 
-        f(sig); // TODO: the siginfo overload
+        f(sig);
+      },
+      call_siginfo_handler(fn, sig, code, pid, uid, value, timerid, overrun) {
+        assert(instance);
+
+        const { __wasm_call_siginfo_handler } = instance.exports;
+        assert(
+          typeof __wasm_call_siginfo_handler === "function" &&
+            __wasm_call_siginfo_handler.length === 8,
+          "Missing musl siginfo trampoline",
+        );
+
+        __wasm_call_siginfo_handler(
+          fn,
+          sig,
+          code,
+          pid,
+          uid,
+          value,
+          timerid,
+          overrun,
+        );
       },
 
       // memory:
