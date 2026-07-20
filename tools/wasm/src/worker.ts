@@ -248,7 +248,7 @@ function user_imports({
           } catch (error) {
             if (error === HALT_USER) continue;
             if (error === HALT_KERNEL) throw error;
-            console.log("error running user module:", String(error));
+            console.error("error running user module:", error);
             return;
           }
         }
