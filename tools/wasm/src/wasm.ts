@@ -45,6 +45,7 @@ export interface Imports {
     boot_console_write(msg: number, len: number): void;
     boot_console_close(): void;
     return_address(_level: number): number;
+    /** Unix time in nanoseconds, monotonically advancing during this session. */
     get_now_nsec(): bigint;
     get_stacktrace(buf: number, size: number): void;
     spawn_worker(

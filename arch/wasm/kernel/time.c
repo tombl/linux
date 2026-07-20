@@ -6,6 +6,7 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/irqdomain.h>
+#include <linux/timekeeping.h>
 #include <asm/irq.h>
 #include <asm/wasm_imports.h>
 #include <asm/param.h>
@@ -62,6 +63,11 @@ static struct clocksource clocksource = {
 	.flags = CLOCK_SOURCE_IS_CONTINUOUS,
 	.mask = CLOCKSOURCE_MASK(64),
 };
+
+void read_persistent_clock64(struct timespec64 *ts)
+{
+	*ts = ns_to_timespec64(wasm_kernel_get_now_nsec());
+}
 
 static DEFINE_PER_CPU(struct clock_event_device, clockevent);
 
