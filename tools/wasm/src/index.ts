@@ -190,7 +190,7 @@ export async function spawnMachine(
   options: SpawnMachineOptions,
 ): Promise<Machine> {
   const devices = options.devices;
-  const workers: WorkerHandle[] = [];
+  const workers = new Set<WorkerHandle>();
   let closed = false;
 
   const closed_promise = Promise.withResolvers<void>();
@@ -211,11 +211,7 @@ export async function spawnMachine(
     if (closed) return;
     closed = true;
     for (const device of devices) close_virtio_device(device);
-    try {
-      await Promise.all(workers.splice(0).map((worker) => worker.terminate()));
-    } catch (termination_error) {
-      error ??= termination_error;
-    }
+    await Promise.all(Array.from(workers, (worker) => worker.terminate()));
     boot_console_close();
     if (error === undefined) closed_promise.resolve();
     else closed_promise.reject(error);
@@ -341,13 +337,20 @@ export async function spawnMachine(
                 message.arg,
               );
               break;
+            case "worker_exit": {
+              // The worker closes itself after posting this message. Calling
+              // terminate() here races that orderly shutdown and leaks the
+              // worker's address-space reservations in WebKit.
+              workers.delete(worker);
+              break;
+            }
             default:
               unreachable(message);
           }
         },
         on_error: finish,
       });
-      workers.push(worker);
+      workers.add(worker);
       worker.post(
         {
           fn,
@@ -395,6 +398,7 @@ export async function spawnMachine(
         terminate_machine: unavailable,
         run_on_main: unavailable,
         get_user_context: unavailable,
+        worker_exit: unavailable,
       }),
       user: {
         compile_begin: unavailable,

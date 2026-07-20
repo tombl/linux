@@ -169,6 +169,7 @@ export function kernel_imports(
     terminate_machine,
     run_on_main,
     get_user_context,
+    worker_exit,
   }: {
     is_worker: boolean;
     memory: WebAssembly.Memory;
@@ -183,6 +184,8 @@ export function kernel_imports(
     terminate_machine: (reason: MachineTerminationReason) => void;
     run_on_main: (fn: number, arg: number) => void;
     get_user_context: () => UserContext | null;
+    /** Reports that this worker's kernel thread halted and the worker is closing. */
+    worker_exit: () => void;
   },
 ): Imports["kernel"] {
   return {
@@ -191,6 +194,8 @@ export function kernel_imports(
     },
     halt_worker: () => {
       if (!is_worker) throw new Error("Halt called in main thread");
+      // Messages posted after platform.quit() are not guaranteed to arrive.
+      worker_exit();
       platform.quit();
       throw HALT_KERNEL;
     },
