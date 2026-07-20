@@ -34,12 +34,15 @@ const MINIMUM_BACKOFF_MAXIMUM_PAGES = 8192; // 512 MiB
 export function allocate_shared_memory(
   initial_pages: number,
   preferred_maximum_pages: number,
+  allocate: (
+    descriptor: WebAssembly.MemoryDescriptor,
+  ) => WebAssembly.Memory = (descriptor) => new WebAssembly.Memory(descriptor),
 ): { memory: WebAssembly.Memory; maximum_pages: number } {
   let maximum_pages = preferred_maximum_pages;
   for (;;) {
     try {
       return {
-        memory: new WebAssembly.Memory({
+        memory: allocate({
           initial: initial_pages,
           maximum: maximum_pages,
           shared: true,
