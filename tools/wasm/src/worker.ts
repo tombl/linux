@@ -8,6 +8,7 @@ import {
   type Imports,
   type Instance,
   kernel_imports,
+  type MachineTerminationReason,
   type UserContext,
 } from "./wasm.ts";
 
@@ -28,6 +29,7 @@ export type WorkerMessage =
   }
   | { type: "boot_console_write"; message: ArrayBuffer }
   | { type: "boot_console_close" }
+  | { type: "terminate_machine"; reason: MachineTerminationReason }
   | { type: "run_on_main"; fn: number; arg: number };
 
 const unavailable = () => {
@@ -248,7 +250,7 @@ function user_imports({
           } catch (error) {
             if (error === HALT_USER) continue;
             if (error === HALT_KERNEL) throw error;
-            console.log("error running user module:", String(error));
+            console.error("error running user module:", error);
             return;
           }
         }
@@ -403,6 +405,9 @@ channel.on_message((data) => {
       },
       boot_console_close() {
         postMessage({ type: "boot_console_close" });
+      },
+      terminate_machine(reason) {
+        postMessage({ type: "terminate_machine", reason });
       },
       run_on_main(fn, arg) {
         postMessage({ type: "run_on_main", fn, arg });

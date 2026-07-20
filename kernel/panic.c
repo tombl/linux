@@ -146,6 +146,11 @@ void __weak panic_smp_self_stop(void)
 		cpu_relax();
 }
 
+/* Architecture-specific final action after panic diagnostics are flushed. */
+void __weak arch_panic(void)
+{
+}
+
 /*
  * Stop ourselves in NMI context if another CPU has already panicked. Arch code
  * may override this to prepare for crash dumping, e.g. save regs info.
@@ -395,6 +400,10 @@ void panic(const char *fmt, ...)
 	console_flush_on_panic(CONSOLE_FLUSH_PENDING);
 
 	panic_print_sys_info(true);
+	console_flush_on_panic(CONSOLE_FLUSH_PENDING);
+
+	/* An architecture may terminate the machine here instead of rebooting. */
+	arch_panic();
 
 	if (!panic_blink)
 		panic_blink = no_blink;
@@ -450,12 +459,6 @@ void panic(const char *fmt, ...)
 	console_flush_on_panic(CONSOLE_FLUSH_PENDING);
 
 	local_irq_enable();
-
-#ifdef CONFIG_WASM
-	wasm_kernel_breakpoint();
-	wasm_kernel_halt_worker();
-#endif
-
 	for (i = 0; ; i += PANIC_TIMER_STEP) {
 		touch_softlockup_watchdog();
 		if (i >= i_next) {

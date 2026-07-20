@@ -33,6 +33,12 @@ const WASM_USER_MEMORY_NONE = 0;
 const WASM_USER_MEMORY_SHARE = 1;
 const WASM_USER_MEMORY_COPY = 2;
 
+/** Values for the kernel.terminate_machine guest/host ABI. */
+export enum MachineTerminationReason {
+  Clean = 0,
+  Panic = 1,
+}
+
 export interface Imports {
   env: { memory: WebAssembly.Memory };
   boot: {
@@ -42,6 +48,8 @@ export interface Imports {
   kernel: {
     breakpoint(): void;
     halt_worker(): void;
+    /** Reports that the whole machine ended, rather than only this worker. */
+    terminate_machine(reason: MachineTerminationReason): void;
     boot_console_write(msg: number, len: number): void;
     boot_console_close(): void;
     return_address(_level: number): number;
@@ -114,6 +122,7 @@ export function kernel_imports(
     spawn_worker,
     boot_console_write,
     boot_console_close,
+    terminate_machine,
     run_on_main,
     get_user_context,
   }: {
@@ -127,6 +136,7 @@ export function kernel_imports(
     ) => void;
     boot_console_write: (message: ArrayBuffer) => void;
     boot_console_close: () => void;
+    terminate_machine: (reason: MachineTerminationReason) => void;
     run_on_main: (fn: number, arg: number) => void;
     get_user_context: () => UserContext | null;
   },
@@ -138,6 +148,11 @@ export function kernel_imports(
     halt_worker: () => {
       if (!is_worker) throw new Error("Halt called in main thread");
       platform.quit();
+      throw HALT_KERNEL;
+    },
+    terminate_machine: (reason) => {
+      if (!is_worker) throw new Error("Machine termination called in main thread");
+      terminate_machine(reason);
       throw HALT_KERNEL;
     },
 

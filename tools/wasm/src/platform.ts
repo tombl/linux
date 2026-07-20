@@ -8,7 +8,7 @@ import { assert } from "./util.ts";
 
 export interface WorkerHandle {
   post(message: unknown): void;
-  terminate(): void;
+  terminate(): Promise<void>;
 }
 
 export interface WorkerHandlers {
@@ -56,7 +56,7 @@ const web: Platform = {
     };
     return {
       post: (message) => worker.postMessage(message),
-      terminate: () => worker.terminate(),
+      terminate: async () => worker.terminate(),
     };
   },
   worker_channel() {
@@ -120,7 +120,7 @@ function node(
       worker.on("error", handlers.on_error);
       return {
         post: (message) => worker.postMessage(message),
-        terminate: () => void worker.terminate(),
+        terminate: async () => void await worker.terminate(),
       };
     },
     worker_channel() {
