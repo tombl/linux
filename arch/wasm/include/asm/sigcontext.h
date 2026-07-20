@@ -4,6 +4,8 @@
 struct pt_regs {
 	long syscall_nr;
 	unsigned long syscall_args[6];
+	long syscall_return;
+	long restart_syscall_nr;
 	int user_mode;
 };
 

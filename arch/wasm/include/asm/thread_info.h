@@ -4,6 +4,8 @@
 #include <asm/page.h>
 #include <linux/types.h>
 
+struct kernel_siginfo;
+
 /* THREAD_SIZE is the size of the task_struct + kernel stack
  * This is asserted in setup, but the stack should be 1 page,
  * and a task_struct should be *way* less than a page big. */
@@ -25,6 +27,7 @@ struct thread_info {
 	atomic_t running_cpu; // negative means unscheduled
 	unsigned long tp_value;
 	struct wasm_process_args *args;
+	const struct kernel_siginfo *active_siginfo;
 };
 
 #define INIT_THREAD_INFO(tsk)                        \
@@ -35,6 +38,7 @@ struct thread_info {
 		.running_cpu = ATOMIC_INIT(0),       \
 		.tp_value = U32_MAX,                 \
 		.args = NULL,                        \
+		.active_siginfo = NULL,              \
 	}
 
 #define TIF_SYSCALL_TRACE 0 /* syscall trace active */

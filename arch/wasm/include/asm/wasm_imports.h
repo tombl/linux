@@ -52,6 +52,7 @@ void wasm_import(user, instantiate)(bool fresh_memory);
 void wasm_import(user, call)(void);
 void wasm_import(user, switch_entry)(u32 fn, u32 arg);
 void wasm_import(user, call_signal_handler)(u32 fn, u32 sig);
+int wasm_import(user, call_siginfo_handler)(u32 trampoline, u32 fn, u32 sig);
 void wasm_import(user, halt_signal_handler)(void);
 
 int wasm_import(user, read)(void *to, const void __user *from, unsigned long n);

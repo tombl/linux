@@ -397,6 +397,7 @@ export async function spawnMachine(
         call: unavailable,
         switch_entry: unavailable,
         call_signal_handler: unavailable,
+        call_siginfo_handler: unavailable,
         read: unavailable,
         write: unavailable,
         write_zeroes: unavailable,

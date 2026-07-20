@@ -35,13 +35,26 @@ static inline void syscall_get_arguments(struct task_struct *task,
 static inline long syscall_get_return_value(struct task_struct *task,
 					    struct pt_regs *regs)
 {
-	BUG();
+	return regs->syscall_return;
+}
+
+static inline long syscall_get_error(struct task_struct *task,
+				     struct pt_regs *regs)
+{
+	return IS_ERR_VALUE(regs->syscall_return) ? regs->syscall_return : 0;
+}
+
+static inline void syscall_set_return_value(struct task_struct *task,
+					    struct pt_regs *regs,
+					    int error, long val)
+{
+	regs->syscall_return = error ?: val;
 }
 
 static inline void syscall_rollback(struct task_struct *task,
 				    struct pt_regs *regs)
 {
-	BUG();
+	regs->syscall_return = regs->syscall_nr;
 }
 
 #endif

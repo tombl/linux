@@ -58,6 +58,9 @@ function user_imports({
   let instance: WebAssembly.Instance | null = null;
   let pending_module_bytes: Uint8Array<ArrayBuffer> | null = null;
   let pending: UserContext | null = null;
+  // One slot per nested SA_SIGINFO callback; null means its trampoline has
+  // not requested the active signal payload yet.
+  const siginfo_copy_results: (number | null)[] = [];
 
   function user_atomic_word(uaddr: number): Int32Array | null {
     const address = uaddr >>> 0;
@@ -119,6 +122,12 @@ function user_imports({
         get_thread_area: kernel_instance.exports.get_thread_area,
         get_args_length: kernel_instance.exports.get_args_length,
         get_args: kernel_instance.exports.get_args,
+        copy_siginfo: (to: number) => {
+          const result = kernel_instance.exports.copy_siginfo(to);
+          const current = siginfo_copy_results.length - 1;
+          if (current >= 0) siginfo_copy_results[current] = result;
+          return result;
+        },
       },
     });
   }
@@ -301,7 +310,35 @@ function user_imports({
           "Invalid function signature",
         );
 
-        f(sig); // TODO: the siginfo overload
+        f(sig);
+      },
+      call_siginfo_handler(trampoline, fn, sig) {
+        assert(instance);
+
+        const { __indirect_function_table } = instance.exports;
+        assert(
+          __indirect_function_table instanceof WebAssembly.Table,
+          "Invalid function table",
+        );
+
+        const f = __indirect_function_table.get(trampoline >>> 0);
+        assert(
+          typeof f === "function" && f.length === 2,
+          "Invalid siginfo trampoline",
+        );
+
+        siginfo_copy_results.push(null);
+        try {
+          f(fn, sig);
+          return siginfo_copy_results.at(-1) ?? -22;
+        } finally {
+          // Non-local exits can unwind the kernel callback before its C cleanup.
+          try {
+            get_kernel_instance().exports.clear_siginfo();
+          } finally {
+            siginfo_copy_results.pop();
+          }
+        }
       },
 
       // memory:

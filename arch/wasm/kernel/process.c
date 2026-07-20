@@ -17,6 +17,7 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 {
 	*dst = *src;
 	atomic_set(&task_thread_info(dst)->running_cpu, -1);
+	task_thread_info(dst)->active_siginfo = NULL;
 	return 0;
 }
 
