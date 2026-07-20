@@ -6,6 +6,7 @@
 #include <linux/memblock.h>
 #include <linux/of.h>
 #include <linux/of_fdt.h>
+#include <linux/panic.h>
 #include <linux/percpu.h>
 #include <linux/sched.h>
 #include <linux/screen_info.h>
@@ -92,19 +93,32 @@ void __init setup_arch(char **cmdline_p)
 	zones_init();
 }
 
+static void __noreturn terminate_machine(
+	enum wasm_machine_termination_reason reason)
+{
+	wasm_kernel_terminate_machine(reason);
+	wasm_kernel_halt_worker();
+	__builtin_unreachable();
+}
+
 void machine_restart(char *cmd)
 {
 	pr_info("restart %s\n", cmd);
-	BUG();
+	terminate_machine(WASM_MACHINE_TERMINATION_CLEAN);
 }
 
 void machine_halt(void)
 {
 	pr_info("halt\n");
-	BUG();
+	terminate_machine(WASM_MACHINE_TERMINATION_CLEAN);
 }
 void machine_power_off(void)
 {
 	pr_info("poweroff\n");
-	BUG();
+	terminate_machine(WASM_MACHINE_TERMINATION_CLEAN);
+}
+
+void arch_panic(void)
+{
+	terminate_machine(WASM_MACHINE_TERMINATION_PANIC);
 }

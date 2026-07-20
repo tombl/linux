@@ -13,6 +13,15 @@ int wasm_import(boot, get_initramfs)(char *buf, size_t size);
 void wasm_import(kernel, breakpoint)(void);
 void wasm_import(kernel, halt_worker)(void);
 
+/* Whole-machine lifecycle event. Values are part of the guest/host ABI. */
+enum wasm_machine_termination_reason {
+	WASM_MACHINE_TERMINATION_CLEAN = 0,
+	WASM_MACHINE_TERMINATION_PANIC = 1,
+};
+
+void wasm_import(kernel, terminate_machine)(
+	enum wasm_machine_termination_reason reason);
+
 void wasm_import(kernel, boot_console_write)(const char *msg, size_t len);
 void wasm_import(kernel, boot_console_close)(void);
 

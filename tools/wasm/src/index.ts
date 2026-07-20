@@ -14,6 +14,7 @@ import {
   type Imports,
   type Instance,
   kernel_imports,
+  MachineTerminationReason,
   type UserContext,
 } from "./wasm.ts";
 import type { InitMessage, WorkerMessage } from "./worker.ts";
@@ -76,6 +77,13 @@ export interface Machine extends Disposable {
   readonly closed: Promise<void>;
   /** Idempotently shuts down the workers and owned devices. */
   close(): void;
+}
+
+export class MachinePanicError extends Error {
+  constructor() {
+    super("kernel panic");
+    this.name = "MachinePanicError";
+  }
 }
 
 const resources = (async () => {
@@ -199,12 +207,15 @@ export async function spawnMachine(
     void boot_console_writer.close().catch(() => {});
   };
 
-  const finish = (error?: unknown) => {
+  const finish = async (error?: unknown) => {
     if (closed) return;
     closed = true;
     for (const device of devices) close_virtio_device(device);
-    for (const worker of workers) worker.terminate();
-    workers.length = 0;
+    try {
+      await Promise.all(workers.splice(0).map((worker) => worker.terminate()));
+    } catch (termination_error) {
+      error ??= termination_error;
+    }
     boot_console_close();
     if (error === undefined) closed_promise.resolve();
     else closed_promise.reject(error);
@@ -309,6 +320,22 @@ export async function spawnMachine(
             case "boot_console_close":
               boot_console_close();
               break;
+            case "terminate_machine":
+              switch (message.reason) {
+                case MachineTerminationReason.Clean:
+                  void finish();
+                  break;
+                case MachineTerminationReason.Panic:
+                  void finish(new MachinePanicError());
+                  break;
+                default:
+                  void finish(
+                    new Error(
+                      `unknown machine termination reason: ${message.reason}`,
+                    ),
+                  );
+              }
+              break;
             case "run_on_main":
               assert(instance);
               instance.exports.__indirect_function_table.get(message.fn >>> 0)!(
@@ -366,6 +393,7 @@ export async function spawnMachine(
         spawn_worker,
         boot_console_write,
         boot_console_close,
+        terminate_machine: unavailable,
         run_on_main: unavailable,
         get_user_context: unavailable,
       }),
@@ -406,7 +434,7 @@ export async function spawnMachine(
       [Symbol.dispose]: close,
     };
   } catch (error) {
-    close();
+    await finish();
     throw error;
   }
 }
