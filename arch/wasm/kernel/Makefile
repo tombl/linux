@@ -11,6 +11,7 @@ obj-y += \
 	process.o \
 	ptrace.o \
 	remote_vm.o \
+	semaphore.o \
 	sections.o \
 	setup.o \
 	signal.o \
