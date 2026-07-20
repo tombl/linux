@@ -29,6 +29,37 @@ export interface UserContext {
   maximum_pages: number;
 }
 
+const MINIMUM_BACKOFF_MAXIMUM_PAGES = 8192; // 512 MiB
+
+export function allocate_shared_memory(
+  initial_pages: number,
+  preferred_maximum_pages: number,
+): { memory: WebAssembly.Memory; maximum_pages: number } {
+  let maximum_pages = preferred_maximum_pages;
+  for (;;) {
+    try {
+      return {
+        memory: new WebAssembly.Memory({
+          initial: initial_pages,
+          maximum: maximum_pages,
+          shared: true,
+        }),
+        maximum_pages,
+      };
+    } catch (error) {
+      const smaller_maximum = Math.max(
+        initial_pages,
+        MINIMUM_BACKOFF_MAXIMUM_PAGES,
+        Math.floor(maximum_pages / 2),
+      );
+      if (!(error instanceof RangeError) || smaller_maximum >= maximum_pages) {
+        throw error;
+      }
+      maximum_pages = smaller_maximum;
+    }
+  }
+}
+
 const WASM_USER_MEMORY_NONE = 0;
 const WASM_USER_MEMORY_SHARE = 1;
 const WASM_USER_MEMORY_COPY = 2;
@@ -221,18 +252,16 @@ export function kernel_imports(
             break;
           case WASM_USER_MEMORY_COPY:
             try {
-              const copied = new WebAssembly.Memory({
-                initial: memory_pages,
-                maximum: context.maximum_pages,
-                shared: true,
-              });
-              new Uint8Array(copied.buffer).set(
+              const copied = allocate_shared_memory(
+                memory_pages,
+                context.maximum_pages,
+              );
+              new Uint8Array(copied.memory.buffer).set(
                 new Uint8Array(context.memory.buffer),
               );
               user = {
                 module: context.module,
-                memory: copied,
-                maximum_pages: context.maximum_pages,
+                ...copied,
               };
             } catch {
               return -12; // out of memory

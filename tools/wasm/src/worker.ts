@@ -4,6 +4,7 @@ import { platform } from "./platform.ts";
 import { assert } from "./util.ts";
 import { read_wasm_memories } from "./wasm-binary.ts";
 import {
+  allocate_shared_memory,
   HALT_KERNEL,
   type Imports,
   type Instance,
@@ -221,18 +222,14 @@ function user_imports({
 
         if (maximum < minimum) return -12; // out of memory
 
-        let memory: WebAssembly.Memory;
+        let allocated: ReturnType<typeof allocate_shared_memory>;
         try {
-          memory = new WebAssembly.Memory({
-            initial: minimum,
-            maximum,
-            shared: true,
-          });
+          allocated = allocate_shared_memory(minimum, maximum);
         } catch {
           return -12; // out of memory
         }
 
-        const next_context = { module, memory, maximum_pages: maximum };
+        const next_context = { module, ...allocated };
         pending = next_context;
         return 0;
       },
