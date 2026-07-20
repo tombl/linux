@@ -18,44 +18,44 @@ function allocator_succeeding_at(successful_maximum, attempts) {
   };
 }
 
-test("shared memory allocation backs off by halves to 512 MiB", () => {
+test("shared memory allocation backs off by halves", () => {
   const attempts = [];
   const allocated = allocate_shared_memory(
-    1,
-    0xffff,
-    allocator_succeeding_at(8192, attempts),
+    100,
+    1000,
+    allocator_succeeding_at(250, attempts),
   );
 
-  assert.deepEqual(attempts, [0xffff, 32767, 16383, 8192]);
+  assert.deepEqual(attempts, [1000, 500, 250]);
   assert.strictEqual(allocated.memory, memory);
-  assert.equal(allocated.maximum_pages, 8192);
+  assert.equal(allocated.maximum_pages, 250);
 });
 
-test("the initial size is the floor when it exceeds 512 MiB", () => {
+test("the initial size is the floor", () => {
   const attempts = [];
   const allocated = allocate_shared_memory(
-    10_000,
-    0xffff,
-    allocator_succeeding_at(10_000, attempts),
+    100,
+    1000,
+    allocator_succeeding_at(100, attempts),
   );
 
-  assert.deepEqual(attempts, [0xffff, 32767, 16383, 10_000]);
-  assert.equal(allocated.maximum_pages, 10_000);
+  assert.deepEqual(attempts, [1000, 500, 250, 125, 100]);
+  assert.equal(allocated.maximum_pages, 100);
 });
 
-test("a RangeError at the floor is propagated", () => {
+test("a RangeError at the initial size is propagated", () => {
   const attempts = [];
   const error = new RangeError("out of memory");
 
   assert.throws(
     () =>
-      allocate_shared_memory(1, 8192, (descriptor) => {
+      allocate_shared_memory(100, 1000, (descriptor) => {
         attempts.push(descriptor.maximum);
         throw error;
       }),
     (thrown) => thrown === error,
   );
-  assert.deepEqual(attempts, [8192]);
+  assert.deepEqual(attempts, [1000, 500, 250, 125, 100]);
 });
 
 test("a non-RangeError is propagated without retrying", () => {
@@ -64,11 +64,11 @@ test("a non-RangeError is propagated without retrying", () => {
 
   assert.throws(
     () =>
-      allocate_shared_memory(1, 0xffff, (descriptor) => {
+      allocate_shared_memory(100, 1000, (descriptor) => {
         attempts.push(descriptor.maximum);
         throw error;
       }),
     (thrown) => thrown === error,
   );
-  assert.deepEqual(attempts, [0xffff]);
+  assert.deepEqual(attempts, [1000]);
 });

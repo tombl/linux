@@ -29,8 +29,10 @@ export interface UserContext {
   maximum_pages: number;
 }
 
-const MINIMUM_BACKOFF_MAXIMUM_PAGES = 8192; // 512 MiB
-
+/**
+ * Allocates a shared memory, halving the maximum whenever the engine refuses
+ * to reserve that much address space, degrading as far as the initial size.
+ */
 export function allocate_shared_memory(
   initial_pages: number,
   preferred_maximum_pages: number,
@@ -52,7 +54,6 @@ export function allocate_shared_memory(
     } catch (error) {
       const smaller_maximum = Math.max(
         initial_pages,
-        MINIMUM_BACKOFF_MAXIMUM_PAGES,
         Math.floor(maximum_pages / 2),
       );
       if (!(error instanceof RangeError) || smaller_maximum >= maximum_pages) {
