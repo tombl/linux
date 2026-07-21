@@ -10,6 +10,7 @@ import {
   kernel_imports,
   type MachineTerminationReason,
   type UserContext,
+  user_module_imports_supported,
 } from "./wasm.ts";
 
 export interface InitMessage {
@@ -207,16 +208,7 @@ function user_imports({
           }
 
           module = new WebAssembly.Module(bytes);
-          const compiled_memory_imports = WebAssembly.Module.imports(
-            module,
-          ).filter(
-            ({ kind }) => kind === "memory",
-          );
-          if (
-            compiled_memory_imports.length !== 1 ||
-            compiled_memory_imports[0]?.module !== "env" ||
-            compiled_memory_imports[0]?.name !== "memory"
-          ) {
+          if (!user_module_imports_supported(module)) {
             return -8; // exec format error
           }
 

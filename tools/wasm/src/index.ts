@@ -201,8 +201,18 @@ export async function spawnMachine(
   const finish = async (error?: unknown) => {
     if (closed) return;
     closed = true;
-    for (const device of devices) close_virtio_device(device);
-    await Promise.all(Array.from(workers, (worker) => worker.terminate()));
+    for (const device of devices) {
+      try {
+        close_virtio_device(device);
+      } catch (close_error) {
+        error ??= close_error;
+      }
+    }
+    try {
+      await Promise.all(Array.from(workers, (worker) => worker.terminate()));
+    } catch (termination_error) {
+      error ??= termination_error;
+    }
     boot_console_close();
     if (error === undefined) closed_promise.resolve();
     else closed_promise.reject(error);

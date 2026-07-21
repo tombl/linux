@@ -31,6 +31,59 @@ export interface UserContext {
   maximum_pages: number;
 }
 
+const supported_user_module_imports = new Set([
+  "env\0memory\0memory",
+  "linux\0syscall\0function",
+  "linux\0get_thread_area\0function",
+  "linux\0get_args_length\0function",
+  "linux\0get_args\0function",
+  "linux\0copy_siginfo\0function",
+]);
+
+/** Whether every import can be supplied when a userspace module is instantiated. */
+export function user_module_imports_supported(
+  module: WebAssembly.Module,
+): boolean {
+  return WebAssembly.Module.imports(module).every(({ module, name, kind }) =>
+    supported_user_module_imports.has(`${module}\0${name}\0${kind}`)
+  );
+}
+
+/**
+ * Allocates a shared memory, halving the maximum whenever the engine refuses
+ * to reserve that much address space, degrading as far as the initial size.
+ */
+export function allocate_shared_memory(
+  initial_pages: number,
+  preferred_maximum_pages: number,
+  allocate: (
+    descriptor: WebAssembly.MemoryDescriptor,
+  ) => WebAssembly.Memory = (descriptor) => new WebAssembly.Memory(descriptor),
+): { memory: WebAssembly.Memory; maximum_pages: number } {
+  let maximum_pages = preferred_maximum_pages;
+  for (;;) {
+    try {
+      return {
+        memory: allocate({
+          initial: initial_pages,
+          maximum: maximum_pages,
+          shared: true,
+        }),
+        maximum_pages,
+      };
+    } catch (error) {
+      const smaller_maximum = Math.max(
+        initial_pages,
+        Math.floor(maximum_pages / 2),
+      );
+      if (!(error instanceof RangeError) || smaller_maximum >= maximum_pages) {
+        throw error;
+      }
+      maximum_pages = smaller_maximum;
+    }
+  }
+}
+
 const WASM_USER_MEMORY_NONE = 0;
 const WASM_USER_MEMORY_SHARE = 1;
 const WASM_USER_MEMORY_COPY = 2;
@@ -169,7 +222,9 @@ export function kernel_imports(
       throw HALT_KERNEL;
     },
     terminate_machine: (reason) => {
-      if (!is_worker) throw new Error("Machine termination called in main thread");
+      if (!is_worker) {
+        throw new Error("Machine termination called in main thread");
+      }
       terminate_machine(reason);
       throw HALT_KERNEL;
     },
