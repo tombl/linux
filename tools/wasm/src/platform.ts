@@ -7,7 +7,7 @@
 import { assert } from "./util.ts";
 
 export interface WorkerHandle {
-  post(message: unknown): void;
+  post(message: unknown, transfer?: Transferable[]): void;
   terminate(): Promise<void>;
 }
 
@@ -18,7 +18,7 @@ export interface WorkerHandlers {
 
 /** A worker's connection back to the thread that spawned it. */
 export interface WorkerChannel {
-  post(message: unknown): void;
+  post(message: unknown, transfer?: Transferable[]): void;
   on_message(handler: (message: unknown) => void): void;
 }
 
@@ -55,13 +55,13 @@ const web: Platform = {
       );
     };
     return {
-      post: (message) => worker.postMessage(message),
+      post: (message, transfer) => worker.postMessage(message, transfer ?? []),
       terminate: async () => worker.terminate(),
     };
   },
   worker_channel() {
     return {
-      post: (message) => self.postMessage(message),
+      post: (message, transfer) => self.postMessage(message, transfer ?? []),
       on_message: (handler) => {
         self.onmessage = (event) => handler(event.data);
       },
@@ -75,14 +75,14 @@ const web: Platform = {
 // Hand-written types for the slices of the node builtins we use, so that
 // @types/node doesn't leak into a web-first package.
 interface NodeWorker {
-  postMessage(message: unknown): void;
+  postMessage(message: unknown, transfer?: Transferable[]): void;
   terminate(): Promise<number>;
   on(event: "message", handler: (message: unknown) => void): this;
   on(event: "error", handler: (error: Error) => void): this;
 }
 
 interface NodeParentPort {
-  postMessage(message: unknown): void;
+  postMessage(message: unknown, transfer?: Transferable[]): void;
   on(event: "message", handler: (message: unknown) => void): this;
 }
 
@@ -119,14 +119,14 @@ function node(
       worker.on("message", handlers.on_message);
       worker.on("error", handlers.on_error);
       return {
-        post: (message) => worker.postMessage(message),
+        post: (message, transfer) => worker.postMessage(message, transfer),
         terminate: async () => void await worker.terminate(),
       };
     },
     worker_channel() {
       assert(parentPort, "not in a worker");
       return {
-        post: (message) => parentPort.postMessage(message),
+        post: (message, transfer) => parentPort.postMessage(message, transfer),
         on_message: (handler) => parentPort.on("message", handler),
       };
     },

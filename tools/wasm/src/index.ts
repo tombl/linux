@@ -18,7 +18,11 @@ import {
   MachineTerminationReason,
   type UserContext,
 } from "./wasm.ts";
-import type { InitMessage, WorkerMessage } from "./worker.ts";
+import type {
+  ForwardedInitMessage,
+  InitMessage,
+  WorkerMessage,
+} from "./worker.ts";
 
 export type { DeviceTreeNode } from "./devicetree.ts";
 export {
@@ -295,11 +299,9 @@ export async function spawnMachine(
     // call back into, but they only run once exports.boot() starts the kernel.
     let instance: Instance | undefined;
 
-    const spawn_worker = (
-      fn: number,
-      arg: number,
+    const start_worker = (
       name: string,
-      user: UserContext | null,
+      init: InitMessage | ForwardedInitMessage,
     ) => {
       if (closed) return;
       const worker = platform.spawn_worker(name, {
@@ -307,7 +309,10 @@ export async function spawnMachine(
           const message = raw as WorkerMessage;
           switch (message.type) {
             case "spawn_worker":
-              spawn_worker(message.fn, message.arg, message.name, message.user);
+              start_worker(message.name, {
+                type: "forwarded_init",
+                port: message.port,
+              });
               break;
             case "boot_console_write":
               boot_console_write(message.message);
@@ -352,14 +357,25 @@ export async function spawnMachine(
       });
       workers.add(worker);
       worker.post(
-        {
-          fn,
-          arg,
-          vmlinux,
-          memory: wasm_memory,
-          user,
-        } satisfies InitMessage,
+        init,
+        init.type === "forwarded_init" ? [init.port] : undefined,
       );
+    };
+
+    const spawn_worker = (
+      fn: number,
+      arg: number,
+      name: string,
+      user: UserContext | null,
+    ) => {
+      start_worker(name, {
+        type: "init",
+        fn,
+        arg,
+        vmlinux,
+        memory: wasm_memory,
+        user,
+      });
     };
 
     const unavailable = () => {
