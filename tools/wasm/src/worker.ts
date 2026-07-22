@@ -406,6 +406,12 @@ function user_imports({
 }
 
 function start({ fn, arg, vmlinux, memory, user: parent_user }: InitMessage) {
+  // Load-bearing: this worker may register after the parent has already
+  // grown the shared user memory, and V8 refreshes cached buffer wrappers
+  // per isolate asynchronously, so views built from the InitMessage wrapper
+  // can be shorter than the real memory and throw RangeError. grow(0)
+  // forces a synchronous wrapper refresh before any view is constructed.
+  parent_user?.memory.grow(0);
 
   const user = user_imports({
     kernel_memory: memory,
