@@ -319,10 +319,14 @@ export async function spawnMachine(
           const message = raw as WorkerMessage;
           switch (message.type) {
             case "spawn_worker":
-              start_worker(message.name, {
-                type: "forwarded_init",
-                port: message.port,
-              });
+              try {
+                start_worker(message.name, {
+                  type: "forwarded_init",
+                  port: message.port,
+                });
+              } catch (error) {
+                void finish(error);
+              }
               break;
             case "boot_console_write":
               boot_console_write(message.message);
@@ -377,7 +381,11 @@ export async function spawnMachine(
       arg: number,
       name: string,
       user: UserContext | null,
+      copy_user_memory: boolean,
     ) => {
+      // COPY originates only from userspace clone in a worker; never block the
+      // browser's main agent waiting for a memory snapshot.
+      assert(!copy_user_memory);
       start_worker(name, {
         type: "init",
         fn,
@@ -385,7 +393,9 @@ export async function spawnMachine(
         vmlinux,
         memory: wasm_memory,
         user,
+        user_copy_status: null,
       });
+      return 0;
     };
 
     const unavailable = () => {

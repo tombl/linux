@@ -200,7 +200,8 @@ export function kernel_imports(
       arg: number,
       name: string,
       user: UserContext | null,
-    ) => void;
+      copy_user_memory: boolean,
+    ) => number;
     boot_console_write: (message: ArrayBuffer) => void;
     boot_console_close: () => void;
     terminate_machine: (reason: MachineTerminationReason) => void;
@@ -283,38 +284,24 @@ export function kernel_imports(
         new Uint8Array(memory.buffer, comm_address, comm_length).slice(), // copy to transfer to non-shared backing
       );
       let user: UserContext | null = null;
+      let copy_user_memory = false;
       if (user_memory !== WASM_USER_MEMORY_NONE) {
         const context = get_user_context();
         if (!context) return -22; // invalid argument
 
-        const memory_pages = context.memory.buffer.byteLength / 0x10000;
         switch (user_memory) {
           case WASM_USER_MEMORY_SHARE:
             user = context;
             break;
           case WASM_USER_MEMORY_COPY:
-            try {
-              const copied = allocate_shared_memory(
-                memory_pages,
-                context.maximum_pages,
-              );
-              new Uint8Array(copied.memory.buffer).set(
-                new Uint8Array(context.memory.buffer),
-              );
-              user = {
-                module: context.module,
-                ...copied,
-              };
-            } catch {
-              return -12; // out of memory
-            }
+            user = context;
+            copy_user_memory = true;
             break;
           default:
             return -22; // invalid argument
         }
       }
-      spawn_worker(fn, arg, name, user);
-      return 0;
+      return spawn_worker(fn, arg, name, user, copy_user_memory);
     },
 
     run_on_main,
