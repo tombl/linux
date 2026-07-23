@@ -38,6 +38,10 @@ enum wasm_user_memory {
 	WASM_USER_MEMORY_COPY = 2,
 };
 
+/*
+ * WASM_USER_MEMORY_COPY is synchronous: success means the destination worker
+ * has completed its private snapshot; allocation failure returns -ENOMEM.
+ */
 int wasm_import(kernel, spawn_worker)(void (*fn)(void *), void *arg,
 				      char *name, size_t name_len,
 				      enum wasm_user_memory user_memory);
