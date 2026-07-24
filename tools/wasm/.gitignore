@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+
+/.wrangler
+/dist
+/npm-package
+/vmlinux.wasm
+*.tgz

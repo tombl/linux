@@ -99,6 +99,9 @@ config OF_IRQ
 config OF_RESERVED_MEM
 	def_bool OF_EARLY_FLATTREE
 
+config OF_RESERVED_MEM_DECLARE
+	def_bool OF_RESERVED_MEM && !LD_IS_WASMLD
+
 config OF_RESOLVE
 	bool
 

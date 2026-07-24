@@ -1220,6 +1220,14 @@ static void __run_test(struct __fixture_metadata *f,
 	fflush(stdout);
 	fflush(stderr);
 
+#ifdef KSELFTEST_HARNESS_NO_FORK
+	t->fn(t, variant);
+
+	if (__test_passed(t) && (ksft_get_fail_cnt() || ksft_get_error_cnt())) {
+		ksft_print_msg("Illegal usage of low-level ksft APIs in harness test\n");
+		t->exit_code = KSFT_FAIL;
+	}
+#else
 	child = fork();
 	if (child < 0) {
 		ksft_print_msg("ERROR SPAWNING TEST CHILD\n");
@@ -1241,6 +1249,7 @@ static void __run_test(struct __fixture_metadata *f,
 		t->pid = child;
 		__wait_for_test(t);
 	}
+#endif
 	ksft_print_msg("         %4s  %s\n",
 		       __test_passed(t) ? "OK" : "FAIL", test_name);
 
@@ -1291,30 +1300,41 @@ static int test_harness_run(int argc, char **argv)
 		}
 	}
 
-	results = mmap(NULL, sizeof(*results), PROT_READ | PROT_WRITE,
-		       MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+#ifdef KSELFTEST_HARNESS_NO_FORK
+	{
+		struct __test_results local_results;
 
-	ksft_print_header();
-	ksft_set_plan(test_count);
-	ksft_print_msg("Starting %u tests from %u test cases.\n",
-	       test_count, case_count);
-	for (f = __fixture_list; f; f = f->next) {
-		for (v = f->variant ?: &no_variant; v; v = v->next) {
-			for (t = f->tests; t; t = t->next) {
-				if (!test_enabled(argc, argv, f, v, t))
-					continue;
-				count++;
-				t->results = results;
-				__run_test(f, v, t);
-				t->results = NULL;
-				if (__test_passed(t))
-					pass_count++;
-				else
-					ret = 1;
+		results = &local_results;
+#else
+		results = mmap(NULL, sizeof(*results), PROT_READ | PROT_WRITE,
+			       MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+#endif
+
+		ksft_print_header();
+		ksft_set_plan(test_count);
+		ksft_print_msg("Starting %u tests from %u test cases.\n",
+		       test_count, case_count);
+		for (f = __fixture_list; f; f = f->next) {
+			for (v = f->variant ?: &no_variant; v; v = v->next) {
+				for (t = f->tests; t; t = t->next) {
+					if (!test_enabled(argc, argv, f, v, t))
+						continue;
+					count++;
+					t->results = results;
+					__run_test(f, v, t);
+					t->results = NULL;
+					if (__test_passed(t))
+						pass_count++;
+					else
+						ret = 1;
+				}
 			}
 		}
+#ifdef KSELFTEST_HARNESS_NO_FORK
 	}
-	munmap(results, sizeof(*results));
+#else
+		munmap(results, sizeof(*results));
+#endif
 
 	ksft_print_msg("%s: %u / %u tests passed.\n", ret ? "FAILED" : "PASSED",
 			pass_count, count);

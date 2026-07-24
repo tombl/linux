@@ -846,8 +846,13 @@ ssize_t __modver_version_show(const struct module_attribute *mattr,
 	return scnprintf(buf, PAGE_SIZE, "%s\n", vattr->version);
 }
 
+#ifdef CONFIG_WASM
+extern const struct module_version_attribute *__start___modver;
+extern const struct module_version_attribute *__stop___modver;
+#else
 extern const struct module_version_attribute __start___modver[];
 extern const struct module_version_attribute __stop___modver[];
+#endif
 
 static void __init version_sysfs_builtin(void)
 {

@@ -2508,6 +2508,18 @@ extern const u32		sched_prio_to_wmult[40];
 
 #define RETRY_TASK		((void *)-1UL)
 
+enum sched_class_rank {
+	SCHED_CLASS_STOP,
+	SCHED_CLASS_DL,
+	SCHED_CLASS_RT,
+	SCHED_CLASS_FAIR,
+#ifdef CONFIG_SCHED_CLASS_EXT
+	SCHED_CLASS_EXT,
+#endif
+	SCHED_CLASS_IDLE,
+	SCHED_CLASS_NR,
+};
+
 struct affinity_context {
 	const struct cpumask	*new_mask;
 	struct cpumask		*user_mask;
@@ -2517,6 +2529,7 @@ struct affinity_context {
 extern s64 update_curr_common(struct rq *rq);
 
 struct sched_class {
+	enum sched_class_rank rank;
 
 #ifdef CONFIG_UCLAMP_TASK
 	int uclamp_enabled;
@@ -2725,14 +2738,11 @@ static inline void put_prev_set_next_task(struct rq *rq,
  *
  * Also enforce alignment on the instance, not the type, to guarantee layout.
  */
-#define DEFINE_SCHED_CLASS(name) \
+#define DEFINE_SCHED_CLASS(name, _rank) \
 const struct sched_class name##_sched_class \
 	__aligned(__alignof__(struct sched_class)) \
-	__section("__" #name "_sched_class")
-
-/* Defined in include/asm-generic/vmlinux.lds.h */
-extern struct sched_class __sched_class_highest[];
-extern struct sched_class __sched_class_lowest[];
+	__section("__" #name "_sched_class") = { \
+	.rank = (_rank),
 
 extern const struct sched_class stop_sched_class;
 extern const struct sched_class dl_sched_class;
@@ -2740,35 +2750,46 @@ extern const struct sched_class rt_sched_class;
 extern const struct sched_class fair_sched_class;
 extern const struct sched_class idle_sched_class;
 
+extern const struct sched_class * const
+	sched_class_by_rank[SCHED_CLASS_NR];
+
+static inline const struct sched_class *
+next_sched_class(const struct sched_class *class)
+{
+	unsigned int rank = class->rank + 1;
+
+	return rank < SCHED_CLASS_NR ? sched_class_by_rank[rank] : NULL;
+}
+
 /*
  * Iterate only active classes. SCX can take over all fair tasks or be
  * completely disabled. If the former, skip fair. If the latter, skip SCX.
  */
 static inline const struct sched_class *next_active_class(const struct sched_class *class)
 {
-	class++;
+	class = next_sched_class(class);
 #ifdef CONFIG_SCHED_CLASS_EXT
 	if (scx_switched_all() && class == &fair_sched_class)
-		class++;
+		class = next_sched_class(class);
 	if (!scx_enabled() && class == &ext_sched_class)
-		class++;
+		class = next_sched_class(class);
 #endif
 	return class;
 }
 
 #define for_class_range(class, _from, _to) \
-	for (class = (_from); class < (_to); class++)
+	for (class = (_from); class != (_to); class = next_sched_class(class))
 
 #define for_each_class(class) \
-	for_class_range(class, __sched_class_highest, __sched_class_lowest)
+	for_class_range(class, sched_class_by_rank[0], NULL)
 
 #define for_active_class_range(class, _from, _to)				\
 	for (class = (_from); class != (_to); class = next_active_class(class))
 
 #define for_each_active_class(class)						\
-	for_active_class_range(class, __sched_class_highest, __sched_class_lowest)
+	for_active_class_range(class, sched_class_by_rank[0], NULL)
 
-#define sched_class_above(_a, _b)	((_a) < (_b))
+#define sched_class_above(_a, _b)	((_a)->rank < (_b)->rank)
 
 static inline void rq_modified_begin(struct rq *rq, const struct sched_class *class)
 {

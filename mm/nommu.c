@@ -1647,6 +1647,19 @@ static int __access_remote_vm(struct mm_struct *mm, unsigned long addr,
 	if (mmap_read_lock_killable(mm))
 		return 0;
 
+	if (IS_ENABLED(CONFIG_WASM)) {
+		if (mm != current->mm || !access_ok((void __user *)addr, len)) {
+			len = 0;
+			goto out;
+		}
+
+		if (write)
+			len -= copy_to_user((void __user *)addr, buf, len);
+		else
+			len -= copy_from_user(buf, (void __user *)addr, len);
+		goto out;
+	}
+
 	/* the access must start within one of the target process's mappings */
 	vma = find_vma(mm, addr);
 	if (vma) {
@@ -1667,6 +1680,7 @@ static int __access_remote_vm(struct mm_struct *mm, unsigned long addr,
 		len = 0;
 	}
 
+out:
 	mmap_read_unlock(mm);
 
 	return len;

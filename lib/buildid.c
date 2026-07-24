@@ -398,10 +398,19 @@ unsigned char vmlinux_build_id[BUILD_ID_SIZE_MAX] __ro_after_init;
  */
 void __init init_vmlinux_build_id(void)
 {
+#ifdef CONFIG_WASM
+	extern const void *__start_notes;
+	extern const void *__stop_notes;
+	const void *notes = __start_notes;
+	unsigned int size = (const char *)__stop_notes -
+			    (const char *)__start_notes;
+#else
 	extern const void __start_notes;
 	extern const void __stop_notes;
+	const void *notes = &__start_notes;
 	unsigned int size = &__stop_notes - &__start_notes;
+#endif
 
-	build_id_parse_buf(&__start_notes, vmlinux_build_id, size);
+	build_id_parse_buf(notes, vmlinux_build_id, size);
 }
 #endif

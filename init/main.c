@@ -1236,8 +1236,10 @@ static void __init do_ctors(void)
  * normal setup code as it's just a normal ELF binary, so we
  * cannot do it again - but we do need CONFIG_CONSTRUCTORS
  * even on UML for modules.
+ * Likewise, the WebAssembly linker combines all constructors
+ * into a single function which is called in the arch startup.
  */
-#if defined(CONFIG_CONSTRUCTORS) && !defined(CONFIG_UML)
+#if defined(CONFIG_CONSTRUCTORS) && !defined(CONFIG_UML) && !defined(CONFIG_WASM)
 	ctor_fn_t *fn = (ctor_fn_t *) __ctors_start;
 
 	for (; fn < (ctor_fn_t *) __ctors_end; fn++)
@@ -1408,7 +1410,48 @@ int __init_or_module do_one_initcall(initcall_t fn)
 	return ret;
 }
 
-
+#ifdef CONFIG_WASM
+static initcall_entry_t **initcall_levels_start[] __initdata = {
+	&__initcall0_start,
+	&__initcall1_start,
+	&__initcall2_start,
+	&__initcall3_start,
+	&__initcall4_start,
+	&__initcall5_start,
+	&__initcall6_start,
+	&__initcall7_start,
+};
+static initcall_entry_t **initcall_levels_end[] __initdata = {
+	&__initcall0_end,
+	&__initcall1_end,
+	&__initcall2_end,
+	&__initcall3_end,
+	&__initcall4_end,
+	&__initcall5_end,
+	&__initcall6_end,
+	&__initcall7_end,
+};
+static initcall_entry_t **initcall_levels_sync_start[] __initdata = {
+	&__initcall0s_start,
+	&__initcall1s_start,
+	&__initcall2s_start,
+	&__initcall3s_start,
+	&__initcall4s_start,
+	&__initcall5s_start,
+	&__initcall6s_start,
+	&__initcall7s_start,
+};
+static initcall_entry_t **initcall_levels_sync_end[] __initdata = {
+	&__initcall0s_end,
+	&__initcall1s_end,
+	&__initcall2s_end,
+	&__initcall3s_end,
+	&__initcall4s_end,
+	&__initcall5s_end,
+	&__initcall6s_end,
+	&__initcall7s_end,
+};
+#else
 static initcall_entry_t *initcall_levels[] __initdata = {
 	__initcall0_start,
 	__initcall1_start,
@@ -1420,6 +1463,7 @@ static initcall_entry_t *initcall_levels[] __initdata = {
 	__initcall7_start,
 	__initcall_end,
 };
+#endif
 
 /* Keep these in sync with initcalls in include/linux/init.h */
 static const char *initcall_level_names[] __initdata = {
@@ -1450,8 +1494,23 @@ static void __init do_initcall_level(int level, char *command_line)
 		   NULL, ignore_unknown_bootoption);
 
 	do_trace_initcall_level(initcall_level_names[level]);
-	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
+
+#ifdef CONFIG_WASM
+	for (fn = *initcall_levels_start[level];
+	     fn < *initcall_levels_end[level]; fn++)
 		do_one_initcall(initcall_from_entry(fn));
+
+	for (fn = *initcall_levels_sync_start[level];
+	     fn < *initcall_levels_sync_end[level]; fn++)
+		do_one_initcall(initcall_from_entry(fn));
+
+	if (level == 5)
+		for (fn = __initcallrootfs_start; fn < __initcallrootfs_end; fn++)
+			do_one_initcall(initcall_from_entry(fn));
+#else
+	for (fn = initcall_levels[level]; fn < initcall_levels[level + 1]; fn++)
+		do_one_initcall(initcall_from_entry(fn));
+#endif
 }
 
 static void __init do_initcalls(void)
@@ -1464,7 +1523,11 @@ static void __init do_initcalls(void)
 	if (!command_line)
 		panic("%s: Failed to allocate %zu bytes\n", __func__, len);
 
+#ifdef CONFIG_WASM
+	for (level = 0; level < ARRAY_SIZE(initcall_level_names) - 1; level++) {
+#else
 	for (level = 0; level < ARRAY_SIZE(initcall_levels) - 1; level++) {
+#endif
 		/* Parser modifies command_line, restore it each time */
 		strcpy(command_line, saved_command_line);
 		do_initcall_level(level, command_line);
@@ -1495,7 +1558,11 @@ static void __init do_pre_smp_initcalls(void)
 	initcall_entry_t *fn;
 
 	do_trace_initcall_level("early");
+#ifdef CONFIG_WASM
+	for (fn = __initcallearly_start; fn < __initcallearly_end; fn++)
+#else
 	for (fn = __initcall_start; fn < __initcall0_start; fn++)
+#endif
 		do_one_initcall(initcall_from_entry(fn));
 }
 
@@ -1662,7 +1729,7 @@ void __init console_on_rootfs(void)
 	struct file *file = filp_open("/dev/console", O_RDWR, 0);
 
 	if (IS_ERR(file)) {
-		pr_err("Warning: unable to open an initial console.\n");
+		pr_err("Warning: unable to open an initial console: %ld\n", PTR_ERR(file));
 		return;
 	}
 	init_dup(file);

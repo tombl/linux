@@ -383,8 +383,12 @@ __SC_COMP_3264(__NR_rt_sigtimedwait, sys_rt_sigtimedwait_time32, \
 #define __NR_rt_sigqueueinfo 138
 __SC_COMP(__NR_rt_sigqueueinfo, sys_rt_sigqueueinfo, \
 	  compat_sys_rt_sigqueueinfo)
+#ifndef __ARCH_WANT_NO_RT_SIGRETURN
 #define __NR_rt_sigreturn 139
 __SC_COMP(__NR_rt_sigreturn, sys_rt_sigreturn, compat_sys_rt_sigreturn)
+#endif
+
+/* kernel/sys.c */
 #define __NR_setpriority 140
 __SYSCALL(__NR_setpriority, sys_setpriority)
 #define __NR_getpriority 141
@@ -551,12 +555,17 @@ __SC_COMP(__NR_sendmsg, sys_sendmsg, compat_sys_sendmsg)
 __SC_COMP(__NR_recvmsg, sys_recvmsg, compat_sys_recvmsg)
 #define __NR_readahead 213
 __SC_COMP(__NR_readahead, sys_readahead, compat_sys_readahead)
+/* mm/nommu.c, also with MMU */
+#ifndef __ARCH_WANT_NO_MEMORY_SYSCALLS
 #define __NR_brk 214
 __SYSCALL(__NR_brk, sys_brk)
 #define __NR_munmap 215
 __SYSCALL(__NR_munmap, sys_munmap)
 #define __NR_mremap 216
 __SYSCALL(__NR_mremap, sys_mremap)
+#endif
+
+/* security/keys/keyctl.c */
 #define __NR_add_key 217
 __SYSCALL(__NR_add_key, sys_add_key)
 #define __NR_request_key 218
@@ -567,8 +576,12 @@ __SC_COMP(__NR_keyctl, sys_keyctl, compat_sys_keyctl)
 __SYSCALL(__NR_clone, sys_clone)
 #define __NR_execve 221
 __SC_COMP(__NR_execve, sys_execve, compat_sys_execve)
+#ifndef __ARCH_WANT_NO_MEMORY_SYSCALLS
 #define __NR3264_mmap 222
 __SC_3264(__NR3264_mmap, sys_mmap2, sys_mmap)
+#endif
+
+/* mm/fadvise.c */
 #define __NR3264_fadvise64 223
 __SC_COMP(__NR3264_fadvise64, sys_fadvise64_64, compat_sys_fadvise64_64)
 
@@ -888,7 +901,9 @@ __SYSCALL(__NR_rseq_slice_yield, sys_rseq_slice_yield)
 #define __NR_newfstatat __NR3264_fstatat
 #define __NR_fstat __NR3264_fstat
 #endif
+#ifndef __ARCH_WANT_NO_MEMORY_SYSCALLS
 #define __NR_mmap __NR3264_mmap
+#endif
 #define __NR_fadvise64 __NR3264_fadvise64
 #ifdef __NR3264_stat
 #define __NR_stat __NR3264_stat
@@ -906,7 +921,9 @@ __SYSCALL(__NR_rseq_slice_yield, sys_rseq_slice_yield)
 #define __NR_fstatat64 __NR3264_fstatat
 #define __NR_fstat64 __NR3264_fstat
 #endif
+#ifndef __ARCH_WANT_NO_MEMORY_SYSCALLS
 #define __NR_mmap2 __NR3264_mmap
+#endif
 #define __NR_fadvise64_64 __NR3264_fadvise64
 #ifdef __NR3264_stat
 #define __NR_stat64 __NR3264_stat

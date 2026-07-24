@@ -13,8 +13,13 @@ struct builtin_fw {
 	unsigned long size;
 };
 
+#ifdef CONFIG_WASM
+extern struct builtin_fw *__start_builtin_fw;
+extern struct builtin_fw *__end_builtin_fw;
+#else
 extern struct builtin_fw __start_builtin_fw[];
 extern struct builtin_fw __end_builtin_fw[];
+#endif
 
 static bool fw_copy_to_prealloc_buf(struct firmware *fw,
 				    void *buf, size_t size)

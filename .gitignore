@@ -188,3 +188,9 @@ sphinx_*/
 
 # bc language scripts (not LLVM bitcode)
 !kernel/time/timeconst.bc
+
+# Nix build output
+/result
+
+# GitHub Actions
+!/.github/

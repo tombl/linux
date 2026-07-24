@@ -180,9 +180,18 @@ KERNEL_ATTR_RW(rcu_normal);
 /*
  * Make /sys/kernel/notes give the raw contents of our kernel .notes section.
  */
+#ifdef CONFIG_WASM
+extern const void *__start_notes;
+extern const void *__stop_notes;
+#define notes_start	__start_notes
+#define notes_size	((const char *)__stop_notes - \
+			 (const char *)__start_notes)
+#else
 extern const void __start_notes;
 extern const void __stop_notes;
-#define	notes_size (&__stop_notes - &__start_notes)
+#define notes_start	(&__start_notes)
+#define notes_size	(&__stop_notes - &__start_notes)
+#endif
 
 static __ro_after_init BIN_ATTR_SIMPLE_RO(notes);
 
@@ -228,7 +237,7 @@ void __init ksysfs_init(void)
 		goto kset_exit;
 
 	if (notes_size > 0) {
-		bin_attr_notes.private = (void *)&__start_notes;
+		bin_attr_notes.private = (void *)notes_start;
 		bin_attr_notes.size = notes_size;
 		error = sysfs_create_bin_file(kernel_kobj, &bin_attr_notes);
 		if (error)

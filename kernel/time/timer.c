@@ -59,6 +59,16 @@
 
 __visible u64 jiffies_64 __cacheline_aligned_in_smp = INITIAL_JIFFIES;
 
+#ifdef CONFIG_WASM
+/*
+ * Other architectures place jiffies at the low word of jiffies_64 in their
+ * linker script. wasm-ld has no linker-script support, but an LLVM data alias
+ * expresses the same relationship directly in the object file.
+ */
+extern unsigned long volatile jiffies
+	__attribute__((alias("jiffies_64")));
+#endif
+
 EXPORT_SYMBOL(jiffies_64);
 
 /*

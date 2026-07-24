@@ -2620,10 +2620,27 @@ static void __init report_meminit(void)
 
 static void __init mem_init_print_info(void)
 {
-	unsigned long physpages, codesize, datasize, rosize, bss_size;
-	unsigned long init_code_size, init_data_size;
+	unsigned long physpages;
 
 	physpages = get_num_physpages();
+
+#ifdef CONFIG_WASM
+	pr_info("Memory: %luK/%luK available (%luK reserved, %luK cma-reserved"
+#ifdef CONFIG_HIGHMEM
+		", %luK highmem"
+#endif
+		")\n",
+		K(nr_free_pages()), K(physpages),
+		K(physpages - totalram_pages() - totalcma_pages),
+		K(totalcma_pages)
+#ifdef CONFIG_HIGHMEM
+		, K(totalhigh_pages())
+#endif
+		);
+#else
+	unsigned long codesize, datasize, rosize, bss_size;
+	unsigned long init_code_size, init_data_size;
+
 	codesize = _etext - _stext;
 	datasize = _edata - _sdata;
 	rosize = __end_rodata - __start_rodata;
@@ -2667,6 +2684,7 @@ static void __init mem_init_print_info(void)
 		, K(totalhigh_pages())
 #endif
 		);
+#endif
 }
 
 #ifndef __HAVE_COLOR_ZERO_PAGE

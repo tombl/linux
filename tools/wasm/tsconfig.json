@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: MIT
+
+{
+  "compilerOptions": {
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+
+    "target": "es2022",
+    "lib": [
+      "es2022",
+      "esnext.disposable",
+      "es2024.promise",
+      "webworker",
+      "webworker.iterable",
+      "webworker.asynciterable"
+    ],
+    "skipLibCheck": true,
+
+    "declaration": true,
+    "stripInternal": true,
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": ["src/**/*.ts"]
+}

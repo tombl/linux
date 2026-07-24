@@ -3425,7 +3425,7 @@ static int task_is_throttled_dl(struct task_struct *p, int cpu)
 }
 #endif
 
-DEFINE_SCHED_CLASS(dl) = {
+DEFINE_SCHED_CLASS(dl, SCHED_CLASS_DL)
 	.enqueue_task		= enqueue_task_dl,
 	.dequeue_task		= dequeue_task_dl,
 	.yield_task		= yield_task_dl,

@@ -831,6 +831,7 @@ struct block_device *blkdev_get_no_open(dev_t dev, bool autoload)
 			pr_warn_ratelimited(
 "block device autoloading is deprecated and will be removed.\n");
 	}
+
 	if (!inode)
 		return NULL;
 

@@ -44,19 +44,30 @@ $(obj)/dtbs-list: $(dtb-y) FORCE
 # ---------------------------------------------------------------------------
 
 builtin-dtb-section = $(if $(filter arch/$(SRCARCH)/boot/dts%, $(obj)),.dtb.init.rodata,.rodata)
+builtin-dtb-section-flags = $(if $(CONFIG_WASM),$(comma)""$(comma)@,$(comma)"a")
 
 # Generate an assembly file to wrap the output of the device tree compiler
 quiet_cmd_wrap_S_dtb = WRAP    $@
       cmd_wrap_S_dtb = {								\
 		symbase=__$(patsubst .%,%,$(suffix $<))_$(subst -,_,$(notdir $*));	\
 		echo '\#include <asm-generic/vmlinux.lds.h>';				\
-		echo '.section $(builtin-dtb-section),"a"';				\
+		echo '.section $(builtin-dtb-section)$(builtin-dtb-section-flags)';	\
 		echo '.balign STRUCT_ALIGNMENT';					\
 		echo ".global $${symbase}_begin";					\
+		if [ "$(CONFIG_WASM)" = "y" ]; then					\
+			echo ".type $${symbase}_begin,@object";				\
+		fi;									\
 		echo "$${symbase}_begin:";						\
 		echo '.incbin "$<" ';							\
 		echo ".global $${symbase}_end";						\
+		if [ "$(CONFIG_WASM)" = "y" ]; then					\
+			echo ".type $${symbase}_end,@object";				\
+		fi;									\
 		echo "$${symbase}_end:";						\
+		if [ "$(CONFIG_WASM)" = "y" ]; then					\
+			echo ".size $${symbase}_begin, $${symbase}_end-$${symbase}_begin"; \
+			echo ".size $${symbase}_end, 0";					\
+		fi;									\
 		echo '.balign STRUCT_ALIGNMENT';					\
 	} > $@
 

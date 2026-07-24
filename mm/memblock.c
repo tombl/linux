@@ -479,6 +479,7 @@ static int __init_memblock memblock_double_array(struct memblock_type *type,
 		if (addr) {
 			/* The memory may not have been accepted, yet. */
 			accept_memory(addr, new_alloc_size);
+			arch_memblock_materialize(addr, new_alloc_size);
 
 			new_array = __va(addr);
 		} else {
@@ -1614,6 +1615,7 @@ again:
 	return 0;
 
 done:
+	arch_memblock_materialize(found, size);
 	/*
 	 * Skip kmemleak for those places like kasan_init() and
 	 * early_pgtable_alloc() due to high volume.

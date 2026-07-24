@@ -4543,7 +4543,7 @@ static void set_cgroup_sched(struct cgroup *cgrp, struct scx_sched *sch) {}
  * - task_fork/dead: We need fork/dead notifications for all tasks regardless of
  *   their current sched_class. Call them directly from sched core instead.
  */
-DEFINE_SCHED_CLASS(ext) = {
+DEFINE_SCHED_CLASS(ext, SCHED_CLASS_EXT)
 	.enqueue_task		= enqueue_task_scx,
 	.dequeue_task		= dequeue_task_scx,
 	.yield_task		= yield_task_scx,

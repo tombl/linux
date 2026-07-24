@@ -25,6 +25,7 @@
 #include <time.h>
 
 #include "futextest.h"
+#define KSELFTEST_HARNESS_NO_FORK
 #include "kselftest_harness.h"
 
 futex_t f1 = FUTEX_INITIALIZER;

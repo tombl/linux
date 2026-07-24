@@ -566,7 +566,7 @@ static void update_curr_idle(struct rq *rq)
 /*
  * Simple, special scheduling class for the per-CPU idle tasks:
  */
-DEFINE_SCHED_CLASS(idle) = {
+DEFINE_SCHED_CLASS(idle, SCHED_CLASS_IDLE)
 	/* no enqueue/yield_task for idle tasks */
 
 	/* dequeue is not valid, we print a debug message there: */

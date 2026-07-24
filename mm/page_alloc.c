@@ -287,7 +287,8 @@ static bool cond_accept_memory(struct zone *zone, unsigned int order,
 			       int alloc_flags);
 static bool __free_unaccepted(struct page *page);
 
-int page_group_by_mobility_disabled __read_mostly;
+int page_group_by_mobility_disabled __read_mostly =
+	IS_ENABLED(CONFIG_ARCH_WANTS_BUDDY_ALLOCATOR_BOTTOM_UP);
 
 #ifdef CONFIG_DEFERRED_STRUCT_PAGE_INIT
 /*
@@ -1883,26 +1884,42 @@ static __always_inline
 struct page *__rmqueue_smallest(struct zone *zone, unsigned int order,
 						int migratetype)
 {
-	unsigned int current_order;
+	unsigned int current_order, selected_order = NR_PAGE_ORDERS;
 	struct free_area *area;
-	struct page *page;
+	struct page *page = NULL;
 
-	/* Find a page of the appropriate size in the preferred list */
+	/*
+	 * Fresh boot pages are added to list tails in ascending PFN order.
+	 * Architectures with bottom-up physical backing must therefore compare
+	 * the heads of every usable order instead of preferring an exact-order
+	 * fragment at a high PFN.  Splits put the next higher buddies at list
+	 * heads, preserving that frontier, while later frees only add pages from
+	 * within the already materialized prefix.
+	 */
 	for (current_order = order; current_order < NR_PAGE_ORDERS; ++current_order) {
-		area = &(zone->free_area[current_order]);
-		page = get_page_from_free_area(area, migratetype);
-		if (!page)
-			continue;
+		struct page *candidate;
 
-		page_del_and_expand(zone, page, order, current_order,
-				    migratetype);
-		trace_mm_page_alloc_zone_locked(page, order, migratetype,
-				pcp_allowed_order(order) &&
-				migratetype < MIGRATE_PCPTYPES);
-		return page;
+		area = &(zone->free_area[current_order]);
+		candidate = get_page_from_free_area(area, migratetype);
+		if (!candidate)
+			continue;
+		if (!IS_ENABLED(CONFIG_ARCH_WANTS_BUDDY_ALLOCATOR_BOTTOM_UP) ||
+		    !page || page_to_pfn(candidate) < page_to_pfn(page)) {
+			page = candidate;
+			selected_order = current_order;
+		}
+		if (!IS_ENABLED(CONFIG_ARCH_WANTS_BUDDY_ALLOCATOR_BOTTOM_UP))
+			break;
 	}
 
-	return NULL;
+	if (!page)
+		return NULL;
+
+	page_del_and_expand(zone, page, order, selected_order, migratetype);
+	trace_mm_page_alloc_zone_locked(page, order, migratetype,
+			pcp_allowed_order(order) &&
+			migratetype < MIGRATE_PCPTYPES);
+	return page;
 }
 
 
@@ -5876,7 +5893,8 @@ void __ref build_all_zonelists(pg_data_t *pgdat)
 	 * made on memory-hotadd so a system can start with mobility
 	 * disabled and enable it later
 	 */
-	if (vm_total_pages < (pageblock_nr_pages * MIGRATE_TYPES))
+	if (IS_ENABLED(CONFIG_ARCH_WANTS_BUDDY_ALLOCATOR_BOTTOM_UP) ||
+	    vm_total_pages < (pageblock_nr_pages * MIGRATE_TYPES))
 		page_group_by_mobility_disabled = 1;
 	else
 		page_group_by_mobility_disabled = 0;

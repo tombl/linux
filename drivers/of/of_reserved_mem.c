@@ -507,6 +507,7 @@ static int __init __reserved_mem_alloc_size(unsigned long node, const char *unam
 	return 0;
 }
 
+#ifdef CONFIG_OF_RESERVED_MEM_DECLARE
 extern const struct of_device_id __reservedmem_of_table[];
 static const struct of_device_id __rmem_of_table_sentinel
 	__used __section("__reservedmem_of_table_end");
@@ -604,6 +605,26 @@ static int __init __reserved_mem_init_node(struct reserved_mem *rmem,
 	}
 	return ret;
 }
+#else
+static int __init fdt_fixup_reserved_mem_node(unsigned long node,
+					      phys_addr_t base,
+					      phys_addr_t size)
+{
+	return -ENODEV;
+}
+
+static int __init fdt_validate_reserved_mem_node(unsigned long node,
+						 phys_addr_t *align)
+{
+	return -ENODEV;
+}
+
+static int __init __reserved_mem_init_node(struct reserved_mem *rmem,
+					   unsigned long node)
+{
+	return -ENODEV;
+}
+#endif
 
 /**
  * fdt_init_reserved_mem_node() - Initialize a reserved memory region

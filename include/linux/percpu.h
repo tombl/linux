@@ -158,7 +158,6 @@ extern void free_percpu(void __percpu *__pdata);
 DEFINE_FREE(free_percpu, void __percpu *, free_percpu(_T))
 
 extern phys_addr_t per_cpu_ptr_to_phys(void *addr);
-
 extern unsigned long pcpu_nr_pages(void);
 
 #endif /* __LINUX_PERCPU_H */

@@ -89,7 +89,9 @@ vmlinux_link()
 		ldlibs=
 	fi
 
-	ldflags="${ldflags} ${wl}--script=${objtree}/${KBUILD_LDS}"
+	if ! is_enabled CONFIG_LD_IS_WASMLD; then
+		ldflags="${ldflags} ${wl}--script=${objtree}/${KBUILD_LDS}"
+	fi
 
 	# The kallsyms linking does not need debug symbols included.
 	if [ -n "${strip_debug}" ] ; then
@@ -100,10 +102,17 @@ vmlinux_link()
 		ldflags="${ldflags} ${wl}-Map=vmlinux.map"
 	fi
 
-	${ld} ${ldflags} -o ${output}					\
-		${wl}--whole-archive ${objs} ${wl}--no-whole-archive	\
-		${wl}--start-group ${libs} ${wl}--end-group		\
-		${kallsymso} ${btf_vmlinux_bin_o} ${arch_vmlinux_o} ${ldlibs}
+	if is_enabled CONFIG_LD_IS_WASMLD; then
+		${ld} ${ldflags} -o ${output}				\
+			${wl}--whole-archive ${objs} ${wl}--no-whole-archive \
+			${libs}						\
+			${kallsymso} ${btf_vmlinux_bin_o} ${arch_vmlinux_o} ${ldlibs}
+	else
+		${ld} ${ldflags} -o ${output}				\
+			${wl}--whole-archive ${objs} ${wl}--no-whole-archive \
+			${wl}--start-group ${libs} ${wl}--end-group	\
+			${kallsymso} ${btf_vmlinux_bin_o} ${arch_vmlinux_o} ${ldlibs}
+	fi
 }
 
 # Create ${2}.o file with all symbols from the ${1} object file
@@ -274,7 +283,9 @@ if is_enabled CONFIG_DEBUG_INFO_BTF; then
 	${RESOLVE_BTFIDS} --patch_btfids ${btfids_vmlinux} ${VMLINUX}
 fi
 
-mksysmap "${VMLINUX}" System.map
+if ! is_enabled CONFIG_LD_IS_WASMLD; then
+	mksysmap "${VMLINUX}" System.map
+fi
 
 if is_enabled CONFIG_BUILDTIME_TABLE_SORT; then
 	info SORTTAB "${VMLINUX}"

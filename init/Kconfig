@@ -2033,6 +2033,7 @@ config CACHESTAT_SYSCALL
 
 config KALLSYMS
 	bool "Load all symbols for debugging/ksymoops" if EXPERT
+	depends on !LD_IS_WASMLD
 	default y
 	help
 	  Say Y here to let the kernel print out symbolic crash information and

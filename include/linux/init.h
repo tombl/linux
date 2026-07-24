@@ -125,7 +125,11 @@ static inline initcall_t initcall_from_entry(initcall_entry_t *entry)
 }
 #endif
 
+#ifdef CONFIG_WASM
+extern initcall_entry_t *__con_initcall_start, *__con_initcall_end;
+#else
 extern initcall_entry_t __con_initcall_start[], __con_initcall_end[];
+#endif
 
 /* Used for constructor calls. */
 typedef void (*ctor_fn_t)(void);
@@ -149,6 +153,32 @@ void time_init(void);
 void poking_init(void);
 void pgtable_cache_init(void);
 
+#ifdef CONFIG_WASM
+#define DECLARE_INITCALL_LEVEL(name)					\
+	extern initcall_entry_t *__initcall##name##_start,		\
+				*__initcall##name##_end
+
+DECLARE_INITCALL_LEVEL(early);
+DECLARE_INITCALL_LEVEL(0);
+DECLARE_INITCALL_LEVEL(0s);
+DECLARE_INITCALL_LEVEL(1);
+DECLARE_INITCALL_LEVEL(1s);
+DECLARE_INITCALL_LEVEL(2);
+DECLARE_INITCALL_LEVEL(2s);
+DECLARE_INITCALL_LEVEL(3);
+DECLARE_INITCALL_LEVEL(3s);
+DECLARE_INITCALL_LEVEL(4);
+DECLARE_INITCALL_LEVEL(4s);
+DECLARE_INITCALL_LEVEL(5);
+DECLARE_INITCALL_LEVEL(5s);
+DECLARE_INITCALL_LEVEL(rootfs);
+DECLARE_INITCALL_LEVEL(6);
+DECLARE_INITCALL_LEVEL(6s);
+DECLARE_INITCALL_LEVEL(7);
+DECLARE_INITCALL_LEVEL(7s);
+
+#undef DECLARE_INITCALL_LEVEL
+#else
 extern initcall_entry_t __initcall_start[];
 extern initcall_entry_t __initcall0_start[];
 extern initcall_entry_t __initcall1_start[];
@@ -159,6 +189,7 @@ extern initcall_entry_t __initcall5_start[];
 extern initcall_entry_t __initcall6_start[];
 extern initcall_entry_t __initcall7_start[];
 extern initcall_entry_t __initcall_end[];
+#endif
 
 extern struct file_system_type rootfs_fs_type;
 
@@ -321,7 +352,11 @@ struct obs_kernel_param {
 	int early;
 };
 
+#ifdef CONFIG_WASM
+extern const struct obs_kernel_param *__setup_start, *__setup_end;
+#else
 extern const struct obs_kernel_param __setup_start[], __setup_end[];
+#endif
 
 /*
  * Only for really core code.  See moduleparam.h for the normal way.

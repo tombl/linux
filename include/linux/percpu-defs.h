@@ -222,8 +222,13 @@ do {									\
 	(void)__vpp_verify;						\
 } while (0)
 
+#ifndef arch_remap_percpu_ptr
+#define arch_remap_percpu_ptr(ptr) (ptr)
+#endif
+
 #define PERCPU_PTR(__p)							\
-	(TYPEOF_UNQUAL(*(__p)) __force __kernel *)((__force unsigned long)(__p))
+	(TYPEOF_UNQUAL(*(__p)) __force __kernel *)			\
+	((__force unsigned long)arch_remap_percpu_ptr(__p))
 
 #ifdef CONFIG_SMP
 
@@ -234,11 +239,13 @@ do {									\
 #define SHIFT_PERCPU_PTR(__p, __offset)					\
 	RELOC_HIDE(PERCPU_PTR(__p), (__offset))
 
+#ifndef per_cpu_ptr
 #define per_cpu_ptr(ptr, cpu)						\
 ({									\
 	__verify_pcpu_ptr(ptr);						\
 	SHIFT_PERCPU_PTR((ptr), per_cpu_offset((cpu)));			\
 })
+#endif
 
 #define raw_cpu_ptr(ptr)						\
 ({									\

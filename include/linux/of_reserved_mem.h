@@ -30,8 +30,14 @@ struct reserved_mem_ops {
 
 #ifdef CONFIG_OF_RESERVED_MEM
 
+#ifdef CONFIG_OF_RESERVED_MEM_DECLARE
 #define RESERVEDMEM_OF_DECLARE(name, compat, ops)			\
 	_OF_DECLARE(reservedmem, name, compat, ops, struct reserved_mem_ops *)
+#else
+#define RESERVEDMEM_OF_DECLARE(name, compat, ops)			\
+	_OF_DECLARE_STUB(reservedmem, name, compat, ops,		\
+			 struct reserved_mem_ops *)
+#endif
 
 int of_reserved_mem_device_init_by_idx(struct device *dev,
 				       struct device_node *np, int idx);

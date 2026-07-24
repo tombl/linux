@@ -222,6 +222,9 @@ freefall_clean:
 build_clean:
 	$(call descend,build,clean)
 
+wasm: FORCE
+	$(call descend,wasm,all)
+
 ynl_clean:
 	$(call descend,net/$(@:_clean=),clean)
 

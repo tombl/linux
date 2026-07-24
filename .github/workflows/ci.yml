@@ -1,0 +1,20 @@
+on:
+  push:
+    branches:
+      - "**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: NixOS/nix-installer-action@main
+      - run: nix build . --print-build-logs
+      - run: cp -L result linux.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel
+          path: linux.tgz

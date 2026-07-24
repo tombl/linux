@@ -4,6 +4,8 @@ PATCHLEVEL = 1
 SUBLEVEL = 5
 EXTRAVERSION =
 NAME = Baby Opossum Posse
+ARCH = wasm
+LLVM = 1
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
@@ -1204,10 +1206,12 @@ KBUILD_AFLAGS   += $(KAFLAGS)
 KBUILD_CFLAGS   += $(KCFLAGS)
 KBUILD_RUSTFLAGS += $(KRUSTFLAGS)
 
+ifeq ($(CONFIG_LD_IS_WASMLD),n)
 KBUILD_LDFLAGS_MODULE += --build-id=sha1
 LDFLAGS_vmlinux += --build-id=sha1
-
 KBUILD_LDFLAGS	+= -z noexecstack
+endif
+
 ifeq ($(CONFIG_LD_IS_BFD),y)
 KBUILD_LDFLAGS	+= $(call ld-option,--no-warn-rwx-segments)
 endif

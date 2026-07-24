@@ -93,7 +93,11 @@ struct kernel_param {
 	};
 };
 
+#ifdef CONFIG_WASM
+extern const struct kernel_param *__start___param, *__stop___param;
+#else
 extern const struct kernel_param __start___param[], __stop___param[];
+#endif
 
 /* Special one for strings we want to copy into */
 struct kparam_string {

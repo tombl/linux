@@ -2592,7 +2592,7 @@ static int task_is_throttled_rt(struct task_struct *p, int cpu)
 }
 #endif /* CONFIG_SCHED_CORE */
 
-DEFINE_SCHED_CLASS(rt) = {
+DEFINE_SCHED_CLASS(rt, SCHED_CLASS_RT)
 	.enqueue_task		= enqueue_task_rt,
 	.dequeue_task		= dequeue_task_rt,
 	.yield_task		= yield_task_rt,

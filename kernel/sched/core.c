@@ -82,6 +82,10 @@
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
 
+#ifndef arch_task_dead
+#define arch_task_dead()	do { } while (0)
+#endif
+
 #define CREATE_TRACE_POINTS
 #include <linux/sched/rseq_api.h>
 #include <trace/events/sched.h>
@@ -7211,6 +7215,7 @@ void __noreturn do_task_dead(void)
 	/* Tell freezer to ignore us: */
 	current->flags |= PF_NOFREEZE;
 
+	arch_task_dead();
 	__schedule(SM_NONE);
 	BUG();
 
@@ -8876,20 +8881,25 @@ LIST_HEAD(task_groups);
 static struct kmem_cache *task_group_cache __ro_after_init;
 #endif
 
+const struct sched_class * const sched_class_by_rank[SCHED_CLASS_NR] = {
+	[SCHED_CLASS_STOP]	= &stop_sched_class,
+	[SCHED_CLASS_DL]	= &dl_sched_class,
+	[SCHED_CLASS_RT]	= &rt_sched_class,
+	[SCHED_CLASS_FAIR]	= &fair_sched_class,
+#ifdef CONFIG_SCHED_CLASS_EXT
+	[SCHED_CLASS_EXT]	= &ext_sched_class,
+#endif
+	[SCHED_CLASS_IDLE]	= &idle_sched_class,
+};
+
 void __init sched_init(void)
 {
 	unsigned long ptr = 0;
 	int i;
 
-	/* Make sure the linker didn't screw up */
-	BUG_ON(!sched_class_above(&stop_sched_class, &dl_sched_class));
-	BUG_ON(!sched_class_above(&dl_sched_class, &rt_sched_class));
-	BUG_ON(!sched_class_above(&rt_sched_class, &fair_sched_class));
-	BUG_ON(!sched_class_above(&fair_sched_class, &idle_sched_class));
-#ifdef CONFIG_SCHED_CLASS_EXT
-	BUG_ON(!sched_class_above(&fair_sched_class, &ext_sched_class));
-	BUG_ON(!sched_class_above(&ext_sched_class, &idle_sched_class));
-#endif
+	for (i = 0; i < SCHED_CLASS_NR; i++)
+		BUG_ON(!sched_class_by_rank[i] ||
+		       sched_class_by_rank[i]->rank != i);
 
 	wait_bit_init();
 
