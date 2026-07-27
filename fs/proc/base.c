@@ -294,6 +294,23 @@ static ssize_t get_mm_cmdline(struct mm_struct *mm, char __user *buf,
 	unsigned long pos, len;
 	char *page, c;
 
+#ifdef CONFIG_WASM
+	/*
+	 * Wasm user memory is a separate per-process linear memory that the
+	 * kernel can only reach through host imports acting on the current
+	 * task, so access_remote_vm() cannot read a foreign process's argv
+	 * strings (see __access_remote_vm() in mm/nommu.c). Serve cmdline
+	 * from the kernel-side copy saved by binfmt_wasm at exec time.
+	 */
+	if (!mm->context.cmdline || *ppos >= mm->context.cmdline_len)
+		return 0;
+	if (count > mm->context.cmdline_len - *ppos)
+		count = mm->context.cmdline_len - *ppos;
+	if (copy_to_user(buf, mm->context.cmdline + *ppos, count))
+		return -EFAULT;
+	return count;
+#endif
+
 	/* Check if process spawned far enough to have cmdline. */
 	if (!mm->env_end)
 		return 0;

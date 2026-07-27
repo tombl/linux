@@ -4,6 +4,7 @@
 #include <linux/binfmts.h>
 #include <linux/cred.h>
 #include <linux/highmem.h>
+#include <linux/mm.h>
 #include <linux/jiffies.h>
 #include <linux/personality.h>
 #include <linux/ptrace.h>
@@ -87,6 +88,7 @@ static int copy_args(struct linux_binprm *bprm)
 	for (int index = MAX_ARG_PAGES - 1; index >= stop; index--) {
 		unsigned int offset = index == stop ? bprm->p & ~PAGE_MASK : 0;
 		char *src = kmap_local_page(bprm->page[index]) + offset;
+
 		data -= PAGE_SIZE - offset;
 		memcpy(data, src, PAGE_SIZE - offset);
 		kunmap_local(src);
@@ -146,6 +148,46 @@ static int copy_args(struct linux_binprm *bprm)
 	PUT_AUX(AT_NULL, 0);
 #undef PUT_AUX
 
+	/*
+	 * Capture a kernel-side cmdline copy while argv[] still points at the
+	 * pristine blob, before get_args() relocates those pointers into wasm
+	 * linear memory. save_cmdline() hands this to mm->context so that
+	 * /proc/<pid>/cmdline can read it (the blob is gone by then).
+	 */
+	{
+		char *buf, *p;
+		int total = 0, i;
+
+		for (i = 0; i < args->argc; i++)
+			total += strnlen(args->argv[i], MAX_ARG_STRLEN) + 1;
+
+		buf = total ? kmalloc(total, GFP_KERNEL) : NULL;
+		if (buf) {
+			p = buf;
+			for (i = 0; i < args->argc; i++) {
+				char *src = args->argv[i];
+				int n = strnlen(src, MAX_ARG_STRLEN) + 1;
+				memcpy(p, src, n);
+				/*
+				 * Display-only normalisation: on wasm the kernel
+				 * occasionally stores argv[0]'s first byte with its
+				 * high bit set (observed 0xE8 where the genuine byte
+				 * is 'h' = 0x68). The running program tolerates this,
+				 * so we leave the program's argv[] untouched and only
+				 * fix it in this captured copy that backs
+				 * /proc/<pid>/cmdline. Clearing it in the live argv
+				 * instead made NOMMU daemonize re-exec (execv(argv[0]))
+				 * resolve to a real "httpd" and loop forever.
+				 */
+				if (i == 0 && (p[0] & 0x80))
+					p[0] &= 0x7f;
+				p += n;
+			}
+			args->cmdline = buf;
+			args->cmdline_len = total;
+		}
+	}
+
 	current_thread_info()->args = args;
 	return 0;
 err:
@@ -159,6 +201,41 @@ __attribute__((export_name("get_args_length"))) int get_args_length(void)
 	return args ? sizeof(*args) + args->len : -EINVAL;
 }
 
+/*
+ * Once the blob lands at 'buf' in user memory, the argv/envp strings have a
+ * definitive user address for the lifetime of the image. Record the standard
+ * mm fields so that procfs (/proc/pid/{cmdline,environ,stat}) sees a spawned
+ * process instead of bailing out on mm->env_end == 0 in get_mm_cmdline().
+ */
+static void set_mm_arg_env_spans(struct wasm_process_args *args, long offset)
+{
+	struct mm_struct *mm = current->mm;
+	char *arg_start, *arg_end, *env_start, *env_end;
+
+	if (!mm || !args->argc)
+		return;
+
+	/* argv[]/envp[] hold kernel blob addresses at this point. */
+	arg_start = args->argv[0];
+	arg_end = args->argv[args->argc - 1];
+	arg_end += strnlen(arg_end, MAX_ARG_STRLEN) + 1;
+
+	if (args->envc) {
+		env_start = args->envp[0];
+		env_end = args->envp[args->envc - 1];
+		env_end += strnlen(env_end, MAX_ARG_STRLEN) + 1;
+	} else {
+		env_start = env_end = arg_end;
+	}
+
+	spin_lock(&mm->arg_lock);
+	mm->arg_start = (unsigned long)(arg_start + offset);
+	mm->arg_end = (unsigned long)(arg_end + offset);
+	mm->env_start = (unsigned long)(env_start + offset);
+	mm->env_end = (unsigned long)(env_end + offset);
+	spin_unlock(&mm->arg_lock);
+}
+
 __attribute__((export_name("get_args"))) int get_args(void *buf)
 {
 	struct wasm_process_args *args = current_thread_info()->args;
@@ -166,6 +243,8 @@ __attribute__((export_name("get_args"))) int get_args(void *buf)
 	size_t *auxv;
 	if (!args)
 		return -EINVAL;
+
+	set_mm_arg_env_spans(args, offset);
 
 	for (int i = 0; i < args->argc; i++)
 		args->argv[i] += offset;
@@ -192,6 +271,30 @@ __attribute__((export_name("get_args"))) int get_args(void *buf)
 	current_thread_info()->args = NULL;
 
 	return 0;
+}
+
+/*
+ * Wasm user memory cannot be read from a foreign task context (see the
+ * CONFIG_WASM branch in __access_remote_vm()), so tools like ps could never
+ * fetch another process's argv out of user memory. The cmdline was already
+ * captured into args->cmdline at copy_args() time (while argv[] still pointed
+ * at the pristine blob); here we just move that copy into the new mm so
+ * /proc/<pid>/cmdline can read it after the blob is gone.
+ *
+ * Must run after begin_new_exec() so current->mm is the new image's mm.
+ * Failure is not fatal: the process just shows an empty cmdline.
+ */
+static void save_cmdline(void)
+{
+	struct wasm_process_args *args = current_thread_info()->args;
+	struct mm_struct *mm = current->mm;
+
+	if (!args || !mm)
+		return;
+
+	mm->context.cmdline = args->cmdline;
+	mm->context.cmdline_len = args->cmdline_len;
+	args->cmdline = NULL;	/* owned by mm now; get_args() kfree()s args */
 }
 
 static int load_wasm_binary(struct linux_binprm *bprm)
@@ -263,6 +366,8 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 	set_binfmt(&wasm_format);
 
 	finalize_exec(bprm);
+
+	save_cmdline();
 
 	wasm_user_instantiate(true);
 

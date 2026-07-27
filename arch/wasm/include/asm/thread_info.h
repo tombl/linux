@@ -16,6 +16,11 @@ struct kernel_siginfo;
 struct wasm_process_args {
 	int len, envc, argc;
 	char **argv, **envp;
+	/* Kernel-side cmdline copy, captured at copy_args() time (while argv[]
+	 * still points at the pristine blob, before get_args() relocates them)
+	 * and handed to mm->context by save_cmdline(). */
+	char *cmdline;
+	int cmdline_len;
 	char data[];
 };
 
