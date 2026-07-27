@@ -10,6 +10,7 @@ obj-y += \
 	irq.o \
 	process.o \
 	ptrace.o \
+	remote_vm.o \
 	sections.o \
 	setup.o \
 	signal.o \

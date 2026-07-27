@@ -2,6 +2,7 @@
 #include <linux/rcupdate.h>
 #include <linux/syscalls.h>
 #include <asm/irq.h>
+#include <asm/remote_vm.h>
 
 #define sys_sigaltstack sys_wasm_sigaltstack
 #undef __SYSCALL
@@ -53,6 +54,7 @@ wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
 		 * for it.
 		 */
 		wasm_timer_check();
+		wasm_service_remote_request(current);
 
 		if (nr < 0 || nr >= ARRAY_SIZE(syscall_table))
 			regs->syscall_return = -ENOSYS;
