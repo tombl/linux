@@ -13,12 +13,6 @@ struct kernel_siginfo;
 #define THREAD_SIZE (PAGE_SIZE << THREAD_SIZE_ORDER)
 #define THREAD_SHIFT (PAGE_SHIFT << THREAD_SIZE_ORDER)
 
-struct wasm_process_args {
-	int len, envc, argc;
-	char **argv, **envp;
-	char data[];
-};
-
 struct thread_info {
 	unsigned long flags;
 	unsigned long syscall_work; /* SYSCALL_WORK_ flags */
@@ -26,7 +20,6 @@ struct thread_info {
 	int cpu; // this is for the kernel
 	atomic_t running_cpu; // negative means unscheduled
 	unsigned long tp_value;
-	struct wasm_process_args *args;
 	const struct kernel_siginfo *active_siginfo;
 };
 
@@ -37,7 +30,6 @@ struct thread_info {
 		.cpu = 0,                            \
 		.running_cpu = ATOMIC_INIT(0),       \
 		.tp_value = U32_MAX,                 \
-		.args = NULL,                        \
 		.active_siginfo = NULL,              \
 	}
 

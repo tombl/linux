@@ -5,6 +5,8 @@
 #include <linux/cred.h>
 #include <linux/highmem.h>
 #include <linux/jiffies.h>
+#include <linux/mm.h>
+#include <linux/overflow.h>
 #include <linux/personality.h>
 #include <linux/ptrace.h>
 #include <linux/random.h>
@@ -20,12 +22,37 @@
  * binfmt_wasm hands userland its arguments through a flat blob rather than the
  * ELF stack, so nothing would otherwise supply an auxiliary vector. Unpatched
  * musl still walks for one immediately past envp[]'s NULL terminator, so we lay
- * a real auxv there (see copy_args). WASM_AUXV_PAIRS counts the id/value pairs
- * emitted below, including the AT_NULL terminator; keep it in sync with the
- * PUT_AUX() list. AT_RANDOM's 16 bytes live in the blob just after the vector.
+ * a real auxv there (see copy_args). AT_RANDOM's 16 bytes live in the blob just
+ * after the vector.
  */
-#define WASM_AUXV_PAIRS 10
 #define WASM_AT_RANDOM_SIZE 16
+
+/*
+ * The process_args member is the userspace ABI. Everything before it is
+ * kernel-private exec state, and process_size is the exact byte range copied
+ * to userspace.
+ */
+struct wasm_process_args {
+	int len, envc, argc;
+	char **argv, **envp;
+	char data[];
+};
+
+struct wasm_exec_args {
+	size_t process_size;
+	size_t arg_start;
+	size_t arg_end;
+	size_t env_start;
+	size_t env_end;
+	size_t auxv;
+	size_t random;
+	size_t execfn;
+	int execfd;
+	unsigned int secureexec : 1;
+	unsigned int preserve_argv0 : 1;
+	unsigned int have_execfd : 1;
+	struct wasm_process_args process;
+};
 
 static int load_wasm_binary(struct linux_binprm *bprm);
 
@@ -54,144 +81,243 @@ static int file_get_size(struct file *f, loff_t *size)
 	return 0;
 }
 
+static size_t process_offset(struct wasm_exec_args *exec, const void *ptr)
+{
+	return (const char *)ptr - (const char *)&exec->process;
+}
+
+static int consume_string(char **cursor, const char *end)
+{
+	size_t available = end - *cursor;
+	size_t limit = min_t(size_t, available, MAX_ARG_STRLEN);
+	size_t len = strnlen(*cursor, limit);
+
+	if (len == limit)
+		return -EINVAL;
+	*cursor += len + 1;
+	return 0;
+}
+
 static int copy_args(struct linux_binprm *bprm)
 {
-	const struct cred *cred = bprm->cred;
+	const size_t argument_bytes = MAX_ARG_PAGES * PAGE_SIZE;
+	size_t strings_size;
+	size_t pointer_count;
+	size_t pointer_size;
+	size_t auxv_size = sizeof(bprm->mm->saved_auxv);
+	size_t data_size;
+	size_t process_size;
+	struct wasm_exec_args *exec;
 	struct wasm_process_args *args;
+	char *strings, *cursor, *end;
 	int stop = bprm->p >> PAGE_SHIFT;
-	int ptr_bytes = (bprm->argc + bprm->envc + 2) * sizeof(char *);
-	int aux_bytes = WASM_AUXV_PAIRS * 2 * sizeof(size_t) + WASM_AT_RANDOM_SIZE;
-	int len = ptr_bytes + aux_bytes +
-		  (PAGE_SIZE * (MAX_ARG_PAGES - stop)) + (bprm->p & ~PAGE_MASK);
-	unsigned char *rand;
-	size_t *auxv;
-	char *data;
-	int slen;
-	int a = 0;
 	int ret;
 
-	args = kmalloc(sizeof(*args) + len, GFP_KERNEL);
-	if (!args)
+	if (bprm->p > argument_bytes)
+		return -E2BIG;
+	strings_size = argument_bytes - bprm->p;
+
+	pointer_count = size_add((size_t)bprm->argc, (size_t)bprm->envc);
+	pointer_count = size_add(pointer_count, 2);
+	pointer_size = array_size(pointer_count, sizeof(char *));
+	data_size = size_add(pointer_size, auxv_size);
+	data_size = size_add(data_size, WASM_AT_RANDOM_SIZE);
+	data_size = size_add(data_size, strings_size);
+	process_size = size_add(sizeof(struct wasm_process_args), data_size);
+	if (process_size == SIZE_MAX || process_size > INT_MAX)
+		return -E2BIG;
+	if (bprm->exec < bprm->p ||
+	    bprm->exec - bprm->p >= strings_size)
+		return -E2BIG;
+
+	exec = kzalloc(struct_size(exec, process.data, data_size), GFP_KERNEL);
+	if (!exec)
 		return -ENOMEM;
+	args = &exec->process;
+
+	exec->process_size = process_size;
+	exec->auxv = process_offset(exec, args->data + pointer_size);
+	exec->random = exec->auxv + auxv_size;
+	exec->execfn = exec->random + WASM_AT_RANDOM_SIZE +
+		       bprm->exec - bprm->p;
+	exec->secureexec = bprm->secureexec;
+	exec->preserve_argv0 =
+		bprm->interp_flags & BINPRM_FLAGS_PRESERVE_ARGV0;
+	exec->have_execfd = bprm->have_execfd;
+	exec->execfd = bprm->execfd;
 
 	args->argc = bprm->argc;
 	args->envc = bprm->envc;
-	args->len = len;
+	args->len = data_size;
+	args->argv = (char **)args->data;
+	args->envp = args->argv + args->argc + 1;
 
-	/*
-	 * Strings are copied to the tail of data[]; the pointer arrays sit at
-	 * the front. Growing len by aux_bytes therefore frees exactly the span
-	 * between envp[]'s NULL and the strings for the auxv laid out below.
-	 */
-	data = args->data + len;
+	strings = (char *)&exec->process + exec->random +
+		  WASM_AT_RANDOM_SIZE;
+	cursor = strings + strings_size;
 	for (int index = MAX_ARG_PAGES - 1; index >= stop; index--) {
-		unsigned int offset = index == stop ? bprm->p & ~PAGE_MASK : 0;
+		unsigned int offset = index == stop ?
+					      bprm->p & ~PAGE_MASK :
+					      0;
+		size_t size = PAGE_SIZE - offset;
 		char *src = kmap_local_page(bprm->page[index]) + offset;
-		data -= PAGE_SIZE - offset;
-		memcpy(data, src, PAGE_SIZE - offset);
+
+		cursor -= size;
+		memcpy(cursor, src, size);
 		kunmap_local(src);
 	}
-
-	args->argv = (char **)(args->data);
-	for (int i = 0; i < bprm->argc; i++) {
-		slen = strnlen(data, MAX_ARG_STRLEN);
-		if (!slen || slen > MAX_ARG_STRLEN) {
-			ret = -EINVAL;
-			goto err;
-		}
-		args->argv[i] = data;
-		data += slen + 1;
+	if (WARN_ON_ONCE(cursor != strings)) {
+		ret = -EINVAL;
+		goto err;
 	}
-	args->argv[bprm->argc] = NULL;
 
-	args->envp = args->argv + bprm->argc + 1;
-	for (int i = 0; i < bprm->envc; i++) {
-		slen = strnlen(data, MAX_ARG_STRLEN);
-		if (!slen || slen > MAX_ARG_STRLEN) {
-			ret = -EINVAL;
+	get_random_bytes((char *)&exec->process + exec->random,
+			 WASM_AT_RANDOM_SIZE);
+
+	end = strings + strings_size;
+	exec->arg_start = process_offset(exec, cursor);
+	for (int i = 0; i < args->argc; i++) {
+		args->argv[i] = cursor;
+		ret = consume_string(&cursor, end);
+		if (ret)
 			goto err;
-		}
-		args->envp[i] = data;
-		data += slen + 1;
 	}
-	args->envp[bprm->envc] = NULL;
+	args->argv[args->argc] = NULL;
+	exec->arg_end = process_offset(exec, cursor);
 
-	/*
-	 * Lay a real ELF-style auxiliary vector immediately after envp[]'s NULL
-	 * terminator, where unpatched musl's __init_libc already walks for it.
-	 * The pointer arrays are pointer-aligned, and on wasm32 a size_t is the
-	 * same width as a pointer, so the vector is naturally aligned. The 16
-	 * AT_RANDOM bytes live in the blob right after the vector; get_args()
-	 * relocates that pointer along with argv/envp. Only entries meaningful
-	 * on wasm are emitted (no AT_PHDR/AT_BASE/AT_ENTRY/AT_EXECFN).
-	 */
-	auxv = (size_t *)(args->envp + bprm->envc + 1);
-	rand = (unsigned char *)(auxv + WASM_AUXV_PAIRS * 2);
-	get_random_bytes(rand, WASM_AT_RANDOM_SIZE);
+	exec->env_start = process_offset(exec, cursor);
+	for (int i = 0; i < args->envc; i++) {
+		args->envp[i] = cursor;
+		ret = consume_string(&cursor, end);
+		if (ret)
+			goto err;
+	}
+	args->envp[args->envc] = NULL;
+	exec->env_end = process_offset(exec, cursor);
 
-#define PUT_AUX(id, val)                   \
-	do {                               \
-		auxv[a++] = (id);          \
-		auxv[a++] = (size_t)(val); \
-	} while (0)
-	PUT_AUX(AT_HWCAP, 0);
-	PUT_AUX(AT_PAGESZ, PAGE_SIZE);
-	PUT_AUX(AT_CLKTCK, CLOCKS_PER_SEC);
-	PUT_AUX(AT_UID, from_kuid_munged(cred->user_ns, cred->uid));
-	PUT_AUX(AT_EUID, from_kuid_munged(cred->user_ns, cred->euid));
-	PUT_AUX(AT_GID, from_kgid_munged(cred->user_ns, cred->gid));
-	PUT_AUX(AT_EGID, from_kgid_munged(cred->user_ns, cred->egid));
-	PUT_AUX(AT_SECURE, bprm->secureexec);
-	PUT_AUX(AT_RANDOM, (unsigned long)rand);
-	PUT_AUX(AT_NULL, 0);
-#undef PUT_AUX
+	if (exec->execfn >= exec->process_size) {
+		ret = -EINVAL;
+		goto err;
+	}
 
-	current_thread_info()->args = args;
+	bprm->mm->context.exec_args = exec;
 	return 0;
+
 err:
-	kfree(args);
+	kfree(exec);
 	return ret;
+}
+
+static void create_wasm_auxv(unsigned long *auxv,
+			     struct wasm_exec_args *exec,
+			     unsigned long user_base)
+{
+	const struct cred *cred = current_cred();
+	unsigned long flags = 0;
+
+	memset(auxv, 0, sizeof(current->mm->saved_auxv));
+
+#define NEW_AUX_ENT(id, val) \
+	do { \
+		*auxv++ = (id); \
+		*auxv++ = (val); \
+	} while (0)
+	NEW_AUX_ENT(AT_HWCAP, 0);
+	NEW_AUX_ENT(AT_PAGESZ, PAGE_SIZE);
+	NEW_AUX_ENT(AT_CLKTCK, CLOCKS_PER_SEC);
+	if (exec->preserve_argv0)
+		flags |= AT_FLAGS_PRESERVE_ARGV0;
+	NEW_AUX_ENT(AT_FLAGS, flags);
+	NEW_AUX_ENT(AT_UID, from_kuid_munged(cred->user_ns, cred->uid));
+	NEW_AUX_ENT(AT_EUID, from_kuid_munged(cred->user_ns, cred->euid));
+	NEW_AUX_ENT(AT_GID, from_kgid_munged(cred->user_ns, cred->gid));
+	NEW_AUX_ENT(AT_EGID, from_kgid_munged(cred->user_ns, cred->egid));
+	NEW_AUX_ENT(AT_SECURE, exec->secureexec);
+	NEW_AUX_ENT(AT_RANDOM, user_base + exec->random);
+	NEW_AUX_ENT(AT_EXECFN, user_base + exec->execfn);
+	if (exec->have_execfd)
+		NEW_AUX_ENT(AT_EXECFD, exec->execfd);
+	NEW_AUX_ENT(AT_NULL, 0);
+#undef NEW_AUX_ENT
+}
+
+static void relocate_args(struct wasm_exec_args *exec,
+			  struct wasm_process_args *args,
+			  unsigned long user_base)
+{
+	struct wasm_process_args *template = &exec->process;
+	char **argv = (void *)args + process_offset(exec, template->argv);
+	char **envp = (void *)args + process_offset(exec, template->envp);
+
+	for (int i = 0; i < template->argc; i++)
+		argv[i] = (char *)(user_base +
+				   process_offset(exec, template->argv[i]));
+	for (int i = 0; i < template->envc; i++)
+		envp[i] = (char *)(user_base +
+				   process_offset(exec, template->envp[i]));
+	args->argv = (char **)(user_base +
+			       process_offset(exec, template->argv));
+	args->envp = (char **)(user_base +
+			       process_offset(exec, template->envp));
 }
 
 __attribute__((export_name("get_args_length"))) int get_args_length(void)
 {
-	struct wasm_process_args *args = current_thread_info()->args;
-	return args ? sizeof(*args) + args->len : -EINVAL;
+	struct wasm_exec_args *exec =
+		READ_ONCE(current->mm->context.exec_args);
+
+	if (!exec)
+		return -EINVAL;
+	return exec->process_size;
 }
 
-__attribute__((export_name("get_args"))) int get_args(void *buf)
+__attribute__((export_name("get_args"))) int get_args(void __user *buf)
 {
-	struct wasm_process_args *args = current_thread_info()->args;
-	long offset = ((long)buf - (long)args);
-	size_t *auxv;
-	if (!args)
+	struct mm_struct *mm = current->mm;
+	struct wasm_exec_args *exec;
+	struct wasm_process_args *args;
+	unsigned long *auxv;
+	unsigned long user_base = (unsigned long)buf;
+	int ret;
+
+	exec = xchg(&mm->context.exec_args, NULL);
+	if (!exec)
 		return -EINVAL;
+	if (!access_ok(buf, exec->process_size)) {
+		ret = -EFAULT;
+		goto restore;
+	}
 
-	for (int i = 0; i < args->argc; i++)
-		args->argv[i] += offset;
-	for (int i = 0; i < args->envc; i++)
-		args->envp[i] += offset;
+	args = kmemdup(&exec->process, exec->process_size, GFP_KERNEL);
+	if (!args) {
+		ret = -ENOMEM;
+		goto restore;
+	}
+	auxv = (void *)args + exec->auxv;
+	create_wasm_auxv(auxv, exec, user_base);
+	relocate_args(exec, args, user_base);
+	if (copy_to_user(buf, args, exec->process_size)) {
+		ret = -EFAULT;
+		goto free_args;
+	}
 
-	/*
-	 * Pointer-valued auxv entries index into the blob and must be relocated
-	 * like argv/envp. Read the vector via the still-kernel envp base before
-	 * it is shifted below.
-	 */
-	auxv = (size_t *)(args->envp + args->envc + 1);
-	for (int i = 0; auxv[i]; i += 2)
-		if (auxv[i] == AT_RANDOM)
-			auxv[i + 1] += offset;
-
-	args->argv += offset / sizeof(void *);
-	args->envp += offset / sizeof(void *);
-
-	if (copy_to_user(buf, args, sizeof(*args) + args->len))
-		return -EFAULT;
+	spin_lock(&mm->arg_lock);
+	memcpy(mm->saved_auxv, auxv, sizeof(mm->saved_auxv));
+	mm->arg_start = user_base + exec->arg_start;
+	mm->arg_end = user_base + exec->arg_end;
+	mm->env_start = user_base + exec->env_start;
+	mm->env_end = user_base + exec->env_end;
+	spin_unlock(&mm->arg_lock);
 
 	kfree(args);
-	current_thread_info()->args = NULL;
-
+	kfree(exec);
 	return 0;
+
+free_args:
+	kfree(args);
+restore:
+	WRITE_ONCE(mm->context.exec_args, exec);
+	return ret;
 }
 
 static int load_wasm_binary(struct linux_binprm *bprm)

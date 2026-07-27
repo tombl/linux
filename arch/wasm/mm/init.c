@@ -1,6 +1,23 @@
 #include <asm/sysmem.h>
 #include <linux/init.h>
 #include <linux/memblock.h>
+#include <linux/mm.h>
+#include <linux/slab.h>
+
+int wasm_init_new_context(struct task_struct *tsk, struct mm_struct *mm)
+{
+	/*
+	 * dup_mm() copied this from the parent, but a fork never inherits
+	 * pending exec state.
+	 */
+	mm->context.exec_args = NULL;
+	return 0;
+}
+
+void wasm_destroy_context(struct mm_struct *mm)
+{
+	kfree(mm->context.exec_args);
+}
 
 void __init zones_init(void)
 {
