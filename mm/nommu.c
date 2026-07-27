@@ -1563,6 +1563,10 @@ void exit_mmap(struct mm_struct *mm)
 	if (!mm)
 		return;
 
+#ifdef CONFIG_WASM
+	wasm_remote_mm_shutdown(mm);
+#endif
+
 	mm->total_vm = 0;
 
 	/*
@@ -1705,11 +1709,20 @@ int __access_remote_vm(struct mm_struct *mm, unsigned long addr, void *buf,
 	struct vm_area_struct *vma;
 	int write = gup_flags & FOLL_WRITE;
 
+#ifdef CONFIG_WASM
+	/*
+	 * A foreign wasm mm is copied by a worker that owns its user memory.
+	 * Waiting for that worker while holding mmap_lock can deadlock exec.
+	 */
+	if (mm != current->mm)
+		return wasm_access_remote_vm(mm, addr, buf, len, gup_flags);
+#endif
+
 	if (mmap_read_lock_killable(mm))
 		return 0;
 
 	if (IS_ENABLED(CONFIG_WASM)) {
-		if (mm != current->mm || !access_ok((void __user *)addr, len)) {
+		if (!access_ok((void __user *)addr, len)) {
 			len = 0;
 			goto out;
 		}

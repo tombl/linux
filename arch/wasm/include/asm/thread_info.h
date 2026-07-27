@@ -5,6 +5,14 @@
 #include <linux/types.h>
 
 struct kernel_siginfo;
+struct mm_struct;
+
+/*
+ * A remote wake changes the value parked workers wait on, so publishing a
+ * request cannot race between their mailbox check and atomic.wait().
+ */
+#define WASM_CPU_PARKED		(-1)
+#define WASM_CPU_REMOTE_WAKE	(-2)
 
 /* THREAD_SIZE is the size of the task_struct + kernel stack
  * This is asserted in setup, but the stack should be 1 page,
@@ -19,6 +27,8 @@ struct thread_info {
 	int preempt_count;
 	int cpu; // this is for the kernel
 	atomic_t running_cpu; // negative means unscheduled
+	/* The mm represented by this worker's local JS user context. */
+	struct mm_struct *context_mm;
 	unsigned long tp_value;
 	const struct kernel_siginfo *active_siginfo;
 };
@@ -29,6 +39,7 @@ struct thread_info {
 		.preempt_count = INIT_PREEMPT_COUNT, \
 		.cpu = 0,                            \
 		.running_cpu = ATOMIC_INIT(0),       \
+		.context_mm = NULL,                  \
 		.tp_value = U32_MAX,                 \
 		.active_siginfo = NULL,              \
 	}

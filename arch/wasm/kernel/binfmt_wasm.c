@@ -387,6 +387,12 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 	finalize_exec(bprm);
 
 	wasm_user_instantiate(true);
+	/*
+	 * begin_new_exec() installs current->mm before the JS worker swaps its
+	 * local user memory. Publish readiness only after instantiate returns,
+	 * so remote access cannot copy through the old memory during exec.
+	 */
+	WRITE_ONCE(current_thread_info()->context_mm, current->mm);
 
 	return 0;
 err:

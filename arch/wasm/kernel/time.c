@@ -15,7 +15,6 @@
 
 extern unsigned long loops_per_jiffy;
 extern void wasm_set_timer_deadline(u64 deadline_ns);
-extern u64 wasm_get_timer_deadline(void);
 
 static int timer_irq;
 void calibrate_delay(void)

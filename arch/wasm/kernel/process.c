@@ -1,5 +1,6 @@
 #include <asm/delay.h>
 #include <asm/globals.h>
+#include <asm/remote_vm.h>
 #include <asm/sysmem.h>
 #include <asm/wasm_imports.h>
 #include <linux/entry-common.h>
@@ -16,7 +17,8 @@ struct task_bootstrap_args {
 int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 {
 	*dst = *src;
-	atomic_set(&task_thread_info(dst)->running_cpu, -1);
+	atomic_set(&task_thread_info(dst)->running_cpu, WASM_CPU_PARKED);
+	task_thread_info(dst)->context_mm = NULL;
 	task_thread_info(dst)->active_siginfo = NULL;
 	return 0;
 }
@@ -29,13 +31,21 @@ struct task_struct *__switch_to(struct task_struct *from,
 	struct task_struct *prev;
 	int cpu, other_cpu;
 
-	cpu = atomic_xchg(&from_info->running_cpu, -1);
+	cpu = atomic_xchg(&from_info->running_cpu, WASM_CPU_PARKED);
 	BUG_ON(current != from);
 	BUG_ON(cpu < 0 || cpu != get_current_cpu());
 
-	// give the current cpu to the new worker
-	other_cpu = atomic_cmpxchg(&to_info->running_cpu, -1, cpu);
-	BUG_ON(other_cpu != -1); // new process should not have had a cpu
+	/*
+	 * Give the current cpu to the new worker. A remote request may have
+	 * changed PARKED to REMOTE_WAKE concurrently; either negative state is
+	 * unscheduled and may receive the cpu. If this consumes REMOTE_WAKE,
+	 * the worker services the still-published request after waking.
+	 */
+	do {
+		other_cpu = atomic_read(&to_info->running_cpu);
+		BUG_ON(other_cpu >= 0);
+	} while (atomic_cmpxchg(&to_info->running_cpu, other_cpu, cpu) !=
+		 other_cpu);
 
 	// wake the other worker:
 	// pr_info("wake cpu=%i task=%p\n", cpu, to);
@@ -49,24 +59,43 @@ struct task_struct *__switch_to(struct task_struct *from,
 	if (wasm_get_thread_done())
 		wasm_kernel_halt_worker();
 
-	// sleep this worker:
 	/*
-	 * A wake is only a hint that ownership may have changed. Recheck the
-	 * predicate: engines may return from an infinite atomic wait while the
-	 * value still matches, without another worker assigning us a CPU.
+	 * This task no longer owns a logical CPU. Service after publishing the
+	 * parked state so a concurrent requester either sees its request here
+	 * or changes the waited-on value to REMOTE_WAKE below.
 	 */
-	do {
+	wasm_service_remote_request(from);
+
+	// sleep this worker:
+	for (;;) {
+		cpu = atomic_read(&from_info->running_cpu);
+		if (cpu >= 0)
+			break;
+		if (cpu == WASM_CPU_REMOTE_WAKE) {
+			/*
+			 * Acknowledge before servicing. Clearing afterward could
+			 * erase the kick belonging to a newly-published request.
+			 */
+			if (atomic_cmpxchg(&from_info->running_cpu,
+					   WASM_CPU_REMOTE_WAKE,
+					   WASM_CPU_PARKED) ==
+			    WASM_CPU_REMOTE_WAKE)
+				wasm_service_remote_request(from);
+			continue;
+		}
+
+		BUG_ON(cpu != WASM_CPU_PARKED);
 		__builtin_wasm_memory_atomic_wait32(
 			&from_info->running_cpu.counter,
-			/* block if the value is: */ -1,
+			/* block if the value is: */ WASM_CPU_PARKED,
 			/* timeout: */ -1);
-		cpu = atomic_read(&from_info->running_cpu);
-	} while (cpu < 0);
+	}
 
 	BUG_ON(cpu >= nr_cpu_ids || cpu != from_info->cpu);
 	set_current_cpu(cpu);
 	prev = get_current_task_on(cpu);
 	set_current_task(current);
+	wasm_service_remote_request(from);
 
 	// pr_info("woke up cpu=%i task=%p in switch\n", cpu, from);
 
@@ -91,10 +120,19 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 		cpu = atomic_read(&info->running_cpu);
 		if (cpu >= 0)
 			break;
+		if (cpu == WASM_CPU_REMOTE_WAKE) {
+			if (atomic_cmpxchg(&info->running_cpu,
+					   WASM_CPU_REMOTE_WAKE,
+					   WASM_CPU_PARKED) ==
+			    WASM_CPU_REMOTE_WAKE)
+				wasm_service_remote_request(task);
+			continue;
+		}
 
+		BUG_ON(cpu != WASM_CPU_PARKED);
 		ret = __builtin_wasm_memory_atomic_wait32(
 			&info->running_cpu.counter,
-			/* block if the value is: */ -1,
+			/* block if the value is: */ WASM_CPU_PARKED,
 			/* timeout: 1s */ 1000 * 1000 * 1000);
 		if (ret == 2 && atomic_read(&info->running_cpu) < 0)
 			early_printk("task %p %s %d is waiting for cpu in entry\n",
@@ -106,6 +144,7 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 
 	prev = get_current_task_on(raw_smp_processor_id());
 	set_current_task(task);
+	wasm_service_remote_request(task);
 
 	kfree(args);
 
@@ -150,7 +189,7 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 
 	memset(childregs, 0, sizeof(struct pt_regs));
 
-	atomic_set(&task_thread_info(p)->running_cpu, -1);
+	atomic_set(&task_thread_info(p)->running_cpu, WASM_CPU_PARKED);
 	if (args->flags & CLONE_SETTLS)
 		task_thread_info(p)->tp_value = args->tls;
 
@@ -172,6 +211,8 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	if (args->fn == wasm_call_clone_fn)
 		user_memory = args->flags & CLONE_VM ?
 			WASM_USER_MEMORY_SHARE : WASM_USER_MEMORY_COPY;
+	if (user_memory != WASM_USER_MEMORY_NONE)
+		task_thread_info(p)->context_mm = p->mm;
 
 	ret = wasm_kernel_spawn_worker(&task_entry, bootstrap_args, name,
 				       name_len, user_memory);
