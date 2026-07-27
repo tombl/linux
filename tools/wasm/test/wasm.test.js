@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT
 
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import test from "node:test";
+import { Worker } from "node:worker_threads";
 import { ethernetNetwork } from "../dist/virtio/net.js";
 import {
   allocate_shared_memory,
+  memory_bytes,
   user_module_imports_supported,
 } from "../dist/wasm.js";
 
@@ -81,6 +84,33 @@ test("a non-RangeError is propagated without retrying", () => {
     (thrown) => thrown === error,
   );
   assert.deepEqual(attempts, [1000]);
+});
+
+test("memory views include growth performed by another worker", async () => {
+  const memory = new WebAssembly.Memory({
+    initial: 1,
+    maximum: 2,
+    shared: true,
+  });
+  const worker = new Worker(
+    `
+      const { parentPort, workerData } = require("node:worker_threads");
+      workerData.grow(1);
+      parentPort.postMessage(workerData.buffer.byteLength);
+    `,
+    { eval: true, workerData: memory },
+  );
+
+  try {
+    const [worker_length] = await once(worker, "message");
+    assert.equal(worker_length, 2 * 0x10000);
+
+    const bytes = memory_bytes(memory, 0x10000);
+    assert.equal(bytes?.byteLength, 0x10000);
+    assert.equal(memory_bytes(memory, 2 * 0x10000, 1), null);
+  } finally {
+    await worker.terminate();
+  }
 });
 
 test("userspace modules may only import the supported host ABI", () => {

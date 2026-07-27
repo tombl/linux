@@ -10,6 +10,7 @@ import {
   type Instance,
   kernel_imports,
   type MachineTerminationReason,
+  memory_bytes,
   user_module_imports_supported,
   type UserContext,
 } from "./wasm.ts";
@@ -73,22 +74,51 @@ function user_imports({
   // not requested the active signal payload yet.
   const siginfo_copy_results: (number | null)[] = [];
 
-  function user_atomic_word(uaddr: number): Int32Array | null {
-    const address = uaddr >>> 0;
-    if (
-      !context ||
-      (address & 3) !== 0 ||
-      address >
-        context.memory.buffer.byteLength - Int32Array.BYTES_PER_ELEMENT
-    ) {
-      return null;
-    }
+  function copy_bytes(
+    destination_memory: WebAssembly.Memory,
+    destination: number,
+    source_memory: WebAssembly.Memory,
+    source: number,
+    length: number,
+  ): number {
+    const to = memory_bytes(destination_memory, destination, length);
+    const from = memory_bytes(source_memory, source, length);
+    if (!to || !from) return length;
 
-    return new Int32Array(context.memory.buffer, address, 1);
+    try {
+      to.set(from);
+      return 0;
+    } catch {
+      return length;
+    }
   }
 
-  function write_kernel_u32(addr: number, value: number): void {
-    new DataView(kernel_memory.buffer).setUint32(addr >>> 0, value, true);
+  function user_atomic_word(uaddr: number): Int32Array | null {
+    const address = uaddr >>> 0;
+    if (!context || (address & 3) !== 0) return null;
+
+    const bytes = memory_bytes(
+      context.memory,
+      address,
+      Int32Array.BYTES_PER_ELEMENT,
+    );
+    return bytes ? new Int32Array(bytes.buffer, bytes.byteOffset, 1) : null;
+  }
+
+  function write_kernel_u32(addr: number, value: number): boolean {
+    const bytes = memory_bytes(
+      kernel_memory,
+      addr >>> 0,
+      Uint32Array.BYTES_PER_ELEMENT,
+    );
+    if (!bytes) return false;
+
+    new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).setUint32(
+      0,
+      value,
+      true,
+    );
+    return true;
   }
 
   function call_start(): void {
@@ -341,31 +371,39 @@ function user_imports({
 
       // memory:
       read(to, from, n) {
-        assert(context);
-        const destination = to >>> 0;
-        const source = from >>> 0;
         const length = n >>> 0;
-        new Uint8Array(kernel_memory.buffer, destination, length).set(
-          new Uint8Array(context.memory.buffer, source, length),
+        if (!context) return length;
+        return copy_bytes(
+          kernel_memory,
+          to >>> 0,
+          context.memory,
+          from >>> 0,
+          length,
         );
-        return 0;
       },
       write(to, from, n) {
-        assert(context);
-        const destination = to >>> 0;
-        const source = from >>> 0;
         const length = n >>> 0;
-        new Uint8Array(context.memory.buffer, destination, length).set(
-          new Uint8Array(kernel_memory.buffer, source, length),
+        if (!context) return length;
+        return copy_bytes(
+          context.memory,
+          to >>> 0,
+          kernel_memory,
+          from >>> 0,
+          length,
         );
-        return 0;
       },
       write_zeroes(to, n) {
-        assert(context);
-        const destination = to >>> 0;
         const length = n >>> 0;
-        new Uint8Array(context.memory.buffer, destination, length).fill(0);
-        return 0;
+        if (!context) return length;
+        const destination = memory_bytes(context.memory, to >>> 0, length);
+        if (!destination) return length;
+
+        try {
+          destination.fill(0);
+          return 0;
+        } catch {
+          return length;
+        }
       },
       futex_atomic_op(oldval, uaddr, op, oparg) {
         const word = user_atomic_word(uaddr);
@@ -392,16 +430,14 @@ function user_imports({
             return -38; // function not implemented
         }
 
-        write_kernel_u32(oldval, old);
-        return 0;
+        return write_kernel_u32(oldval, old) ? 0 : -14; // bad address
       },
       futex_atomic_cmpxchg(oldval, uaddr, expected, replacement) {
         const word = user_atomic_word(uaddr);
         if (!word) return -14; // bad address
 
         const old = Atomics.compareExchange(word, 0, expected, replacement);
-        write_kernel_u32(oldval, old);
-        return 0;
+        return write_kernel_u32(oldval, old) ? 0 : -14; // bad address
       },
     },
   };
@@ -415,13 +451,6 @@ function start({
   user: initial_user_context,
   user_copy_status,
 }: InitMessage) {
-  // Load-bearing: this worker may register after the parent has already
-  // grown the shared user memory, and V8 refreshes cached buffer wrappers
-  // per isolate asynchronously, so views built from the InitMessage wrapper
-  // can be shorter than the real memory and throw RangeError. grow(0)
-  // forces a synchronous wrapper refresh before any view is constructed.
-  initial_user_context?.memory.grow(0);
-
   let user_context = initial_user_context;
   if (user_copy_status) {
     assert(user_context);
@@ -430,12 +459,15 @@ function start({
     // private backing store is owned by the destination isolate, not the
     // long-lived parent.
     try {
-      const source = new Uint8Array(user_context.memory.buffer);
+      const source = memory_bytes(user_context.memory, 0);
+      if (!source) throw new RangeError("invalid source memory");
       const copied = allocate_shared_memory(
         source.byteLength / 0x10000,
         user_context.maximum_pages,
       );
-      new Uint8Array(copied.memory.buffer).set(source);
+      const destination = memory_bytes(copied.memory, 0, source.byteLength);
+      if (!destination) throw new RangeError("invalid destination memory");
+      destination.set(source);
       user_context = { module: user_context.module, ...copied };
       Atomics.store(user_copy_status, 0, 1);
     } catch {

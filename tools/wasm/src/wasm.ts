@@ -84,6 +84,38 @@ export function allocate_shared_memory(
   }
 }
 
+/*
+ * Read memory.buffer immediately before constructing a view so growth in
+ * another worker is visible. Turn invalid bounds and host exceptions into an
+ * ordinary failure result for kernel copy helpers.
+ *
+ * Omitting length returns the remainder of the current memory. Fork uses this
+ * to derive the child's initial page count and bytes from the same view.
+ */
+export function memory_bytes(
+  memory: WebAssembly.Memory,
+  address: number,
+  length?: number,
+): Uint8Array<ArrayBufferLike> | null {
+  try {
+    const buffer = memory.buffer;
+    const view_length = length ?? buffer.byteLength - address;
+    if (
+      !Number.isSafeInteger(address) ||
+      !Number.isSafeInteger(view_length) ||
+      address < 0 ||
+      view_length < 0 ||
+      view_length > buffer.byteLength ||
+      address > buffer.byteLength - view_length
+    ) {
+      return null;
+    }
+    return new Uint8Array(buffer, address, view_length);
+  } catch {
+    return null;
+  }
+}
+
 const WASM_USER_MEMORY_NONE = 0;
 const WASM_USER_MEMORY_SHARE = 1;
 const WASM_USER_MEMORY_COPY = 2;
