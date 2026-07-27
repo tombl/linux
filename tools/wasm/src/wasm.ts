@@ -17,8 +17,6 @@ export interface Instance extends WebAssembly.Instance {
       arg5: number,
     ): number;
     get_thread_area(): number;
-    get_args_length(): number;
-    get_args(buf: number): number;
     copy_siginfo(to: number): number;
     clear_siginfo(): void;
   };
@@ -35,8 +33,6 @@ const supported_user_module_imports = new Set([
   "env\0memory\0memory",
   "linux\0syscall\0function",
   "linux\0get_thread_area\0function",
-  "linux\0get_args_length\0function",
-  "linux\0get_args\0function",
   "linux\0copy_siginfo\0function",
 ]);
 

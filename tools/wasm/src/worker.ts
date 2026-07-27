@@ -161,8 +161,6 @@ function user_imports({
           return ret;
         },
         get_thread_area: kernel_instance.exports.get_thread_area,
-        get_args_length: kernel_instance.exports.get_args_length,
-        get_args: kernel_instance.exports.get_args,
         copy_siginfo: (to: number) => {
           const result = kernel_instance.exports.copy_siginfo(to);
           const current = siginfo_copy_results.length - 1;
