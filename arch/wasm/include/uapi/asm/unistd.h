@@ -12,4 +12,7 @@
 #define __NR_set_thread_area (__NR_arch_specific_syscall + 0)
 __SYSCALL(__NR_set_thread_area, sys_set_thread_area)
 
+#define __NR_wasm_get_args (__NR_arch_specific_syscall + 1)
+__SYSCALL(__NR_wasm_get_args, sys_wasm_get_args)
+
 #endif

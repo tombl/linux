@@ -13,9 +13,11 @@
 #include <linux/sched/signal.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
+#include <linux/syscalls.h>
 
 /* Four pages amortize host calls without requiring a large kernel allocation. */
 #define WASM_EXEC_MAX_CHUNK_SIZE SZ_256K
+#define WASM_ARG_LIMIT SZ_256K
 #define WASM32_MAX_MEMORY_PAGES (1U << (32 - PAGE_SHIFT))
 
 /*
@@ -124,7 +126,7 @@ static int copy_args(struct linux_binprm *bprm)
 	data_size = size_add(data_size, WASM_AT_RANDOM_SIZE);
 	data_size = size_add(data_size, strings_size);
 	process_size = size_add(sizeof(struct wasm_process_args), data_size);
-	if (process_size == SIZE_MAX || process_size > INT_MAX)
+	if (process_size == SIZE_MAX || process_size > WASM_ARG_LIMIT)
 		return -E2BIG;
 	if (bprm->exec < bprm->p ||
 	    bprm->exec - bprm->p >= strings_size)
@@ -261,17 +263,7 @@ static void relocate_args(struct wasm_exec_args *exec,
 			       process_offset(exec, template->envp));
 }
 
-__attribute__((export_name("get_args_length"))) int get_args_length(void)
-{
-	struct wasm_exec_args *exec =
-		READ_ONCE(current->mm->context.exec_args);
-
-	if (!exec)
-		return -EINVAL;
-	return exec->process_size;
-}
-
-__attribute__((export_name("get_args"))) int get_args(void __user *buf)
+SYSCALL_DEFINE2(wasm_get_args, void __user *, buf, size_t, len)
 {
 	struct mm_struct *mm = current->mm;
 	struct wasm_exec_args *exec;
@@ -283,6 +275,10 @@ __attribute__((export_name("get_args"))) int get_args(void __user *buf)
 	exec = xchg(&mm->context.exec_args, NULL);
 	if (!exec)
 		return -EINVAL;
+	if (len < exec->process_size) {
+		ret = -E2BIG;
+		goto restore;
+	}
 	if (!access_ok(buf, exec->process_size)) {
 		ret = -EFAULT;
 		goto restore;
