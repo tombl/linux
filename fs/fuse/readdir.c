@@ -386,7 +386,13 @@ static int fuse_readdir_uncached(struct file *file, struct dir_context *ctx)
 	size_t bufsize = clamp((unsigned int) ctx->count, PAGE_SIZE, fc->max_pages << PAGE_SHIFT);
 	u64 attr_version = 0, evict_ctr = 0;
 	bool locked;
-	struct page **pages = fuse_readdir_alloc_buf(ap, &bufsize);
+	struct page **pages;
+
+#ifndef CONFIG_MMU
+	/* vm_map_ram() is unavailable without an MMU, so parse one page directly. */
+	bufsize = PAGE_SIZE;
+#endif
+	pages = fuse_readdir_alloc_buf(ap, &bufsize);
 
 	if (!pages)
 		return -ENOMEM;
@@ -413,7 +419,10 @@ static int fuse_readdir_uncached(struct file *file, struct dir_context *ctx)
 		goto out;
 	}
 
-	buf = vm_map_ram(pages, ap->num_folios, -1);
+	if (!IS_ENABLED(CONFIG_MMU))
+		buf = kmap_local_page(pages[0]);
+	else
+		buf = vm_map_ram(pages, ap->num_folios, -1);
 	if (!buf) {
 		res = -ENOMEM;
 	} else {
@@ -422,7 +431,10 @@ static int fuse_readdir_uncached(struct file *file, struct dir_context *ctx)
 		else
 			res = parse_dirfile(buf, res, file, ctx);
 
-		vm_unmap_ram(buf, ap->num_folios);
+		if (!IS_ENABLED(CONFIG_MMU))
+			kunmap_local(buf);
+		else
+			vm_unmap_ram(buf, ap->num_folios);
 	}
 out:
 	kfree(ap->folios);
