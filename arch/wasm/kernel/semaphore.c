@@ -33,7 +33,6 @@ struct wasm_sem {
 	umode_t mode;
 	u64 id;
 	unsigned int value;
-	bool linked;
 	char name[NAME_MAX + 1];
 };
 
@@ -187,7 +186,6 @@ SYSCALL_DEFINE5(wasm_sem_open, const char __user *, user_name, int, flags,
 		if (!sem->id)
 			sem->id = ++wasm_sem_next_id;
 		sem->value = value;
-		sem->linked = true;
 		strscpy(sem->name, name, sizeof(sem->name));
 		list_add_tail(&sem->registry_entry, &wasm_sem_registry);
 		created = true;
@@ -211,7 +209,6 @@ SYSCALL_DEFINE5(wasm_sem_open, const char __user *, user_name, int, flags,
 out_remove_created:
 	if (created) {
 		list_del(&sem->registry_entry);
-		sem->linked = false;
 		kref_put(&sem->refs, wasm_sem_free);
 	}
 out_unlock:
@@ -241,7 +238,6 @@ SYSCALL_DEFINE1(wasm_sem_unlink, const char __user *, user_name)
 	}
 
 	list_del(&sem->registry_entry);
-	sem->linked = false;
 	mutex_unlock(&wasm_sem_registry_lock);
 	kref_put(&sem->refs, wasm_sem_free);
 	return 0;
