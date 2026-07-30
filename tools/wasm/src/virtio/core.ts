@@ -240,8 +240,10 @@ export type VirtqueueHandler = (
 export interface VirtioDriver {
   /** One handler per virtqueue. */
   readonly queues: readonly VirtqueueHandler[];
-  /** Called when the device is closed. */
-  close?(controller: VirtioController): void;
+  /** Synchronously starts cancellation needed to unblock queue handlers. */
+  stop?(): void;
+  /** Called after in-flight queue handlers settle when the device is closed. */
+  close?(controller: VirtioController): void | PromiseLike<void>;
 }
 
 interface TransportDevice {
@@ -253,7 +255,7 @@ interface TransportDevice {
     raise_config: RaiseConfigInterrupt,
   ): void;
   notify(vq: number, queue: Virtqueue): void | PromiseLike<void>;
-  close(): void;
+  close(): Promise<void>;
 }
 
 const transport_device = Symbol("virtio transport device");
@@ -274,7 +276,7 @@ export class VirtioController {
   readonly device: VirtioDevice;
   /** Pushes a new configuration to the guest and raises a config-change interrupt. */
   readonly updateConfig: (config: Uint8Array) => void;
-  /** Closes the device. */
+  /** Idempotently starts closing the device. */
   readonly close: () => void;
   /** Merges extra methods into the public device object; callable once. */
   readonly expose: <API extends object>(api: API) => VirtioDevice & API;
@@ -286,18 +288,33 @@ export class VirtioController {
     let raise_config: RaiseConfigInterrupt | undefined;
     let config_pending = false;
     let closed = false;
-    let closing = false;
+    let close_promise: Promise<void> | undefined;
+    const active = new Set<Promise<void>>();
     let exposed = false;
 
-    const close = () => {
-      if (closed || closing) return;
-      closing = true;
-      try {
-        driver.close?.(this);
-      } finally {
-        closed = true;
-        closing = false;
-      }
+    const start_close = () => {
+      if (close_promise) return close_promise;
+      closed = true;
+      const completion = Promise.withResolvers<void>();
+      close_promise = completion.promise;
+      void (async () => {
+        let failure: PromiseRejectedResult | undefined;
+        try {
+          driver.stop?.();
+        } catch (reason) {
+          failure = { status: "rejected", reason };
+        }
+        const results = await Promise.allSettled(active);
+        failure ??= results.find((result) => result.status === "rejected");
+        try {
+          await driver.close?.(this);
+        } catch (reason) {
+          failure ??= { status: "rejected", reason };
+        }
+        if (failure) throw failure.reason;
+      })().then(completion.resolve, completion.reject);
+      void close_promise.catch(() => {});
+      return close_promise;
     };
 
     const endpoint: TransportDevice = {
@@ -309,7 +326,7 @@ export class VirtioController {
       config,
 
       attach: (next_get_config, next_raise_config) => {
-        assert(!closed && !closing, "cannot attach a closed virtio device");
+        assert(!closed, "cannot attach a closed virtio device");
         assert(!get_guest_config, "virtio device is already attached");
         next_get_config().set(config);
         get_guest_config = next_get_config;
@@ -324,10 +341,23 @@ export class VirtioController {
         if (closed) return;
         const handler = driver.queues[vq];
         assert(handler, `virtio device has no queue ${vq}`);
-        return handler(queue, this);
+        const completion = Promise.withResolvers<void>();
+        active.add(completion.promise);
+        try {
+          Promise.resolve(handler(queue, this)).then(
+            completion.resolve,
+            completion.reject,
+          );
+        } catch (error) {
+          completion.reject(error);
+        }
+        void completion.promise
+          .finally(() => active.delete(completion.promise))
+          .catch(() => {});
+        return completion.promise;
       },
 
-      close,
+      close: start_close,
     };
     const device = {} as VirtioDevice;
     Object.defineProperty(device, transport_device, { value: endpoint });
@@ -345,7 +375,7 @@ export class VirtioController {
       else config_pending = true;
     };
 
-    this.close = close;
+    this.close = () => void start_close();
     this.expose = <API extends object>(api: API) => {
       assert(!exposed, "virtio device API is already exposed");
       exposed = true;
@@ -377,7 +407,7 @@ export function virtio_device_description(device: VirtioDevice) {
 }
 
 export function close_virtio_device(device: VirtioDevice) {
-  device[transport_device].close();
+  return device[transport_device].close();
 }
 
 export function virtio_imports({

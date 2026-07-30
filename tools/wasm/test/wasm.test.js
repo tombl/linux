@@ -6,6 +6,11 @@ import test from "node:test";
 import { Worker } from "node:worker_threads";
 import { ethernetNetwork } from "../dist/virtio/net.js";
 import {
+  close_virtio_device,
+  VirtioController,
+  virtio_imports,
+} from "../dist/virtio/core.js";
+import {
   allocate_shared_memory,
   memory_bytes,
   user_module_imports_supported,
@@ -22,6 +27,14 @@ const memory = new WebAssembly.Memory({
   maximum: 1,
   shared: true,
 });
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
 
 function allocator_succeeding_at(successful_maximum, attempts) {
   return (descriptor) => {
@@ -158,4 +171,172 @@ test("closing an Ethernet network drops traffic from attached ports", async () =
   await sender.send(frame);
   assert.equal(received, 1);
   assert.throws(() => network.addPort(() => {}));
+});
+
+test("virtio close drains active queue work before one-time cleanup", async () => {
+  const work = deferred();
+  let notifications = 0;
+  let closes = 0;
+  const controller = new VirtioController(
+    { deviceId: 1 },
+    {
+      queues: [async () => {
+        notifications += 1;
+        await work.promise;
+      }],
+      close() {
+        closes += 1;
+      },
+    },
+  );
+  const memory = new WebAssembly.Memory({
+    initial: 1,
+    maximum: 1,
+    shared: true,
+  });
+  const imports = virtio_imports({
+    memory,
+    devices: [controller.device],
+    trigger_irq() {},
+    on_error(error) {
+      throw error;
+    },
+  });
+  const descriptor = new DataView(memory.buffer);
+  descriptor.setBigUint64(0, 64n, true);
+  descriptor.setUint32(8, 1, true);
+  descriptor.setUint16(12, 0, true);
+  descriptor.setUint16(14, 1 << 7, true);
+  imports.enable_vring(0, 0, 1, 0, 1);
+  imports.notify(0, 0);
+
+  assert.equal(notifications, 1);
+  const closing = close_virtio_device(controller.device);
+  assert.strictEqual(close_virtio_device(controller.device), closing);
+  let settled = false;
+  void closing.then(() => {
+    settled = true;
+  });
+  await Promise.resolve();
+  assert.equal(settled, false);
+  assert.equal(closes, 0);
+
+  work.resolve();
+  await closing;
+  assert.equal(closes, 1);
+  imports.notify(0, 0);
+  await Promise.resolve();
+  assert.equal(notifications, 1);
+});
+
+test("virtio close reports driver cleanup failure exactly once", async () => {
+  const error = new Error("cleanup failed");
+  let closes = 0;
+  const controller = new VirtioController(
+    { deviceId: 1 },
+    {
+      queues: [],
+      close() {
+        closes += 1;
+        throw error;
+      },
+    },
+  );
+
+  const closing = close_virtio_device(controller.device);
+  await assert.rejects(closing, (thrown) => thrown === error);
+  await assert.rejects(
+    close_virtio_device(controller.device),
+    (thrown) => thrown === error,
+  );
+  assert.equal(closes, 1);
+});
+
+test("virtio tracks a handler before it can reentrantly close", async () => {
+  const work = deferred();
+  let closes = 0;
+  let controller;
+  controller = new VirtioController(
+    { deviceId: 1 },
+    {
+      queues: [() => {
+        controller.close();
+        return work.promise;
+      }],
+      close() {
+        closes += 1;
+      },
+    },
+  );
+  const memory = new WebAssembly.Memory({
+    initial: 1,
+    maximum: 1,
+    shared: true,
+  });
+  const imports = virtio_imports({
+    memory,
+    devices: [controller.device],
+    trigger_irq() {},
+    on_error(error) {
+      throw error;
+    },
+  });
+  const descriptor = new DataView(memory.buffer);
+  descriptor.setBigUint64(0, 64n, true);
+  descriptor.setUint32(8, 1, true);
+  descriptor.setUint16(12, 0, true);
+  descriptor.setUint16(14, 1 << 7, true);
+  imports.enable_vring(0, 0, 1, 0, 1);
+  imports.notify(0, 0);
+
+  const closing = close_virtio_device(controller.device);
+  await Promise.resolve();
+  assert.equal(closes, 0);
+  work.resolve();
+  await closing;
+  assert.equal(closes, 1);
+});
+
+test("virtio stop can unblock a handler before final cleanup", async () => {
+  const work = deferred();
+  const events = [];
+  const controller = new VirtioController(
+    { deviceId: 1 },
+    {
+      queues: [async () => {
+        events.push("notify");
+        await work.promise;
+      }],
+      stop() {
+        events.push("stop");
+        work.resolve();
+      },
+      close() {
+        events.push("close");
+      },
+    },
+  );
+  const memory = new WebAssembly.Memory({
+    initial: 1,
+    maximum: 1,
+    shared: true,
+  });
+  const imports = virtio_imports({
+    memory,
+    devices: [controller.device],
+    trigger_irq() {},
+    on_error(error) {
+      throw error;
+    },
+  });
+  const descriptor = new DataView(memory.buffer);
+  descriptor.setBigUint64(0, 64n, true);
+  descriptor.setUint32(8, 1, true);
+  descriptor.setUint16(12, 0, true);
+  descriptor.setUint16(14, 1 << 7, true);
+  imports.enable_vring(0, 0, 1, 0, 1);
+  imports.notify(0, 0);
+
+  await close_virtio_device(controller.device);
+  assert.deepEqual(events, ["notify", "stop", "close"]);
 });
