@@ -595,6 +595,9 @@ export interface VirtioFileSystemDeviceOptions {
   tag: string;
   /**
    * Cache metadata and names in the guest for one second. Defaults to true.
+   *
+   * When false, FUSE entry and attribute validity are zero. This does not
+   * disable the guest data page cache and does not provide direct I/O.
    */
   cache?: boolean;
 }
@@ -602,9 +605,13 @@ export interface VirtioFileSystemDeviceOptions {
 /**
  * Creates a virtio-fs device backed by a JavaScript filesystem object.
  *
- * Cached devices use one-second metadata/name caching. Uncached devices use
- * zero metadata/name timeouts. Both use the guest page cache: direct I/O needs
- * user-page pinning, which wasm cannot provide for another worker's memory.
+ * Cached devices use one-second metadata/name validity; `cache: false` uses
+ * zero validity. Both retain the guest data page cache. This transport does not
+ * advertise direct I/O: upstream virtio-fs extracts the caller's user pages,
+ * while wasm process memory is private to its owner worker and cannot be placed
+ * directly on the shared virtqueue. Supporting it would require a separate
+ * kernel bounce-buffer implementation.
+ *
  * Neither policy enables DAX or a writeback cache.
  */
 export function virtioFileSystemDevice(
@@ -902,6 +909,9 @@ export function virtioFileSystemDevice(
         body.skip(4);
         const handle = await method.call(filesystem, node!.node, flags);
         payload.u64(add_handle(node!, handle, directory));
+        // Keep open flags zero even when cache is false. Cache controls only
+        // entry/attribute validity; FOPEN_DIRECT_IO would route private
+        // owner-worker user buffers through unsupported page extraction.
         payload.u32(0);
         payload.i32(-1);
         break;
@@ -922,6 +932,8 @@ export function virtioFileSystemDevice(
         record.lookups += 1n;
         write_entry(payload, record, await filesystem.getattr(created.node), validity);
         payload.u64(add_handle(record, created.handle, false));
+        // CREATE returns the same open flags as OPEN; direct I/O is unsupported
+        // by this wasm transport even when metadata/name validity is zero.
         payload.u32(0);
         payload.i32(-1);
         break;
