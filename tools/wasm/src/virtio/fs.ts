@@ -50,8 +50,8 @@ const FuseInitFlags = {
   INIT_EXT: 1 << 30,
 } as const;
 
-const FuseOpenFlags = {
-  DIRECT_IO: 1 << 0,
+const FuseGetattrFlags = {
+  FH: 1 << 0,
 } as const;
 
 const FuseSetattrFlags = {
@@ -187,7 +187,10 @@ export interface VirtioFileSystem {
     parent: VirtioFileSystemNode,
     name: string,
   ): MaybePromise<VirtioFileSystemNode | undefined>;
-  getattr(node: VirtioFileSystemNode): MaybePromise<VirtioFileSystemAttributes>;
+  getattr(
+    node: VirtioFileSystemNode,
+    handle?: VirtioFileSystemHandle,
+  ): MaybePromise<VirtioFileSystemAttributes>;
   setattr?(
     node: VirtioFileSystemNode,
     attributes: VirtioFileSystemSetAttributes,
@@ -279,6 +282,8 @@ interface NodeRecord {
   node: VirtioFileSystemNode;
   parent: NodeRecord;
   lookups: bigint;
+  handles: number;
+  children: number;
 }
 
 interface HandleRecord {
@@ -469,6 +474,35 @@ function scatter(buffers: readonly VirtqueueBuffer[], data: Uint8Array) {
   }
 }
 
+function minimum_response_capacity(opcode: number) {
+  switch (opcode) {
+    case FuseOpcode.FORGET:
+    case FuseOpcode.BATCH_FORGET:
+    case FuseOpcode.INTERRUPT:
+      return 0;
+    case FuseOpcode.INIT:
+      return 80;
+    case FuseOpcode.LOOKUP:
+    case FuseOpcode.SYMLINK:
+    case FuseOpcode.MKDIR:
+      return 144;
+    case FuseOpcode.GETATTR:
+    case FuseOpcode.SETATTR:
+      return 120;
+    case FuseOpcode.OPEN:
+    case FuseOpcode.OPENDIR:
+      return 32;
+    case FuseOpcode.CREATE:
+      return 160;
+    case FuseOpcode.WRITE:
+      return 24;
+    case FuseOpcode.STATFS:
+      return 96;
+    default:
+      return 16;
+  }
+}
+
 function request_header(input: Input): RequestHeader {
   const result = {
     len: input.u32(),
@@ -560,8 +594,7 @@ export interface VirtioFileSystemDeviceOptions {
   /** Mount tag advertised to the guest. */
   tag: string;
   /**
-   * Use the guest's metadata, name, and page caches. Defaults to true. Disable
-   * this for directories concurrently modified by the host.
+   * Cache metadata and names in the guest for one second. Defaults to true.
    */
   cache?: boolean;
 }
@@ -569,8 +602,9 @@ export interface VirtioFileSystemDeviceOptions {
 /**
  * Creates a virtio-fs device backed by a JavaScript filesystem object.
  *
- * Cached devices use one-second metadata/name caching and close-to-open data
- * coherence. Uncached devices use zero metadata/name timeouts and direct I/O.
+ * Cached devices use one-second metadata/name caching. Uncached devices use
+ * zero metadata/name timeouts. Both use the guest page cache: direct I/O needs
+ * user-page pinning, which wasm cannot provide for another worker's memory.
  * Neither policy enables DAX or a writeback cache.
  */
 export function virtioFileSystemDevice(
@@ -579,7 +613,6 @@ export function virtioFileSystemDevice(
 ): VirtioDevice {
   const { tag, cache = true } = options;
   const validity = cache ? 1n : 0n;
-  const open_flags = cache ? 0 : FuseOpenFlags.DIRECT_IO;
   const encoded_tag = utf8_encoder.encode(tag);
   if (encoded_tag.byteLength === 0 || encoded_tag.byteLength > 36) {
     throw new RangeError("virtio-fs tag must be between 1 and 36 UTF-8 bytes");
@@ -597,6 +630,8 @@ export function virtioFileSystemDevice(
     node: filesystem.root,
     parent: undefined as unknown as NodeRecord,
     lookups: 1n,
+    handles: 0,
+    children: 0,
   };
   root.parent = root;
   records.set(root.id, root);
@@ -608,11 +643,39 @@ export function virtioFileSystemDevice(
   function record_for_node(node: VirtioFileSystemNode, parent: NodeRecord) {
     let record = by_node.get(node);
     if (!record) {
-      record = { id: next_nodeid++, node, parent, lookups: 0n };
+      record = {
+        id: next_nodeid++,
+        node,
+        parent,
+        lookups: 0n,
+        handles: 0,
+        children: 0,
+      };
       records.set(record.id, record);
       by_node.set(node, record);
+      parent.children += 1;
     }
     return record;
+  }
+
+  function collect_record(record: NodeRecord) {
+    if (records.get(record.id) !== record) return;
+    if (
+      record !== root &&
+      record.lookups === 0n &&
+      record.handles === 0 &&
+      record.children === 0
+    ) {
+      records.delete(record.id);
+      by_node.delete(record.node);
+      record.parent.children -= 1;
+      collect_record(record.parent);
+    }
+  }
+
+  function forget(record: NodeRecord, count: bigint) {
+    record.lookups = count >= record.lookups ? 0n : record.lookups - count;
+    collect_record(record);
   }
 
   function node_record(nodeid: bigint) {
@@ -621,9 +684,13 @@ export function virtioFileSystemDevice(
     return record;
   }
 
-  function handle_record(fh: bigint, directory?: boolean) {
+  function handle_record(fh: bigint, directory?: boolean, node?: NodeRecord) {
     const record = handles.get(fh);
-    if (!record || (directory !== undefined && record.directory !== directory)) {
+    if (
+      !record ||
+      (directory !== undefined && record.directory !== directory) ||
+      (node !== undefined && record.node !== node)
+    ) {
       throw new VirtioFileSystemError("EBADF");
     }
     return record;
@@ -636,7 +703,14 @@ export function virtioFileSystemDevice(
   ) {
     const fh = next_handle++;
     handles.set(fh, { node, handle, directory });
+    node.handles += 1;
     return fh;
+  }
+
+  function remove_handle(fh: bigint, handle: HandleRecord) {
+    handles.delete(fh);
+    handle.node.handles -= 1;
+    collect_record(handle.node);
   }
 
   async function lookup(parent: NodeRecord, name: string) {
@@ -691,24 +765,32 @@ export function virtioFileSystemDevice(
         break;
       }
       case FuseOpcode.FORGET: {
-        node!.lookups -= body.u64();
+        forget(node!, body.u64());
         return undefined;
       }
       case FuseOpcode.BATCH_FORGET: {
         const count = body.u32();
         body.skip(4);
+        const forgotten: { record: NodeRecord; count: bigint }[] = [];
         for (let index = 0; index < count; index++) {
-          const forgotten = records.get(body.u64());
+          const record = records.get(body.u64());
           const count = body.u64();
-          if (forgotten) forgotten.lookups -= count;
+          if (record) forgotten.push({ record, count });
         }
+        for (const entry of forgotten) forget(entry.record, entry.count);
         return undefined;
       }
       case FuseOpcode.GETATTR: {
+        const flags = body.u32();
+        body.skip(4);
+        const fh = body.u64();
+        const handle = flags & FuseGetattrFlags.FH
+          ? handle_record(fh, undefined, node!).handle
+          : undefined;
         payload.u64(validity);
         payload.u32(0);
         payload.u32(0);
-        write_attr(payload, node!.id, await filesystem.getattr(node!.node));
+        write_attr(payload, node!.id, await filesystem.getattr(node!.node, handle));
         break;
       }
       case FuseOpcode.SETATTR: {
@@ -747,7 +829,9 @@ export function virtioFileSystemDevice(
         if (valid & FuseSetattrFlags.CTIME) {
           changes.ctime = { seconds: ctime, nanoseconds: ctimensec };
         }
-        const open = valid & FuseSetattrFlags.FH ? handle_record(fh).handle : undefined;
+        const open = valid & FuseSetattrFlags.FH
+          ? handle_record(fh, undefined, node!).handle
+          : undefined;
         const attributes = await filesystem.setattr(node!.node, changes, open);
         payload.u64(validity);
         payload.u32(0);
@@ -818,7 +902,7 @@ export function virtioFileSystemDevice(
         body.skip(4);
         const handle = await method.call(filesystem, node!.node, flags);
         payload.u64(add_handle(node!, handle, directory));
-        payload.u32(directory ? 0 : open_flags);
+        payload.u32(0);
         payload.i32(-1);
         break;
       }
@@ -838,7 +922,7 @@ export function virtioFileSystemDevice(
         record.lookups += 1n;
         write_entry(payload, record, await filesystem.getattr(created.node), validity);
         payload.u64(add_handle(record, created.handle, false));
-        payload.u32(open_flags);
+        payload.u32(0);
         payload.i32(-1);
         break;
       }
@@ -847,7 +931,7 @@ export function virtioFileSystemDevice(
         const fh = body.u64();
         const offset = body.u64();
         const size = body.u32();
-        const handle = handle_record(fh);
+        const handle = handle_record(fh, false, node!);
         const data = await filesystem.read(
           handle.node.node,
           handle.handle,
@@ -867,7 +951,7 @@ export function virtioFileSystemDevice(
         const size = body.u32();
         body.skip(20);
         const data = body.bytes(size);
-        const handle = handle_record(fh);
+        const handle = handle_record(fh, false, node!);
         const written = await filesystem.write(
           handle.node.node,
           handle.handle,
@@ -882,7 +966,7 @@ export function virtioFileSystemDevice(
         break;
       }
       case FuseOpcode.FLUSH: {
-        const handle = handle_record(body.u64());
+        const handle = handle_record(body.u64(), false, node!);
         if (filesystem.flush) {
           await filesystem.flush(handle.node.node, handle.handle);
         }
@@ -890,7 +974,11 @@ export function virtioFileSystemDevice(
       }
       case FuseOpcode.FSYNC:
       case FuseOpcode.FSYNCDIR: {
-        const handle = handle_record(body.u64(), header.opcode === FuseOpcode.FSYNCDIR);
+        const handle = handle_record(
+          body.u64(),
+          header.opcode === FuseOpcode.FSYNCDIR,
+          node!,
+        );
         const flags = (body.skip(0), body.u32());
         if (filesystem.fsync) {
           await filesystem.fsync(handle.node.node, handle.handle, (flags & 1) !== 0);
@@ -901,13 +989,13 @@ export function virtioFileSystemDevice(
       case FuseOpcode.RELEASEDIR: {
         const directory = header.opcode === FuseOpcode.RELEASEDIR;
         const fh = body.u64();
-        const handle = handle_record(fh, directory);
+        const handle = handle_record(fh, directory, node!);
         if (directory) {
           await filesystem.releasedir?.(handle.node.node, handle.handle);
         } else {
           await filesystem.release?.(handle.node.node, handle.handle);
         }
-        handles.delete(fh);
+        remove_handle(fh, handle);
         break;
       }
       case FuseOpcode.READDIR: {
@@ -915,7 +1003,7 @@ export function virtioFileSystemDevice(
         const fh = body.u64();
         const offset = checked_number(body.u64());
         const size = body.u32();
-        const handle = handle_record(fh, true);
+        const handle = handle_record(fh, true, node!);
         const entries = [
           { name: ".", record: handle.node },
           { name: "..", record: handle.node.parent },
@@ -924,25 +1012,32 @@ export function virtioFileSystemDevice(
           handle.node.node,
           handle.handle,
         );
-        for (const entry of await async_iterable(directory_entries)) {
-          entries.push({
-            name: validate_name(entry.name),
-            record: record_for_node(entry.node, handle.node),
-          });
-        }
+        const transient: NodeRecord[] = [];
         const limit = Math.min(size, capacity - 16);
-        for (let index = offset; index < entries.length; index++) {
-          const entry = entries[index]!;
-          const name = utf8_encoder.encode(entry.name);
-          const attributes = await filesystem.getattr(entry.record.node);
-          const record_length = (24 + name.byteLength + 7) & ~7;
-          if (payload.offset + record_length > limit) break;
-          payload.u64(entry.record.id);
-          payload.u64(BigInt(index + 1));
-          payload.u32(name.byteLength);
-          payload.u32(DirentType[mode_type(attributes.mode)]);
-          payload.bytes(name);
-          payload.align(8);
+        try {
+          for (const entry of await async_iterable(directory_entries)) {
+            const record = record_for_node(entry.node, handle.node);
+            transient.push(record);
+            entries.push({
+              name: validate_name(entry.name),
+              record,
+            });
+          }
+          for (let index = offset; index < entries.length; index++) {
+            const entry = entries[index]!;
+            const name = utf8_encoder.encode(entry.name);
+            const record_length = (24 + name.byteLength + 7) & ~7;
+            if (payload.offset + record_length > limit) break;
+            const attributes = await filesystem.getattr(entry.record.node);
+            payload.u64(entry.record.id);
+            payload.u64(BigInt(index + 1));
+            payload.u32(name.byteLength);
+            payload.u32(DirentType[mode_type(attributes.mode)]);
+            payload.bytes(name);
+            payload.align(8);
+          }
+        } finally {
+          for (const record of transient) collect_record(record);
         }
         break;
       }
@@ -986,11 +1081,21 @@ export function virtioFileSystemDevice(
         .reduce((total, buffer) => total + buffer.array.byteLength, 0);
       let unique = 0n;
       try {
+        let saw_writable = false;
+        for (const buffer of buffers) {
+          if (!buffer.writable && saw_writable) {
+            throw new VirtioFileSystemError("EINVAL", "readable descriptor follows response");
+          }
+          saw_writable ||= buffer.writable;
+        }
         const input = new Input(request);
         const header = request_header(input);
         unique = header.unique;
         if (header.len !== request.byteLength || header.len < 40) {
           throw new VirtioFileSystemError("EINVAL", "invalid FUSE request length");
+        }
+        if (capacity < minimum_response_capacity(header.opcode)) {
+          throw new VirtioFileSystemError("EINVAL", "FUSE response buffer is too small");
         }
         const payload = await process(header, input, capacity);
         if (payload === undefined) {
