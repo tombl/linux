@@ -646,6 +646,7 @@ export function virtioFileSystemDevice(
 
   const handles = new Map<bigint, HandleRecord>();
   let next_handle = 1n;
+  let finalize_promise: Promise<void> | undefined;
 
   function record_for_node(node: VirtioFileSystemNode, parent: NodeRecord) {
     let record = by_node.get(node);
@@ -718,6 +719,40 @@ export function virtioFileSystemDevice(
     handles.delete(fh);
     handle.node.handles -= 1;
     collect_record(handle.node);
+  }
+
+  function finalize() {
+    if (finalize_promise) return finalize_promise;
+    finalize_promise = (async () => {
+      let failed = false;
+      let first_error: unknown;
+      for (const [fh, handle] of handles) {
+        try {
+          if (handle.directory) {
+            await filesystem.releasedir?.(handle.node.node, handle.handle);
+          } else {
+            await filesystem.release?.(handle.node.node, handle.handle);
+          }
+        } catch (error) {
+          if (!failed) {
+            failed = true;
+            first_error = error;
+          }
+        } finally {
+          remove_handle(fh, handle);
+        }
+      }
+      try {
+        await filesystem.destroy?.();
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          first_error = error;
+        }
+      }
+      if (failed) throw first_error;
+    })();
+    return finalize_promise;
   }
 
   async function lookup(parent: NodeRecord, name: string) {
@@ -892,12 +927,29 @@ export function virtioFileSystemDevice(
       case FuseOpcode.RENAME: {
         if (!filesystem.rename) throw new UnsupportedOperation();
         const new_parent = node_record(body.u64());
+        const old_name = validate_name(body.string());
+        const new_name = validate_name(body.string());
+        const moved = node === new_parent
+          ? undefined
+          : await filesystem.lookup(node!.node, old_name);
+        const moved_record = moved && by_node.get(moved);
         await filesystem.rename(
           node!.node,
-          validate_name(body.string()),
+          old_name,
           new_parent.node,
-          validate_name(body.string()),
+          new_name,
         );
+        if (
+          moved_record &&
+          records.get(moved_record.id) === moved_record &&
+          moved_record.parent !== new_parent
+        ) {
+          const old_parent = moved_record.parent;
+          old_parent.children -= 1;
+          moved_record.parent = new_parent;
+          new_parent.children += 1;
+          collect_record(old_parent);
+        }
         break;
       }
       case FuseOpcode.OPEN:
@@ -1075,8 +1127,7 @@ export function virtioFileSystemDevice(
       case FuseOpcode.INTERRUPT:
         return undefined;
       case FuseOpcode.DESTROY:
-        await filesystem.destroy?.();
-        handles.clear();
+        await finalize();
         break;
       default:
         throw new UnsupportedOperation();
@@ -1135,6 +1186,6 @@ export function virtioFileSystemDevice(
 
   return new VirtioController(
     { deviceId: 26, config },
-    { queues: [notify, notify] },
+    { queues: [notify, notify], close: finalize },
   ).device;
 }
