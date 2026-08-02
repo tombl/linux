@@ -44,6 +44,12 @@ const VsockShutdown = {
 const HOST_CID = 2n;
 const DEFAULT_VSOCK_BUF_ALLOC = 256 * 1024;
 const MAX_VSOCK_PAYLOAD = 2048;
+/**
+ * Local ports for host-initiated connections come from [2**30, 2**31), so
+ * they can never collide with listeners, which must bind below the range.
+ * The fixed 01 prefix also marks these ports as host-allocated in traces.
+ */
+const EPHEMERAL_PORT_BASE = 1 << 30;
 
 function concat_bytes(chunks: Uint8Array[]) {
   const length = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
@@ -75,6 +81,7 @@ interface VsockConnectionController {
   readonly bytes_read: number;
   update_credit(buf_alloc: number, fwd_cnt: number): void;
   enqueue(data: Uint8Array): void;
+  end_from_peer(): void;
   close_from_peer(): void;
 }
 
@@ -92,6 +99,7 @@ function create_vsock_connection(
   const read_waiters: ((value: Uint8Array) => void)[] = [];
   const credit_waiters: (() => void)[] = [];
   let closed = false;
+  let read_ended = false;
   let bytes_read = 0;
   let bytes_written = 0;
   let last_credit_update = 0;
@@ -101,6 +109,14 @@ function create_vsock_connection(
 
   function wake_credit_waiters() {
     while (credit_waiters.length > 0) credit_waiters.shift()!();
+  }
+
+  function end_from_peer() {
+    if (closed || read_ended) return;
+    read_ended = true;
+    while (read_waiters.length > 0) {
+      read_waiters.shift()!(new Uint8Array());
+    }
   }
 
   function close_from_peer() {
@@ -115,7 +131,7 @@ function create_vsock_connection(
   async function read_chunk(): Promise<Uint8Array> {
     const chunk = read_buffer.shift();
     if (chunk) return chunk;
-    if (closed) return new Uint8Array();
+    if (closed || read_ended) return new Uint8Array();
     return new Promise((resolve) => read_waiters.push(resolve));
   }
 
@@ -203,11 +219,12 @@ function create_vsock_connection(
       wake_credit_waiters();
     },
     enqueue(data) {
-      if (closed || data.byteLength === 0) return;
+      if (closed || read_ended || data.byteLength === 0) return;
       const waiter = read_waiters.shift();
       if (waiter) waiter(data);
       else read_buffer.push(data.slice());
     },
+    end_from_peer,
     close_from_peer,
   };
 }
@@ -215,8 +232,24 @@ function create_vsock_connection(
 interface VsockConnectionState {
   controller: VsockConnectionController;
   connected: boolean;
-  resolve(connection: VsockConnection): void;
-  reject(error: Error): void;
+  peer_shutdown: number;
+  resolve?(connection: VsockConnection): void;
+  reject?(error: Error): void;
+}
+
+interface VsockListenerState {
+  dispatch(key: string, connection: VsockConnection): void;
+  close(): void;
+}
+
+/** A listener for guest-initiated vsock connections on one port. */
+export interface VsockListener {
+  /** The port this listener is bound to. */
+  readonly port: number;
+  /** Unbinds the port; new connection attempts are reset. */
+  close(): void;
+  /** Resolves once the listener is closed and every handler has settled. */
+  readonly finished: Promise<void>;
 }
 
 /**
@@ -232,7 +265,17 @@ export interface VsockDevice extends VirtioDevice {
       timeoutMs?: number;
     },
   ): Promise<VsockConnection>;
-  /** Closes the device and every connection on it. */
+  /**
+   * Listens for guest connections to `port`, invoking `handler` once per
+   * connection. The connection lives exactly as long as the handler: when
+   * the returned promise resolves the connection is closed, and when it
+   * rejects the connection is reset. Throws if `port` is already bound.
+   */
+  listen(
+    port: number,
+    handler: (connection: VsockConnection) => void | PromiseLike<void>,
+  ): VsockListener;
+  /** Closes the device and every connection and listener on it. */
   close(): void;
 }
 
@@ -248,20 +291,31 @@ export function vsockDevice(
 
   const rx_buffers: VirtqueueChain[] = [];
   const pending_packets: Uint8Array[] = [];
-  const connections = new Map<number, VsockConnectionState>();
-  let next_port = 49152;
+  const connections = new Map<string, VsockConnectionState>();
+  const listeners = new Map<number, VsockListenerState>();
+  const local_ports = new Set<number>();
+  let local_port_last = 0;
   let closed = false;
 
   function allocate_port() {
-    for (let attempts = 0; attempts < 65536 - 49152; attempts++) {
-      const port = next_port;
-      next_port = port === 65535 ? 49152 : port + 1;
-      if (!connections.has(port)) return port;
-    }
-    throw new Error("no local vsock ports available");
+    do {
+      local_port_last = ((local_port_last + 1) & ~(1 << 31)) |
+        EPHEMERAL_PORT_BASE;
+    } while (local_ports.has(local_port_last));
+    local_ports.add(local_port_last);
+    return local_port_last;
   }
 
-  function flush_rx(controller: VirtioController) {
+  function connection_key(local_port: number, peer_port: number) {
+    return `${local_port}:${peer_port}`;
+  }
+
+  function remove_connection(key: string, state: VsockConnectionState) {
+    connections.delete(key);
+    local_ports.delete(state.controller.local_port);
+  }
+
+  function flush_rx() {
     while (pending_packets.length > 0 && rx_buffers.length > 0) {
       const packet = pending_packets.shift()!;
       const chain = rx_buffers.shift()!;
@@ -279,21 +333,22 @@ export function vsockDevice(
   }
 
   function send_packet(
-    controller: VirtioController,
-    connection: VsockConnectionController,
+    local_port: number,
+    peer_port: number,
     op: number,
     flags: number,
     payload: Uint8Array,
-    fwd_cnt = connection.bytes_read,
+    fwd_cnt: number,
+    type: number = VsockType.STREAM,
   ) {
     const packet = new Uint8Array(VsockHeader.size + payload.byteLength);
     const hdr = new VsockHeader(packet);
     hdr.src_cid = HOST_CID;
     hdr.dst_cid = guestCid;
-    hdr.src_port = connection.local_port;
-    hdr.dst_port = connection.peer_port;
+    hdr.src_port = local_port;
+    hdr.dst_port = peer_port;
     hdr.len = payload.byteLength;
-    hdr.type = VsockType.STREAM;
+    hdr.type = type;
     hdr.op = op;
     hdr.flags = flags;
     hdr.buf_alloc = DEFAULT_VSOCK_BUF_ALLOC;
@@ -301,7 +356,86 @@ export function vsockDevice(
     packet.set(payload, VsockHeader.size);
 
     pending_packets.push(packet);
-    flush_rx(controller);
+    flush_rx();
+  }
+
+  /** Refuses a packet with no matching connection, like the kernel's
+   * `virtio_transport_reset_no_sock`: reply RST unless resetting a reset. */
+  function reset_no_sock(header: VsockHeader) {
+    if (header.op === VsockOp.RST) return;
+    send_packet(
+      header.dst_port,
+      header.src_port,
+      VsockOp.RST,
+      0,
+      new Uint8Array(),
+      0,
+      header.type,
+    );
+  }
+
+  function connection_ops(
+    local_port: number,
+    peer_port: number,
+  ): VsockConnectionOps {
+    const key = connection_key(local_port, peer_port);
+    return {
+      send(op, flags, payload, fwd_cnt) {
+        if (closed || !connections.has(key)) return;
+        send_packet(local_port, peer_port, op, flags, payload, fwd_cnt);
+      },
+      close() {
+        const state = connections.get(key);
+        if (closed || !state) return;
+        send_packet(
+          local_port,
+          peer_port,
+          VsockOp.SHUTDOWN,
+          VsockShutdown.RCV | VsockShutdown.SEND,
+          new Uint8Array(),
+          state.controller.bytes_read,
+        );
+      },
+    };
+  }
+
+  function abort_connection(key: string) {
+    const state = connections.get(key);
+    if (!state) return;
+    if (!closed) {
+      send_packet(
+        state.controller.local_port,
+        state.controller.peer_port,
+        VsockOp.RST,
+        0,
+        new Uint8Array(),
+        state.controller.bytes_read,
+      );
+    }
+    state.controller.close_from_peer();
+    remove_connection(key, state);
+  }
+
+  function handle_request(header: VsockHeader) {
+    const listener = listeners.get(header.dst_port);
+    if (!listener) return reset_no_sock(header);
+
+    const local_port = header.dst_port;
+    const peer_port = header.src_port;
+    const key = connection_key(local_port, peer_port);
+    const connection = create_vsock_connection(
+      connection_ops(local_port, peer_port),
+      local_port,
+      peer_port,
+    );
+    connection.update_credit(header.buf_alloc, header.fwd_cnt);
+    connections.set(key, {
+      controller: connection,
+      connected: true,
+      peer_shutdown: 0,
+    });
+    send_packet(local_port, peer_port, VsockOp.RESPONSE, 0, new Uint8Array(), 0);
+    listener.dispatch(key, connection.connection);
   }
 
   function read_tx_packet(chain: VirtqueueChain) {
@@ -319,14 +453,16 @@ export function vsockDevice(
     return { header, payload };
   }
 
-  function handle_tx_packet(
-    controller: VirtioController,
-    header: VsockHeader,
-    payload: Uint8Array,
-  ) {
-    const local_port = header.dst_port;
-    const state = connections.get(local_port);
-    if (!state) return;
+  function handle_tx_packet(header: VsockHeader, payload: Uint8Array) {
+    if (header.type !== VsockType.STREAM) return reset_no_sock(header);
+
+    const key = connection_key(header.dst_port, header.src_port);
+    const state = connections.get(key);
+    if (!state) {
+      if (header.op === VsockOp.REQUEST) handle_request(header);
+      else reset_no_sock(header);
+      return;
+    }
 
     const connection = state.controller;
     connection.update_credit(header.buf_alloc, header.fwd_cnt);
@@ -334,7 +470,7 @@ export function vsockDevice(
     switch (header.op) {
       case VsockOp.RESPONSE:
         state.connected = true;
-        state.resolve(connection.connection);
+        state.resolve?.(connection.connection);
         break;
       case VsockOp.RW:
         connection.enqueue(payload);
@@ -343,62 +479,80 @@ export function vsockDevice(
         break;
       case VsockOp.CREDIT_REQUEST:
         send_packet(
-          controller,
-          connection,
+          connection.local_port,
+          connection.peer_port,
           VsockOp.CREDIT_UPDATE,
           0,
           new Uint8Array(),
+          connection.bytes_read,
         );
         break;
       case VsockOp.SHUTDOWN:
-        send_packet(controller, connection, VsockOp.RST, 0, new Uint8Array());
-        if (!state.connected) {
-          state.reject(new Error("guest shut down vsock connection"));
+        state.peer_shutdown |= header.flags &
+          (VsockShutdown.RCV | VsockShutdown.SEND);
+        if (state.peer_shutdown & VsockShutdown.SEND) {
+          connection.end_from_peer();
         }
-        connection.close_from_peer();
-        connections.delete(local_port);
+        if (state.peer_shutdown === (VsockShutdown.RCV | VsockShutdown.SEND)) {
+          send_packet(
+            connection.local_port,
+            connection.peer_port,
+            VsockOp.RST,
+            0,
+            new Uint8Array(),
+            connection.bytes_read,
+          );
+          if (!state.connected) {
+            state.reject?.(new Error("guest shut down vsock connection"));
+          }
+          connection.close_from_peer();
+          remove_connection(key, state);
+        }
         break;
       case VsockOp.RST:
         if (!state.connected) {
-          state.reject(new Error("guest reset vsock connection"));
+          state.reject?.(new Error("guest reset vsock connection"));
         }
         connection.close_from_peer();
-        connections.delete(local_port);
+        remove_connection(key, state);
         break;
       default:
         console.warn("unknown vsock op", header.op);
     }
   }
 
-  function notify_rx(queue: Virtqueue, controller: VirtioController) {
+  function notify_rx(queue: Virtqueue) {
     for (const chain of queue) rx_buffers.push(chain);
-    flush_rx(controller);
+    flush_rx();
   }
 
-  function notify_tx(queue: Virtqueue, controller: VirtioController) {
+  function notify_tx(queue: Virtqueue) {
     for (const chain of queue) {
       const { header, payload } = read_tx_packet(chain);
-      handle_tx_packet(controller, header, payload);
+      handle_tx_packet(header, payload);
       chain.release(0);
     }
   }
 
-  function close_device(controller: VirtioController) {
+  function close_device() {
     if (closed) return;
-    for (const state of connections.values()) {
+    for (const [key, state] of connections) {
       send_packet(
-        controller,
-        state.controller,
+        state.controller.local_port,
+        state.controller.peer_port,
         VsockOp.RST,
         0,
         new Uint8Array(),
+        state.controller.bytes_read,
       );
       if (!state.connected) {
-        state.reject(new Error("vsock device closed while connecting"));
+        state.reject?.(new Error("vsock device closed while connecting"));
       }
       state.controller.close_from_peer();
     }
     connections.clear();
+    local_ports.clear();
+    for (const listener of [...listeners.values()]) listener.close();
     closed = true;
   }
 
@@ -425,41 +579,26 @@ export function vsockDevice(
       return Promise.reject(new Error("vsock device is closed"));
     }
     const local_port = allocate_port();
+    const key = connection_key(local_port, port);
     const connection = create_vsock_connection(
-      {
-        send(op, flags, payload, fwd_cnt) {
-          if (closed) return;
-          const connection = connections.get(local_port)?.controller;
-          if (!connection) return;
-          send_packet(controller, connection, op, flags, payload, fwd_cnt);
-        },
-        close() {
-          const connection = connections.get(local_port)?.controller;
-          if (!connection) return;
-          send_packet(
-            controller,
-            connection,
-            VsockOp.SHUTDOWN,
-            VsockShutdown.RCV | VsockShutdown.SEND,
-            new Uint8Array(),
-          );
-        },
-      },
+      connection_ops(local_port, port),
       local_port,
       port,
     );
 
     const promise = new Promise<VsockConnection>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        send_packet(controller, connection, VsockOp.RST, 0, new Uint8Array());
-        connections.delete(local_port);
+        send_packet(local_port, port, VsockOp.RST, 0, new Uint8Array(), 0);
+        const state = connections.get(key);
+        if (state) remove_connection(key, state);
         connection.close_from_peer();
         reject(new Error(`timed out connecting to guest vsock port ${port}`));
       }, timeoutMs);
 
-      connections.set(local_port, {
+      connections.set(key, {
         controller: connection,
         connected: false,
+        peer_shutdown: 0,
         resolve(value) {
           clearTimeout(timeout);
           resolve(value);
@@ -471,9 +610,58 @@ export function vsockDevice(
       });
     });
 
-    send_packet(controller, connection, VsockOp.REQUEST, 0, new Uint8Array());
+    send_packet(local_port, port, VsockOp.REQUEST, 0, new Uint8Array(), 0);
     return promise;
   }
 
-  return controller.expose({ connect, close: controller.close });
+  function listen(
+    port: number,
+    handler: (connection: VsockConnection) => void | PromiseLike<void>,
+  ): VsockListener {
+    assert(!closed, "vsock device is closed");
+    assert(
+      Number.isInteger(port) && port > 0 && port < EPHEMERAL_PORT_BASE,
+      "vsock listen ports must be integers in 1-1073741823",
+    );
+    assert(!listeners.has(port), `vsock port ${port} is already bound`);
+
+    let active = 0;
+    let listening = true;
+    const { promise: finished, resolve: resolve_finished } =
+      Promise.withResolvers<void>();
+
+    function settle() {
+      if (!listening && active === 0) resolve_finished();
+    }
+
+    function close() {
+      if (!listening) return;
+      listening = false;
+      listeners.delete(port);
+      settle();
+    }
+
+    listeners.set(port, {
+      close,
+      dispatch(key, connection) {
+        active += 1;
+        queueMicrotask(async () => {
+          try {
+            await handler(connection);
+            connection.close();
+          } catch (error) {
+            console.error(`vsock handler on port ${port} failed`, error);
+            abort_connection(key);
+          } finally {
+            active -= 1;
+            settle();
+          }
+        });
+      },
+    });
+
+    return { port, close, finished };
+  }
+
+  return controller.expose({ connect, listen, close: controller.close });
 }
