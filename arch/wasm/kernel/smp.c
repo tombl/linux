@@ -2,6 +2,7 @@
 #include <asm/sysmem.h>
 #include <asm/wasm_imports.h>
 #include <linux/cpu.h>
+#include <linux/cpuhotplug.h>
 #include <linux/interrupt.h>
 #include <linux/irq_work.h>
 #include <linux/irqdomain.h>
@@ -9,8 +10,6 @@
 #include <linux/of_fdt.h>
 #include <linux/sched.h>
 #include <linux/seq_file.h>
-
-DECLARE_COMPLETION(cpu_starting);
 
 static void noinline_for_stack secondary_entry_inner(struct task_struct *idle)
 {
@@ -20,15 +19,17 @@ static void noinline_for_stack secondary_entry_inner(struct task_struct *idle)
 	atomic_set(&current_thread_info()->running_cpu, cpu);
 
 	BUG_ON(cpu_online(cpu));
-	set_cpu_online(cpu, true);
 
 	mmgrab(&init_mm);
 	current->active_mm = &init_mm;
 
+	cpuhp_ap_sync_alive();
+
+	set_cpu_online(cpu, true);
+
 	local_irq_enable();
 
 	notify_cpu_starting(cpu);
-	complete(&cpu_starting);
 
 	pr_info("Hello from cpu %i!\n", raw_smp_processor_id());
 
@@ -43,15 +44,18 @@ static void secondary_entry(void *idle)
 	secondary_entry_inner(idle);
 }
 
-int __cpu_up(unsigned int cpu, struct task_struct *idle)
+/*
+ * The host's Web Worker is spawned asynchronously: the wasm spawn_worker
+ * import hands the request to the main thread and returns immediately, so
+ * this only initiates the secondary CPU startup and must not wait for it.
+ */
+int arch_cpuhp_kick_ap_alive(unsigned int cpu, struct task_struct *idle)
 {
 	char name[8];
 	int name_len = snprintf(name, ARRAY_SIZE(name), "entry%d", cpu);
 	task_thread_info(idle)->cpu = cpu;
-	wasm_kernel_spawn_worker(secondary_entry, idle, name, name_len,
-				 WASM_USER_MEMORY_NONE);
-	wait_for_completion(&cpu_starting);
-	return 0;
+	return wasm_kernel_spawn_worker(secondary_entry, idle, name, name_len,
+					 WASM_USER_MEMORY_NONE);
 }
 
 enum ipi_message_type {

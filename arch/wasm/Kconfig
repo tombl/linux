@@ -17,6 +17,7 @@ config WASM
 	select GENERIC_IRQ_PROBE
 	select GENERIC_IRQ_SHOW
 	select GENERIC_SMP_IDLE_THREAD
+	select HOTPLUG_PARALLEL
 	select IRQ_DOMAIN
 	select OF
 	select OF_EARLY_FLATTREE
