@@ -104,6 +104,15 @@ void wasm_timer_check(void)
 	local_irq_restore(flags);
 }
 
+/*
+ * cpu_relax() is the "about to re-test a condition" hint. wasm has no pause
+ * instruction, so it waits on the irq summary instead: an interrupt wakes it
+ * the moment one arrives (trigger_irq_for_cpu() notifies the summary), and
+ * the timeout bounds conditions that change without an interrupt, like a
+ * lock handoff. Sleeping keeps a spinning worker from pegging a core.
+ */
+#define CPU_RELAX_TIMEOUT_NS	(100 * 1000)
+
 void cpu_relax(void)
 {
 	unsigned long flags;
@@ -111,7 +120,7 @@ void cpu_relax(void)
 	local_irq_save(flags);
 	pending = this_cpu_ptr(&irq_pending);
 	__builtin_wasm_memory_atomic_wait64(&pending->summary.counter, 0,
-					    10 * 1000 * 1000);
+					    CPU_RELAX_TIMEOUT_NS);
 	local_irq_restore(flags);
 }
 
