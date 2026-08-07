@@ -39,6 +39,19 @@ export { blockDevice, type BlockDeviceStorage } from "./virtio/block.ts";
 export { type ConsoleDevice, consoleDevice } from "./virtio/console.ts";
 export { entropyDevice } from "./virtio/entropy.ts";
 export {
+  type FS,
+  type FSAttributes,
+  type FSCreateContext,
+  type FSDirectoryEntry,
+  type FSDeviceOptions,
+  FSError,
+  type FSErrorCode,
+  type FSSetAttributes,
+  type FSStat,
+  type FSTimestamp,
+  fileSystemDevice,
+} from "./virtio/fs.ts";
+export {
   type EthernetDevice,
   ethernetDevice,
   type EthernetDeviceOptions,
@@ -196,6 +209,9 @@ export async function spawnMachine(
   const devices = options.devices;
   const workers = new Set<WorkerHandle>();
   let closed = false;
+  let failed = false;
+  let finish_error: unknown;
+  let finish_promise: Promise<void> | undefined;
 
   const closed_promise = Promise.withResolvers<void>();
   // Lifecycle promises on platform objects do not cause unhandled rejections
@@ -211,26 +227,39 @@ export async function spawnMachine(
     void boot_console_writer.close().catch(() => {});
   };
 
-  const finish = async (error?: unknown) => {
-    if (closed) return;
+  const finish = () => {
+    if (finish_promise) return finish_promise;
     closed = true;
-    for (const device of devices) {
-      try {
-        close_virtio_device(device);
-      } catch (close_error) {
-        error ??= close_error;
+    finish_promise = (async () => {
+      const device_closes = devices.map((device) => close_virtio_device(device));
+      for (const result of await Promise.allSettled(device_closes)) {
+        if (result.status === "rejected" && !failed) {
+          failed = true;
+          finish_error = result.reason;
+        }
       }
-    }
-    try {
-      await Promise.all(Array.from(workers, (worker) => worker.terminate()));
-    } catch (termination_error) {
-      error ??= termination_error;
-    }
-    boot_console_close();
-    if (error === undefined) closed_promise.resolve();
-    else closed_promise.reject(error);
+      try {
+        await Promise.all(Array.from(workers, (worker) => worker.terminate()));
+      } catch (termination_error) {
+        if (!failed) {
+          failed = true;
+          finish_error = termination_error;
+        }
+      }
+      boot_console_close();
+      if (failed) closed_promise.reject(finish_error);
+      else closed_promise.resolve();
+    })();
+    return finish_promise;
   };
-  const close = () => finish();
+  const fail = (error: unknown) => {
+    if (!failed) {
+      failed = true;
+      finish_error = error;
+    }
+    return finish();
+  };
+  const close = () => void finish();
 
   try {
     const { sections, vmlinux, initramfs, memory: memory_type } =
@@ -325,7 +354,7 @@ export async function spawnMachine(
                   port: message.port,
                 });
               } catch (error) {
-                void finish(error);
+                void fail(error);
               }
               break;
             case "boot_console_write":
@@ -340,10 +369,10 @@ export async function spawnMachine(
                   void finish();
                   break;
                 case MachineTerminationReason.Panic:
-                  void finish(new MachinePanicError());
+                  void fail(new MachinePanicError());
                   break;
                 default:
-                  void finish(
+                  void fail(
                     new Error(
                       `unknown machine termination reason: ${message.reason}`,
                     ),
@@ -367,7 +396,7 @@ export async function spawnMachine(
               unreachable(message);
           }
         },
-        on_error: finish,
+        on_error: fail,
       });
       workers.add(worker);
       worker.post(
@@ -455,7 +484,7 @@ export async function spawnMachine(
       virtio: virtio_imports({
         memory: wasm_memory,
         devices,
-        on_error: finish,
+        on_error: fail,
         trigger_irq(irq) {
           assert(instance);
           instance.exports.trigger_irq(irq);

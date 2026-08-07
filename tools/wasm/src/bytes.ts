@@ -2,6 +2,8 @@
 
 import { assert } from "./util.ts";
 
+const utf8 = new TextDecoder("utf-8", { fatal: true });
+
 export interface Type<T> {
   get(dv: DataView, offset: number): T;
   set(dv: DataView, offset: number, value: T): void;
@@ -176,6 +178,74 @@ export const U64BE: Type<bigint> = {
 
 export interface Allocated<T> {
   value: T;
+}
+
+/** A sequential little-endian reader over a byte buffer. */
+export class Reader {
+  #array: Uint8Array;
+  #dv: DataView;
+  /** The number of bytes consumed so far. */
+  offset = 0;
+
+  constructor(array: Uint8Array) {
+    this.#array = array;
+    this.#dv = new DataView(array.buffer, array.byteOffset, array.byteLength);
+  }
+
+  #take(length: number) {
+    if (length < 0 || this.offset + length > this.#array.byteLength) {
+      throw new RangeError("read past the end of the buffer");
+    }
+    const offset = this.offset;
+    this.offset += length;
+    return offset;
+  }
+
+  u8() {
+    return this.#dv.getUint8(this.#take(1));
+  }
+  u16() {
+    return this.#dv.getUint16(this.#take(2), true);
+  }
+  u32() {
+    return this.#dv.getUint32(this.#take(4), true);
+  }
+  i32() {
+    return this.#dv.getInt32(this.#take(4), true);
+  }
+  u64() {
+    return this.#dv.getBigUint64(this.#take(8), true);
+  }
+  i64() {
+    return this.#dv.getBigInt64(this.#take(8), true);
+  }
+
+  skip(length: number) {
+    this.#take(length);
+  }
+
+  bytes(length: number) {
+    const offset = this.#take(length);
+    return this.#array.subarray(offset, offset + length);
+  }
+
+  /** Reads a `Type` at the current position and advances past it. */
+  struct<T>(type: Type<T>): T {
+    return type.get(this.#dv, this.#take(type.size));
+  }
+
+  /** Reads a NUL-terminated UTF-8 string, consuming the terminator. */
+  cstring() {
+    const end = this.#array.indexOf(0, this.offset);
+    if (end < 0) throw new RangeError("unterminated string");
+    const bytes = this.bytes(end - this.offset);
+    this.skip(1);
+    try {
+      return utf8.decode(bytes);
+    } catch {
+      throw new RangeError("string is not valid UTF-8");
+    }
+  }
 }
 
 export class Bytes {

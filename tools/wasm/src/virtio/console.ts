@@ -49,6 +49,8 @@ export function consoleDevice(
   config.columns = 80;
   config.rows = 24;
   let writing: Promise<void> | undefined;
+  let reader_cancellation: Promise<void> | undefined;
+  let writer_abortion: Promise<void> | undefined;
 
   async function write_input(queue: Virtqueue) {
     assert(reader);
@@ -97,9 +99,17 @@ export function consoleDevice(
     { deviceId: 3, features: Features.SIZE, config: config_bytes },
     {
       queues: [reader ? notify_input : () => {}, notify_output],
-      close() {
-        void reader?.cancel().catch(() => {});
-        void writer?.close().catch(() => {});
+      stop() {
+        reader_cancellation ??= reader?.cancel();
+        writer_abortion ??= writer?.abort();
+      },
+      async close() {
+        const results = await Promise.allSettled([
+          reader_cancellation,
+          writer_abortion,
+        ]);
+        const failure = results.find((result) => result.status === "rejected");
+        if (failure) throw failure.reason;
       },
     },
   );

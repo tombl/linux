@@ -21,6 +21,7 @@ BUILD_ASSETS = vmlinux.wasm
 all: dist/index.js dist/index.d.ts vmlinux.wasm
 
 check: dist/index.js dist/index.d.ts
+	$(Q)$(TSC) -p test
 	$(Q)$(NODE) --test
 
 clean:
