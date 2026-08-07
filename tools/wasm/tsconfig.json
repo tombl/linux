@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: MIT
+//
+// Mirrors the distro's tsconfig.base.json. `esnext.disposable` is the one
+// exception to the "just bump the year" rule: `Symbol.dispose` has not landed
+// in a yearly lib yet.
 
 {
   "compilerOptions": {
@@ -9,11 +13,10 @@
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
 
-    "target": "es2022",
+    "target": "es2024",
     "lib": [
-      "es2022",
+      "es2024",
       "esnext.disposable",
-      "es2024.promise",
       "webworker",
       "webworker.iterable",
       "webworker.asynciterable"

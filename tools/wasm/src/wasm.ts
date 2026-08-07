@@ -117,10 +117,14 @@ const WASM_USER_MEMORY_SHARE = 1;
 const WASM_USER_MEMORY_COPY = 2;
 
 /** Values for the kernel.terminate_machine guest/host ABI. */
-export enum MachineTerminationReason {
-  Clean = 0,
-  Panic = 1,
-}
+export const MachineTerminationReason = {
+  Clean: 0,
+  Panic: 1,
+} as const;
+
+/** Values for the kernel.terminate_machine guest/host ABI. */
+export type MachineTerminationReason =
+  (typeof MachineTerminationReason)[keyof typeof MachineTerminationReason];
 
 export interface Imports {
   env: { memory: WebAssembly.Memory };

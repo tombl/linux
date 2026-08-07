@@ -4,21 +4,21 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
-import { ethernetNetwork } from "../dist/virtio/net.js";
+import { ethernetNetwork } from "../src/virtio/net.ts";
 import {
-  close_virtio_device,
   VirtioController,
+  close_virtio_device,
   virtio_imports,
-} from "../dist/virtio/core.js";
+} from "../src/virtio/core.ts";
 import {
   allocate_shared_memory,
   memory_bytes,
   user_module_imports_supported,
-} from "../dist/wasm.js";
+} from "../src/wasm.ts";
 
-function wasm_module(hex) {
+function wasm_module(hex: string) {
   return new WebAssembly.Module(
-    Uint8Array.from(hex.match(/../g), (byte) => Number.parseInt(byte, 16)),
+    Uint8Array.from(hex.match(/../g)!, (byte) => Number.parseInt(byte, 16)),
   );
 }
 
@@ -28,24 +28,16 @@ const memory = new WebAssembly.Memory({
   shared: true,
 });
 
-function deferred() {
-  let resolve;
-  const promise = new Promise((next) => {
-    resolve = next;
-  });
-  return { promise, resolve };
-}
-
-function allocator_succeeding_at(successful_maximum, attempts) {
-  return (descriptor) => {
-    attempts.push(descriptor.maximum);
+function allocator_succeeding_at(successful_maximum: number, attempts: number[]) {
+  return (descriptor: WebAssembly.MemoryDescriptor) => {
+    attempts.push(descriptor.maximum!);
     if (descriptor.maximum !== successful_maximum) throw new RangeError();
     return memory;
   };
 }
 
 test("shared memory allocation backs off by halves", () => {
-  const attempts = [];
+  const attempts: number[] = [];
   const allocated = allocate_shared_memory(
     100,
     1000,
@@ -58,7 +50,7 @@ test("shared memory allocation backs off by halves", () => {
 });
 
 test("the initial size is the floor", () => {
-  const attempts = [];
+  const attempts: number[] = [];
   const allocated = allocate_shared_memory(
     100,
     1000,
@@ -70,13 +62,13 @@ test("the initial size is the floor", () => {
 });
 
 test("a RangeError at the initial size is propagated", () => {
-  const attempts = [];
+  const attempts: number[] = [];
   const error = new RangeError("out of memory");
 
   assert.throws(
     () =>
       allocate_shared_memory(100, 1000, (descriptor) => {
-        attempts.push(descriptor.maximum);
+        attempts.push(descriptor.maximum!);
         throw error;
       }),
     (thrown) => thrown === error,
@@ -85,13 +77,13 @@ test("a RangeError at the initial size is propagated", () => {
 });
 
 test("a non-RangeError is propagated without retrying", () => {
-  const attempts = [];
+  const attempts: number[] = [];
   const error = new TypeError("invalid descriptor");
 
   assert.throws(
     () =>
       allocate_shared_memory(100, 1000, (descriptor) => {
-        attempts.push(descriptor.maximum);
+        attempts.push(descriptor.maximum!);
         throw error;
       }),
     (thrown) => thrown === error,
@@ -174,7 +166,7 @@ test("closing an Ethernet network drops traffic from attached ports", async () =
 });
 
 test("virtio close drains active queue work before one-time cleanup", async () => {
-  const work = deferred();
+  const work = Promise.withResolvers<void>();
   let notifications = 0;
   let closes = 0;
   const controller = new VirtioController(
@@ -253,9 +245,9 @@ test("virtio close reports driver cleanup failure exactly once", async () => {
 });
 
 test("virtio tracks a handler before it can reentrantly close", async () => {
-  const work = deferred();
+  const work = Promise.withResolvers<void>();
   let closes = 0;
-  let controller;
+  let controller!: VirtioController;
   controller = new VirtioController(
     { deviceId: 1 },
     {
@@ -298,8 +290,8 @@ test("virtio tracks a handler before it can reentrantly close", async () => {
 });
 
 test("virtio stop can unblock a handler before final cleanup", async () => {
-  const work = deferred();
-  const events = [];
+  const work = Promise.withResolvers<void>();
+  const events: string[] = [];
   const controller = new VirtioController(
     { deviceId: 1 },
     {

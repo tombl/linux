@@ -1,5 +1,20 @@
 // SPDX-License-Identifier: MIT
+//
+// The host side of a virtio-fs device. Requests and responses are the FUSE
+// ABI as wired into the virtio-fs transport; the wire structs below mirror
+// `include/uapi/linux/fuse.h` from the kernel this ships with. Fields are
+// little-endian and every fixed-layout struct is padded to a 64-bit boundary.
 
+import {
+  Bytes,
+  FixedArray,
+  Reader,
+  Struct,
+  U16LE,
+  U32LE,
+  U64LE,
+  I32LE,
+} from "../bytes.ts";
 import {
   VirtioController,
   type VirtioDevice,
@@ -107,26 +122,20 @@ const Errno = {
   EOPNOTSUPP: 95,
 } as const;
 
-export type VirtioFileSystemErrorCode = keyof typeof Errno;
+export type FSErrorCode = keyof typeof Errno;
 
 /** An expected filesystem failure which should be returned to the guest. */
-export class VirtioFileSystemError extends Error {
+export class FSError extends Error {
   readonly errno: number;
 
-  constructor(code: VirtioFileSystemErrorCode, message: string = code) {
+  constructor(code: FSErrorCode, message: string = code) {
     super(message);
-    this.name = "VirtioFileSystemError";
+    this.name = "FSError";
     this.errno = Errno[code];
   }
 }
 
-/** An opaque filesystem node. Backends may attach any private state to it. */
-export type VirtioFileSystemNode = object;
-
-/** An opaque open file or directory handle. */
-export type VirtioFileSystemHandle = object;
-
-export interface VirtioFileSystemTimestamp {
+export interface FSTimestamp {
   seconds: bigint;
   nanoseconds?: number;
 }
@@ -135,12 +144,12 @@ export interface VirtioFileSystemTimestamp {
  * Unix metadata presented to the guest. `mode` includes both the file type
  * bits and permissions (for example `0o100644` for a regular file).
  */
-export interface VirtioFileSystemAttributes {
+export interface FSAttributes {
   mode: number;
   size: bigint;
-  atime?: VirtioFileSystemTimestamp;
-  mtime?: VirtioFileSystemTimestamp;
-  ctime?: VirtioFileSystemTimestamp;
+  atime?: FSTimestamp;
+  mtime?: FSTimestamp;
+  ctime?: FSTimestamp;
   blocks?: bigint;
   nlink?: number;
   uid?: number;
@@ -149,22 +158,22 @@ export interface VirtioFileSystemAttributes {
   blockSize?: number;
 }
 
-export interface VirtioFileSystemSetAttributes {
+export interface FSSetAttributes {
   mode?: number;
   size?: bigint;
   uid?: number;
   gid?: number;
-  atime?: VirtioFileSystemTimestamp | "now";
-  mtime?: VirtioFileSystemTimestamp | "now";
-  ctime?: VirtioFileSystemTimestamp;
+  atime?: FSTimestamp | "now";
+  mtime?: FSTimestamp | "now";
+  ctime?: FSTimestamp;
 }
 
-export interface VirtioFileSystemDirectoryEntry {
+export interface FSDirectoryEntry<TNode> {
   name: string;
-  node: VirtioFileSystemNode;
+  node: TNode;
 }
 
-export interface VirtioFileSystemStat {
+export interface FSStat {
   blocks?: bigint;
   blocksFree?: bigint;
   blocksAvailable?: bigint;
@@ -175,235 +184,372 @@ export interface VirtioFileSystemStat {
   nameLength?: number;
 }
 
-/**
- * The host-side filesystem contract used by virtio-fs.
- *
- * Names are single, valid UTF-8 path components. Methods which are absent are
- * reported to the guest as unsupported; sync methods may return promises.
- */
-export interface VirtioFileSystem {
-  readonly root: VirtioFileSystemNode;
-  lookup(
-    parent: VirtioFileSystemNode,
-    name: string,
-  ): MaybePromise<VirtioFileSystemNode | undefined>;
-  getattr(
-    node: VirtioFileSystemNode,
-    handle?: VirtioFileSystemHandle,
-  ): MaybePromise<VirtioFileSystemAttributes>;
-  setattr?(
-    node: VirtioFileSystemNode,
-    attributes: VirtioFileSystemSetAttributes,
-    handle?: VirtioFileSystemHandle,
-  ): MaybePromise<VirtioFileSystemAttributes>;
-  readlink?(node: VirtioFileSystemNode): MaybePromise<string>;
-  symlink?(
-    parent: VirtioFileSystemNode,
-    name: string,
-    target: string,
-    context: VirtioFileSystemCreateContext,
-  ): MaybePromise<VirtioFileSystemNode>;
-  mkdir?(
-    parent: VirtioFileSystemNode,
-    name: string,
-    context: VirtioFileSystemCreateContext,
-  ): MaybePromise<VirtioFileSystemNode>;
-  unlink?(parent: VirtioFileSystemNode, name: string): MaybePromise<void>;
-  rmdir?(parent: VirtioFileSystemNode, name: string): MaybePromise<void>;
-  rename?(
-    oldParent: VirtioFileSystemNode,
-    oldName: string,
-    newParent: VirtioFileSystemNode,
-    newName: string,
-  ): MaybePromise<void>;
-  open?(
-    node: VirtioFileSystemNode,
-    flags: number,
-  ): MaybePromise<VirtioFileSystemHandle>;
-  create?(
-    parent: VirtioFileSystemNode,
-    name: string,
-    flags: number,
-    context: VirtioFileSystemCreateContext,
-  ): MaybePromise<{
-    node: VirtioFileSystemNode;
-    handle: VirtioFileSystemHandle;
-  }>;
-  read?(
-    node: VirtioFileSystemNode,
-    handle: VirtioFileSystemHandle,
-    offset: bigint,
-    length: number,
-  ): MaybePromise<Uint8Array>;
-  write?(
-    node: VirtioFileSystemNode,
-    handle: VirtioFileSystemHandle,
-    offset: bigint,
-    data: Uint8Array,
-  ): MaybePromise<number>;
-  flush?(
-    node: VirtioFileSystemNode,
-    handle: VirtioFileSystemHandle,
-  ): MaybePromise<void>;
-  fsync?(
-    node: VirtioFileSystemNode,
-    handle: VirtioFileSystemHandle,
-    dataOnly: boolean,
-  ): MaybePromise<void>;
-  release?(
-    node: VirtioFileSystemNode,
-    handle: VirtioFileSystemHandle,
-  ): MaybePromise<void>;
-  opendir?(
-    node: VirtioFileSystemNode,
-    flags: number,
-  ): MaybePromise<VirtioFileSystemHandle>;
-  readdir?(
-    node: VirtioFileSystemNode,
-    handle: VirtioFileSystemHandle,
-  ): MaybePromise<Iterable<VirtioFileSystemDirectoryEntry> | AsyncIterable<VirtioFileSystemDirectoryEntry>>;
-  releasedir?(
-    node: VirtioFileSystemNode,
-    handle: VirtioFileSystemHandle,
-  ): MaybePromise<void>;
-  access?(node: VirtioFileSystemNode, mask: number): MaybePromise<void>;
-  statfs?(node: VirtioFileSystemNode): MaybePromise<VirtioFileSystemStat>;
-  destroy?(): MaybePromise<void>;
-}
-
-export interface VirtioFileSystemCreateContext {
+export interface FSCreateContext {
   mode: number;
   uid: number;
   gid: number;
 }
 
-interface NodeRecord {
+/**
+ * The host-side filesystem contract used by virtio-fs.
+ *
+ * Names are single, valid UTF-8 path components. Methods which are absent are
+ * reported to the guest as unsupported; sync methods may return promises.
+ *
+ * `TNode` and `THandle` are the backend's node and open-file types; the device
+ * never inspects them. A writable backend (one providing `write` or `create`)
+ * must also provide `flush` and `fsync` — no-ops are the explicit way to
+ * declare an already-durable or ephemeral store.
+ */
+export interface FS<TNode, THandle> {
+  readonly root: TNode;
+  lookup(
+    parent: TNode,
+    name: string,
+  ): MaybePromise<TNode | undefined>;
+  getattr(
+    node: TNode,
+    handle?: THandle,
+  ): MaybePromise<FSAttributes>;
+  setattr?(
+    node: TNode,
+    attributes: FSSetAttributes,
+    handle?: THandle,
+  ): MaybePromise<FSAttributes>;
+  readlink?(node: TNode): MaybePromise<string>;
+  symlink?(
+    parent: TNode,
+    name: string,
+    target: string,
+    context: FSCreateContext,
+  ): MaybePromise<TNode>;
+  mkdir?(
+    parent: TNode,
+    name: string,
+    context: FSCreateContext,
+  ): MaybePromise<TNode>;
+  unlink?(parent: TNode, name: string): MaybePromise<void>;
+  rmdir?(parent: TNode, name: string): MaybePromise<void>;
+  rename?(
+    oldParent: TNode,
+    oldName: string,
+    newParent: TNode,
+    newName: string,
+  ): MaybePromise<void>;
+  open?(
+    node: TNode,
+    flags: number,
+  ): MaybePromise<THandle>;
+  create?(
+    parent: TNode,
+    name: string,
+    flags: number,
+    context: FSCreateContext,
+  ): MaybePromise<{
+    node: TNode;
+    handle: THandle;
+  }>;
+  read?(
+    node: TNode,
+    handle: THandle,
+    offset: bigint,
+    length: number,
+  ): MaybePromise<Uint8Array>;
+  write?(
+    node: TNode,
+    handle: THandle,
+    offset: bigint,
+    data: Uint8Array,
+  ): MaybePromise<number>;
+  flush?(
+    node: TNode,
+    handle: THandle,
+  ): MaybePromise<void>;
+  fsync?(
+    node: TNode,
+    handle: THandle,
+    dataOnly: boolean,
+  ): MaybePromise<void>;
+  release?(
+    node: TNode,
+    handle: THandle,
+  ): MaybePromise<void>;
+  opendir?(
+    node: TNode,
+    flags: number,
+  ): MaybePromise<THandle>;
+  readdir?(
+    node: TNode,
+    handle: THandle,
+  ): MaybePromise<Iterable<FSDirectoryEntry<TNode>> | AsyncIterable<FSDirectoryEntry<TNode>>>;
+  releasedir?(
+    node: TNode,
+    handle: THandle,
+  ): MaybePromise<void>;
+  access?(node: TNode, mask: number): MaybePromise<void>;
+  statfs?(node: TNode): MaybePromise<FSStat>;
+  destroy?(): MaybePromise<void>;
+}
+
+export interface FSDeviceOptions {
+  /** Mount tag advertised to the guest. */
+  tag: string;
+  /**
+   * Cache metadata and names in the guest for one second. Defaults to true.
+   *
+   * When false, FUSE entry and attribute validity are zero. This does not
+   * disable the guest data page cache and does not provide direct I/O.
+   */
+  cache?: boolean;
+}
+
+// The FUSE request and response structs, mirroring include/uapi/linux/fuse.h.
+const FuseInHeader = Struct({
+  len: U32LE,
+  opcode: U32LE,
+  unique: U64LE,
+  nodeid: U64LE,
+  uid: U32LE,
+  gid: U32LE,
+  pid: U32LE,
+  total_extlen: U16LE,
+  padding: U16LE,
+});
+type FuseInHeaderValue = InstanceType<typeof FuseInHeader>;
+
+const FuseOutHeader = Struct({
+  len: U32LE,
+  error: I32LE,
+  unique: U64LE,
+});
+
+const FuseAttr = Struct({
+  ino: U64LE,
+  size: U64LE,
+  blocks: U64LE,
+  atime: U64LE,
+  mtime: U64LE,
+  ctime: U64LE,
+  atimensec: U32LE,
+  mtimensec: U32LE,
+  ctimensec: U32LE,
+  mode: U32LE,
+  nlink: U32LE,
+  uid: U32LE,
+  gid: U32LE,
+  rdev: U32LE,
+  blksize: U32LE,
+  flags: U32LE,
+});
+
+const FuseEntryOut = Struct({
+  nodeid: U64LE,
+  generation: U64LE,
+  entry_valid: U64LE,
+  attr_valid: U64LE,
+  entry_valid_nsec: U32LE,
+  attr_valid_nsec: U32LE,
+  attr: FuseAttr,
+});
+
+const FuseAttrOut = Struct({
+  attr_valid: U64LE,
+  attr_valid_nsec: U32LE,
+  dummy: U32LE,
+  attr: FuseAttr,
+});
+
+const FuseOpenOut = Struct({
+  fh: U64LE,
+  open_flags: U32LE,
+  backing_id: I32LE,
+});
+
+const FuseInitOut = Struct({
+  major: U32LE,
+  minor: U32LE,
+  max_readahead: U32LE,
+  flags: U32LE,
+  max_background: U16LE,
+  congestion_threshold: U16LE,
+  max_write: U32LE,
+  time_gran: U32LE,
+  max_pages: U16LE,
+  map_alignment: U16LE,
+  flags2: U32LE,
+  max_stack_depth: U32LE,
+  request_timeout: U16LE,
+  unused: FixedArray(U16LE, 11),
+});
+
+const FuseWriteOut = Struct({
+  size: U32LE,
+  padding: U32LE,
+});
+
+const FuseStatfsOut = Struct({
+  blocks: U64LE,
+  bfree: U64LE,
+  bavail: U64LE,
+  files: U64LE,
+  ffree: U64LE,
+  bsize: U32LE,
+  namelen: U32LE,
+  frsize: U32LE,
+  padding: U32LE,
+  spare: FixedArray(U32LE, 6),
+});
+
+const FuseInitIn = Struct({
+  major: U32LE,
+  minor: U32LE,
+  max_readahead: U32LE,
+  flags: U32LE,
+});
+
+const FuseForgetIn = Struct({
+  nlookup: U64LE,
+});
+
+const FuseForgetOne = Struct({
+  nodeid: U64LE,
+  nlookup: U64LE,
+});
+
+const FuseBatchForgetIn = Struct({
+  count: U32LE,
+  dummy: U32LE,
+});
+
+const FuseGetattrIn = Struct({
+  getattr_flags: U32LE,
+  dummy: U32LE,
+  fh: U64LE,
+});
+
+const FuseMkdirIn = Struct({
+  mode: U32LE,
+  umask: U32LE,
+});
+
+const FuseRenameIn = Struct({
+  newdir: U64LE,
+});
+
+const FuseSetattrIn = Struct({
+  valid: U32LE,
+  padding: U32LE,
+  fh: U64LE,
+  size: U64LE,
+  lock_owner: U64LE,
+  atime: U64LE,
+  mtime: U64LE,
+  ctime: U64LE,
+  atimensec: U32LE,
+  mtimensec: U32LE,
+  ctimensec: U32LE,
+  mode: U32LE,
+  unused4: U32LE,
+  uid: U32LE,
+  gid: U32LE,
+  unused5: U32LE,
+});
+
+const FuseOpenIn = Struct({
+  flags: U32LE,
+  open_flags: U32LE,
+});
+
+const FuseCreateIn = Struct({
+  flags: U32LE,
+  mode: U32LE,
+  umask: U32LE,
+  open_flags: U32LE,
+});
+
+const FuseReadIn = Struct({
+  fh: U64LE,
+  offset: U64LE,
+  size: U32LE,
+  read_flags: U32LE,
+  lock_owner: U64LE,
+  flags: U32LE,
+  padding: U32LE,
+});
+
+const FuseWriteIn = Struct({
+  fh: U64LE,
+  offset: U64LE,
+  size: U32LE,
+  write_flags: U32LE,
+  lock_owner: U64LE,
+  flags: U32LE,
+  padding: U32LE,
+});
+
+const FuseFlushIn = Struct({
+  fh: U64LE,
+  unused: U32LE,
+  padding: U32LE,
+  lock_owner: U64LE,
+});
+
+const FuseFsyncIn = Struct({
+  fh: U64LE,
+  fsync_flags: U32LE,
+  padding: U32LE,
+});
+
+const FuseReleaseIn = Struct({
+  fh: U64LE,
+  flags: U32LE,
+  release_flags: U32LE,
+  lock_owner: U64LE,
+});
+
+const FuseAccessIn = Struct({
+  mask: U32LE,
+  padding: U32LE,
+});
+
+const FuseDirent = Struct({
+  ino: U64LE,
+  off: U64LE,
+  namelen: U32LE,
+  type: U32LE,
+});
+
+type AnyFn = (...args: never[]) => unknown;
+
+/**
+ * Writable filesystems must declare how they persist writes: a backend
+ * providing `write` or `create` also has to implement `flush` and `fsync`,
+ * even as no-ops. Omission is a compile error here and a construction error
+ * at runtime.
+ */
+type RequiresDurability<T> = T extends { write: AnyFn } | { create: AnyFn }
+  ? { flush: AnyFn; fsync: AnyFn }
+  : unknown;
+
+class UnsupportedOperation extends FSError {
+  constructor() {
+    super("ENOSYS");
+  }
+}
+
+interface NodeRecord<TNode> {
   id: bigint;
-  node: VirtioFileSystemNode;
-  parent: NodeRecord;
+  node: TNode;
+  parent: NodeRecord<TNode>;
   lookups: bigint;
   handles: number;
   children: number;
 }
 
-interface HandleRecord {
-  node: NodeRecord;
-  handle: VirtioFileSystemHandle;
+interface HandleRecord<TNode, THandle> {
+  node: NodeRecord<TNode>;
+  handle: THandle;
   directory: boolean;
-}
-
-interface RequestHeader {
-  len: number;
-  opcode: number;
-  unique: bigint;
-  nodeid: bigint;
-  uid: number;
-  gid: number;
-}
-
-class Input {
-  readonly array: Uint8Array;
-  readonly view: DataView;
-  offset = 0;
-
-  constructor(array: Uint8Array) {
-    this.array = array;
-    this.view = new DataView(array.buffer, array.byteOffset, array.byteLength);
-  }
-
-  #take(length: number) {
-    if (length < 0 || this.offset + length > this.array.byteLength) {
-      throw new VirtioFileSystemError("EINVAL", "truncated FUSE request");
-    }
-    const offset = this.offset;
-    this.offset += length;
-    return offset;
-  }
-
-  u32() {
-    return this.view.getUint32(this.#take(4), true);
-  }
-
-  u64() {
-    return this.view.getBigUint64(this.#take(8), true);
-  }
-
-  skip(length: number) {
-    this.#take(length);
-  }
-
-  bytes(length: number) {
-    const offset = this.#take(length);
-    return this.array.subarray(offset, offset + length);
-  }
-
-  string() {
-    const end = this.array.indexOf(0, this.offset);
-    if (end < 0) {
-      throw new VirtioFileSystemError("EINVAL", "unterminated FUSE string");
-    }
-    const bytes = this.bytes(end - this.offset);
-    this.skip(1);
-    try {
-      return utf8.decode(bytes);
-    } catch {
-      throw new VirtioFileSystemError("EINVAL", "filename is not valid UTF-8");
-    }
-  }
-}
-
-class Output {
-  #array: Uint8Array;
-  #view: DataView;
-  offset = 0;
-
-  constructor(length: number) {
-    this.#array = new Uint8Array(length);
-    this.#view = new DataView(this.#array.buffer);
-  }
-
-  get array() {
-    return this.#array.subarray(0, this.offset);
-  }
-
-  u16(value: number) {
-    this.#view.setUint16(this.offset, value, true);
-    this.offset += 2;
-  }
-
-  i32(value: number) {
-    this.#view.setInt32(this.offset, value, true);
-    this.offset += 4;
-  }
-
-  u32(value: number) {
-    this.#view.setUint32(this.offset, value, true);
-    this.offset += 4;
-  }
-
-  u64(value: bigint) {
-    this.#view.setBigUint64(this.offset, value, true);
-    this.offset += 8;
-  }
-
-  bytes(value: Uint8Array) {
-    this.#array.set(value, this.offset);
-    this.offset += value.byteLength;
-  }
-
-  zero(length: number) {
-    this.offset += length;
-  }
-
-  align(alignment: number) {
-    this.zero((-this.offset) & (alignment - 1));
-  }
-}
-
-class UnsupportedOperation extends VirtioFileSystemError {
-  constructor() {
-    super("ENOSYS");
-  }
 }
 
 function mode_type(mode: number): keyof typeof DirentType {
@@ -423,14 +569,14 @@ function mode_type(mode: number): keyof typeof DirentType {
     case FileType.socket:
       return "socket";
     default:
-      throw new VirtioFileSystemError("EIO", "filesystem returned an invalid mode");
+      throw new FSError("EIO", "filesystem returned an invalid mode");
   }
 }
 
 function checked_number(value: bigint) {
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number < 0) {
-    throw new VirtioFileSystemError("EINVAL", "offset exceeds JavaScript's integer range");
+    throw new FSError("EINVAL", "offset exceeds JavaScript's integer range");
   }
   return number;
 }
@@ -440,10 +586,10 @@ function validate_name(name: string) {
     name.length === 0 || name === "." || name === ".." || name.includes("/") ||
     name.includes("\0")
   ) {
-    throw new VirtioFileSystemError("EINVAL", "invalid path component");
+    throw new FSError("EINVAL", "invalid path component");
   }
   if (utf8_encoder.encode(name).byteLength > 255) {
-    throw new VirtioFileSystemError("ENAMETOOLONG");
+    throw new FSError("ENAMETOOLONG");
   }
   return name;
 }
@@ -474,6 +620,12 @@ function scatter(buffers: readonly VirtqueueBuffer[], data: Uint8Array) {
   }
 }
 
+/**
+ * The smallest writable response buffer the guest must provide for an opcode,
+ * derived from the response struct the device writes. `FuseOutHeader.size` is
+ * the base for every op with a response; ops without one (FORGET, INTERRUPT)
+ * need no buffer at all.
+ */
 function minimum_response_capacity(opcode: number) {
   switch (opcode) {
     case FuseOpcode.FORGET:
@@ -481,100 +633,95 @@ function minimum_response_capacity(opcode: number) {
     case FuseOpcode.INTERRUPT:
       return 0;
     case FuseOpcode.INIT:
-      return 80;
+      return FuseOutHeader.size + FuseInitOut.size;
     case FuseOpcode.LOOKUP:
     case FuseOpcode.SYMLINK:
     case FuseOpcode.MKDIR:
-      return 144;
+      return FuseOutHeader.size + FuseEntryOut.size;
     case FuseOpcode.GETATTR:
     case FuseOpcode.SETATTR:
-      return 120;
+      return FuseOutHeader.size + FuseAttrOut.size;
     case FuseOpcode.OPEN:
     case FuseOpcode.OPENDIR:
-      return 32;
+      return FuseOutHeader.size + FuseOpenOut.size;
     case FuseOpcode.CREATE:
-      return 160;
+      return FuseOutHeader.size + FuseEntryOut.size + FuseOpenOut.size;
     case FuseOpcode.WRITE:
-      return 24;
+      return FuseOutHeader.size + FuseWriteOut.size;
     case FuseOpcode.STATFS:
-      return 96;
+      return FuseOutHeader.size + FuseStatfsOut.size;
     default:
-      return 16;
+      return FuseOutHeader.size;
   }
 }
 
-function request_header(input: Input): RequestHeader {
-  const result = {
-    len: input.u32(),
-    opcode: input.u32(),
-    unique: input.u64(),
-    nodeid: input.u64(),
-    uid: input.u32(),
-    gid: input.u32(),
-  };
-  // pid, total_extlen, padding
-  input.skip(8);
-  return result;
-}
-
-function response_header(output: Output, unique: bigint, error: number, length: number) {
-  output.u32(length);
-  output.i32(error);
-  output.u64(unique);
-}
-
 function timestamp(
-  value: VirtioFileSystemTimestamp | undefined,
+  value: FSTimestamp | undefined,
 ): [bigint, number] {
   return [value?.seconds ?? 0n, value?.nanoseconds ?? 0];
 }
 
-function write_attr(
-  output: Output,
-  nodeid: bigint,
-  attributes: VirtioFileSystemAttributes,
-) {
+/** The `struct fuse_attr` value for a node, derived from `FSAttributes`. */
+function attr_fields(nodeid: bigint, attributes: FSAttributes) {
   const [atime, atimensec] = timestamp(attributes.atime);
   const [mtime, mtimensec] = timestamp(attributes.mtime);
   const [ctime, ctimensec] = timestamp(attributes.ctime);
-  output.u64(nodeid);
-  output.u64(attributes.size);
-  output.u64(attributes.blocks ?? (attributes.size + 511n) / 512n);
-  output.u64(atime);
-  output.u64(mtime);
-  output.u64(ctime);
-  output.u32(atimensec);
-  output.u32(mtimensec);
-  output.u32(ctimensec);
-  output.u32(attributes.mode);
-  output.u32(attributes.nlink ?? (mode_type(attributes.mode) === "directory" ? 2 : 1));
-  output.u32(attributes.uid ?? 0);
-  output.u32(attributes.gid ?? 0);
-  output.u32(attributes.rdev ?? 0);
-  output.u32(attributes.blockSize ?? 4096);
-  output.u32(0);
+  return {
+    ino: nodeid,
+    size: attributes.size,
+    blocks: attributes.blocks ?? (attributes.size + 511n) / 512n,
+    atime,
+    mtime,
+    ctime,
+    atimensec,
+    mtimensec,
+    ctimensec,
+    mode: attributes.mode,
+    nlink: attributes.nlink ?? (mode_type(attributes.mode) === "directory" ? 2 : 1),
+    uid: attributes.uid ?? 0,
+    gid: attributes.gid ?? 0,
+    rdev: attributes.rdev ?? 0,
+    blksize: attributes.blockSize ?? 4096,
+    flags: 0,
+  };
 }
 
-function write_entry(
-  output: Output,
-  record: NodeRecord,
-  attributes: VirtioFileSystemAttributes,
+function write_entry<TNode>(
+  payload: Bytes,
+  record: NodeRecord<TNode>,
+  attributes: FSAttributes,
   validity: bigint,
 ) {
-  output.u64(record.id);
-  output.u64(1n);
-  output.u64(validity);
-  output.u64(validity);
-  output.u32(0);
-  output.u32(0);
-  write_attr(output, record.id, attributes);
+  payload.alloc(FuseEntryOut).value = {
+    nodeid: record.id,
+    generation: 1n,
+    entry_valid: validity,
+    attr_valid: validity,
+    entry_valid_nsec: 0,
+    attr_valid_nsec: 0,
+    attr: attr_fields(record.id, attributes),
+  };
+}
+
+function write_attr_out(
+  payload: Bytes,
+  validity: bigint,
+  nodeid: bigint,
+  attributes: FSAttributes,
+) {
+  payload.alloc(FuseAttrOut).value = {
+    attr_valid: validity,
+    attr_valid_nsec: 0,
+    dummy: 0,
+    attr: attr_fields(nodeid, attributes),
+  };
 }
 
 function create_context(
-  header: RequestHeader,
+  header: FuseInHeaderValue,
   mode: number,
   umask: number,
-): VirtioFileSystemCreateContext {
+): FSCreateContext {
   return {
     mode: mode & ~umask,
     uid: header.uid,
@@ -590,18 +737,6 @@ async function async_iterable<T>(
   return result;
 }
 
-export interface VirtioFileSystemDeviceOptions {
-  /** Mount tag advertised to the guest. */
-  tag: string;
-  /**
-   * Cache metadata and names in the guest for one second. Defaults to true.
-   *
-   * When false, FUSE entry and attribute validity are zero. This does not
-   * disable the guest data page cache and does not provide direct I/O.
-   */
-  cache?: boolean;
-}
-
 /**
  * Creates a virtio-fs device backed by a JavaScript filesystem object.
  *
@@ -614,9 +749,9 @@ export interface VirtioFileSystemDeviceOptions {
  *
  * Neither policy enables DAX or a writeback cache.
  */
-export function virtioFileSystemDevice(
-  filesystem: VirtioFileSystem,
-  options: VirtioFileSystemDeviceOptions,
+export function fileSystemDevice<TNode extends object, THandle, T extends FS<TNode, THandle>>(
+  filesystem: T & RequiresDurability<T>,
+  options: FSDeviceOptions,
 ): VirtioDevice {
   const { tag, cache = true } = options;
   const validity = cache ? 1n : 0n;
@@ -625,17 +760,27 @@ export function virtioFileSystemDevice(
     throw new RangeError("virtio-fs tag must be between 1 and 36 UTF-8 bytes");
   }
 
+  if (filesystem.write ?? filesystem.create) {
+    if (!filesystem.flush || !filesystem.fsync) {
+      throw new Error(
+        "a writable filesystem must implement flush() and fsync(); " +
+          "no-op implementations are the explicit way to declare an " +
+          "already-durable or ephemeral backend",
+      );
+    }
+  }
+
   const config = new Uint8Array(40);
   config.set(encoded_tag);
   new DataView(config.buffer).setUint32(36, 1, true);
 
-  const records = new Map<bigint, NodeRecord>();
-  const by_node = new WeakMap<object, NodeRecord>();
+  const records = new Map<bigint, NodeRecord<TNode>>();
+  const by_node = new WeakMap<TNode, NodeRecord<TNode>>();
   let next_nodeid = 2n;
-  const root: NodeRecord = {
+  const root: NodeRecord<TNode> = {
     id: 1n,
     node: filesystem.root,
-    parent: undefined as unknown as NodeRecord,
+    parent: undefined as unknown as NodeRecord<TNode>,
     lookups: 1n,
     handles: 0,
     children: 0,
@@ -644,11 +789,11 @@ export function virtioFileSystemDevice(
   records.set(root.id, root);
   by_node.set(filesystem.root, root);
 
-  const handles = new Map<bigint, HandleRecord>();
+  const handles = new Map<bigint, HandleRecord<TNode, THandle>>();
   let next_handle = 1n;
   let finalize_promise: Promise<void> | undefined;
 
-  function record_for_node(node: VirtioFileSystemNode, parent: NodeRecord) {
+  function record_for_node(node: TNode, parent: NodeRecord<TNode>) {
     let record = by_node.get(node);
     if (!record) {
       record = {
@@ -666,7 +811,7 @@ export function virtioFileSystemDevice(
     return record;
   }
 
-  function collect_record(record: NodeRecord) {
+  function collect_record(record: NodeRecord<TNode>) {
     if (records.get(record.id) !== record) return;
     if (
       record !== root &&
@@ -681,32 +826,36 @@ export function virtioFileSystemDevice(
     }
   }
 
-  function forget(record: NodeRecord, count: bigint) {
+  function forget(record: NodeRecord<TNode>, count: bigint) {
     record.lookups = count >= record.lookups ? 0n : record.lookups - count;
     collect_record(record);
   }
 
   function node_record(nodeid: bigint) {
     const record = records.get(nodeid);
-    if (!record) throw new VirtioFileSystemError("ENOENT");
+    if (!record) throw new FSError("ENOENT");
     return record;
   }
 
-  function handle_record(fh: bigint, directory?: boolean, node?: NodeRecord) {
+  function handle_record(
+    fh: bigint,
+    directory?: boolean,
+    node?: NodeRecord<TNode>,
+  ) {
     const record = handles.get(fh);
     if (
       !record ||
       (directory !== undefined && record.directory !== directory) ||
       (node !== undefined && record.node !== node)
     ) {
-      throw new VirtioFileSystemError("EBADF");
+      throw new FSError("EBADF");
     }
     return record;
   }
 
   function add_handle(
-    node: NodeRecord,
-    handle: VirtioFileSystemHandle,
+    node: NodeRecord<TNode>,
+    handle: THandle,
     directory: boolean,
   ) {
     const fh = next_handle++;
@@ -715,7 +864,7 @@ export function virtioFileSystemDevice(
     return fh;
   }
 
-  function remove_handle(fh: bigint, handle: HandleRecord) {
+  function remove_handle(fh: bigint, handle: HandleRecord<TNode, THandle>) {
     handles.delete(fh);
     handle.node.handles -= 1;
     collect_record(handle.node);
@@ -755,28 +904,26 @@ export function virtioFileSystemDevice(
     return finalize_promise;
   }
 
-  async function lookup(parent: NodeRecord, name: string) {
+  async function lookup(parent: NodeRecord<TNode>, name: string) {
     const node = await filesystem.lookup(parent.node, validate_name(name));
-    if (!node) throw new VirtioFileSystemError("ENOENT");
+    if (!node) throw new FSError("ENOENT");
     const record = record_for_node(node, parent);
     record.lookups += 1n;
     return record;
   }
 
-  async function process(header: RequestHeader, body: Input, capacity: number) {
-    const payload = new Output(Math.max(0, capacity - 16));
+  async function process(header: FuseInHeaderValue, body: Reader, capacity: number) {
+    const payload = new Bytes(Math.max(0, capacity - FuseOutHeader.size));
     const node = header.nodeid === 0n ? undefined : node_record(header.nodeid);
 
     switch (header.opcode) {
       case FuseOpcode.INIT: {
-        const major = body.u32();
-        const minor = body.u32();
-        const max_readahead = body.u32();
-        const offered_flags = body.u32();
-        if (major !== 7) {
-          if (major < 7) throw new VirtioFileSystemError("EPROTO");
-          payload.u32(7);
-          payload.u32(45);
+        const init = body.struct(FuseInitIn);
+        if (init.major !== 7) {
+          if (init.major < 7) throw new FSError("EPROTO");
+          // A newer kernel retries with our major; only major and minor reply.
+          payload.alloc(U32LE).value = 7;
+          payload.alloc(U32LE).value = 45;
           break;
         }
         const supported_flags = FuseInitFlags.ASYNC_READ |
@@ -784,112 +931,96 @@ export function virtioFileSystemDevice(
           FuseInitFlags.AUTO_INVAL_DATA |
           FuseInitFlags.MAX_PAGES |
           FuseInitFlags.INIT_EXT;
-        const flags = offered_flags & supported_flags;
-        payload.u32(7);
-        payload.u32(Math.min(minor, 45));
-        payload.u32(Math.min(max_readahead, 1024 * 1024));
-        payload.u32(flags);
-        payload.u16(12);
-        payload.u16(9);
-        payload.u32(1024 * 1024);
-        payload.u32(1);
-        payload.u16((flags & FuseInitFlags.MAX_PAGES) === 0 ? 0 : 16);
-        payload.u16(0);
-        payload.u32(0);
-        payload.u32(0);
-        payload.u16(0);
-        payload.zero(22);
+        const flags = init.flags & supported_flags;
+        payload.alloc(FuseInitOut).value = {
+          major: 7,
+          minor: Math.min(init.minor, 45),
+          max_readahead: Math.min(init.max_readahead, 1024 * 1024),
+          flags,
+          max_background: 12,
+          congestion_threshold: 9,
+          max_write: 1024 * 1024,
+          time_gran: 1,
+          max_pages: (flags & FuseInitFlags.MAX_PAGES) === 0 ? 0 : 16,
+          map_alignment: 0,
+          flags2: 0,
+          max_stack_depth: 0,
+          request_timeout: 0,
+          unused: Array(11).fill(0),
+        };
         break;
       }
       case FuseOpcode.LOOKUP: {
-        const record = await lookup(node!, body.string());
+        const record = await lookup(node!, body.cstring());
         write_entry(payload, record, await filesystem.getattr(record.node), validity);
         break;
       }
       case FuseOpcode.FORGET: {
-        forget(node!, body.u64());
+        const request = body.struct(FuseForgetIn);
+        forget(node!, request.nlookup);
         return undefined;
       }
       case FuseOpcode.BATCH_FORGET: {
-        const count = body.u32();
-        body.skip(4);
-        const forgotten: { record: NodeRecord; count: bigint }[] = [];
-        for (let index = 0; index < count; index++) {
-          const record = records.get(body.u64());
-          const count = body.u64();
-          if (record) forgotten.push({ record, count });
+        const request = body.struct(FuseBatchForgetIn);
+        const forgotten: { record: NodeRecord<TNode>; count: bigint }[] = [];
+        for (let index = 0; index < request.count; index++) {
+          const one = body.struct(FuseForgetOne);
+          const record = records.get(one.nodeid);
+          if (record) forgotten.push({ record, count: one.nlookup });
         }
         for (const entry of forgotten) forget(entry.record, entry.count);
         return undefined;
       }
       case FuseOpcode.GETATTR: {
-        const flags = body.u32();
-        body.skip(4);
-        const fh = body.u64();
-        const handle = flags & FuseGetattrFlags.FH
-          ? handle_record(fh, undefined, node!).handle
+        const request = body.struct(FuseGetattrIn);
+        const handle = request.getattr_flags & FuseGetattrFlags.FH
+          ? handle_record(request.fh, undefined, node!).handle
           : undefined;
-        payload.u64(validity);
-        payload.u32(0);
-        payload.u32(0);
-        write_attr(payload, node!.id, await filesystem.getattr(node!.node, handle));
+        write_attr_out(
+          payload,
+          validity,
+          node!.id,
+          await filesystem.getattr(node!.node, handle),
+        );
         break;
       }
       case FuseOpcode.SETATTR: {
         if (!filesystem.setattr) throw new UnsupportedOperation();
-        const valid = body.u32();
-        body.skip(4);
-        const fh = body.u64();
-        const size = body.u64();
-        body.skip(8);
-        const atime = body.u64();
-        const mtime = body.u64();
-        const ctime = body.u64();
-        const atimensec = body.u32();
-        const mtimensec = body.u32();
-        const ctimensec = body.u32();
-        const mode = body.u32();
-        body.skip(4);
-        const uid = body.u32();
-        const gid = body.u32();
-        body.skip(4);
-        const changes: VirtioFileSystemSetAttributes = {};
-        if (valid & FuseSetattrFlags.MODE) changes.mode = mode;
-        if (valid & FuseSetattrFlags.UID) changes.uid = uid;
-        if (valid & FuseSetattrFlags.GID) changes.gid = gid;
-        if (valid & FuseSetattrFlags.SIZE) changes.size = size;
-        if (valid & FuseSetattrFlags.ATIME) {
-          changes.atime = valid & FuseSetattrFlags.ATIME_NOW
+        const request = body.struct(FuseSetattrIn);
+        const changes: FSSetAttributes = {};
+        if (request.valid & FuseSetattrFlags.MODE) changes.mode = request.mode;
+        if (request.valid & FuseSetattrFlags.UID) changes.uid = request.uid;
+        if (request.valid & FuseSetattrFlags.GID) changes.gid = request.gid;
+        if (request.valid & FuseSetattrFlags.SIZE) changes.size = request.size;
+        if (request.valid & FuseSetattrFlags.ATIME) {
+          changes.atime = request.valid & FuseSetattrFlags.ATIME_NOW
             ? "now"
-            : { seconds: atime, nanoseconds: atimensec };
+            : { seconds: request.atime, nanoseconds: request.atimensec };
         }
-        if (valid & FuseSetattrFlags.MTIME) {
-          changes.mtime = valid & FuseSetattrFlags.MTIME_NOW
+        if (request.valid & FuseSetattrFlags.MTIME) {
+          changes.mtime = request.valid & FuseSetattrFlags.MTIME_NOW
             ? "now"
-            : { seconds: mtime, nanoseconds: mtimensec };
+            : { seconds: request.mtime, nanoseconds: request.mtimensec };
         }
-        if (valid & FuseSetattrFlags.CTIME) {
-          changes.ctime = { seconds: ctime, nanoseconds: ctimensec };
+        if (request.valid & FuseSetattrFlags.CTIME) {
+          changes.ctime = { seconds: request.ctime, nanoseconds: request.ctimensec };
         }
-        const open = valid & FuseSetattrFlags.FH
-          ? handle_record(fh, undefined, node!).handle
+        const open = request.valid & FuseSetattrFlags.FH
+          ? handle_record(request.fh, undefined, node!).handle
           : undefined;
         const attributes = await filesystem.setattr(node!.node, changes, open);
-        payload.u64(validity);
-        payload.u32(0);
-        payload.u32(0);
-        write_attr(payload, node!.id, attributes);
+        write_attr_out(payload, validity, node!.id, attributes);
         break;
       }
       case FuseOpcode.READLINK: {
         if (!filesystem.readlink) throw new UnsupportedOperation();
-        payload.bytes(utf8_encoder.encode(await filesystem.readlink(node!.node)));
+        payload.append(utf8_encoder.encode(await filesystem.readlink(node!.node)));
         break;
       }
       case FuseOpcode.SYMLINK: {
         if (!filesystem.symlink) throw new UnsupportedOperation();
-        const name = validate_name(body.string());
-        const target = body.string();
+        const name = validate_name(body.cstring());
+        const target = body.cstring();
         const linked = await filesystem.symlink(
           node!.node,
           name,
@@ -903,12 +1034,11 @@ export function virtioFileSystemDevice(
       }
       case FuseOpcode.MKDIR: {
         if (!filesystem.mkdir) throw new UnsupportedOperation();
-        const mode = body.u32();
-        const umask = body.u32();
+        const request = body.struct(FuseMkdirIn);
         const made = await filesystem.mkdir(
           node!.node,
-          validate_name(body.string()),
-          create_context(header, FileType.directory | mode, umask),
+          validate_name(body.cstring()),
+          create_context(header, FileType.directory | request.mode, request.umask),
         );
         const record = record_for_node(made, node!);
         record.lookups += 1n;
@@ -921,14 +1051,15 @@ export function virtioFileSystemDevice(
           ? filesystem.unlink
           : filesystem.rmdir;
         if (!method) throw new UnsupportedOperation();
-        await method.call(filesystem, node!.node, validate_name(body.string()));
+        await method.call(filesystem, node!.node, validate_name(body.cstring()));
         break;
       }
       case FuseOpcode.RENAME: {
         if (!filesystem.rename) throw new UnsupportedOperation();
-        const new_parent = node_record(body.u64());
-        const old_name = validate_name(body.string());
-        const new_name = validate_name(body.string());
+        const request = body.struct(FuseRenameIn);
+        const new_parent = node_record(request.newdir);
+        const old_name = validate_name(body.cstring());
+        const new_name = validate_name(body.cstring());
         const moved = node === new_parent
           ? undefined
           : await filesystem.lookup(node!.node, old_name);
@@ -957,80 +1088,76 @@ export function virtioFileSystemDevice(
         const directory = header.opcode === FuseOpcode.OPENDIR;
         const method = directory ? filesystem.opendir : filesystem.open;
         if (!method) throw new UnsupportedOperation();
-        const flags = body.u32();
-        body.skip(4);
-        const handle = await method.call(filesystem, node!.node, flags);
-        payload.u64(add_handle(node!, handle, directory));
-        // Keep open flags zero even when cache is false. Cache controls only
-        // entry/attribute validity; FOPEN_DIRECT_IO would route private
-        // owner-worker user buffers through unsupported page extraction.
-        payload.u32(0);
-        payload.i32(-1);
+        const request = body.struct(FuseOpenIn);
+        const handle = await method.call(filesystem, node!.node, request.flags);
+        payload.alloc(FuseOpenOut).value = {
+          fh: add_handle(node!, handle, directory),
+          // Keep open flags zero even when cache is false. Cache controls only
+          // entry/attribute validity; FOPEN_DIRECT_IO would route private
+          // owner-worker user buffers through unsupported page extraction.
+          open_flags: 0,
+          backing_id: -1,
+        };
         break;
       }
       case FuseOpcode.CREATE: {
         if (!filesystem.create) throw new UnsupportedOperation();
-        const flags = body.u32();
-        const mode = body.u32();
-        const umask = body.u32();
-        body.skip(4);
+        const request = body.struct(FuseCreateIn);
         const created = await filesystem.create(
           node!.node,
-          validate_name(body.string()),
-          flags,
-          create_context(header, FileType.file | mode, umask),
+          validate_name(body.cstring()),
+          request.flags,
+          create_context(header, FileType.file | request.mode, request.umask),
         );
         const record = record_for_node(created.node, node!);
         record.lookups += 1n;
         write_entry(payload, record, await filesystem.getattr(created.node), validity);
-        payload.u64(add_handle(record, created.handle, false));
-        // CREATE returns the same open flags as OPEN; direct I/O is unsupported
-        // by this wasm transport even when metadata/name validity is zero.
-        payload.u32(0);
-        payload.i32(-1);
+        payload.alloc(FuseOpenOut).value = {
+          fh: add_handle(record, created.handle, false),
+          // CREATE returns the same open flags as OPEN; direct I/O is
+          // unsupported by this wasm transport even when metadata/name
+          // validity is zero.
+          open_flags: 0,
+          backing_id: -1,
+        };
         break;
       }
       case FuseOpcode.READ: {
         if (!filesystem.read) throw new UnsupportedOperation();
-        const fh = body.u64();
-        const offset = body.u64();
-        const size = body.u32();
-        const handle = handle_record(fh, false, node!);
+        const request = body.struct(FuseReadIn);
+        const handle = handle_record(request.fh, false, node!);
         const data = await filesystem.read(
           handle.node.node,
           handle.handle,
-          offset,
-          Math.min(size, capacity - 16),
+          request.offset,
+          Math.min(request.size, capacity - FuseOutHeader.size),
         );
-        if (data.byteLength > size || data.byteLength > capacity - 16) {
-          throw new VirtioFileSystemError("EIO", "filesystem returned too much data");
+        if (data.byteLength > request.size || data.byteLength > capacity - FuseOutHeader.size) {
+          throw new FSError("EIO", "filesystem returned too much data");
         }
-        payload.bytes(data);
+        payload.append(data);
         break;
       }
       case FuseOpcode.WRITE: {
         if (!filesystem.write) throw new UnsupportedOperation();
-        const fh = body.u64();
-        const offset = body.u64();
-        const size = body.u32();
-        body.skip(20);
-        const data = body.bytes(size);
-        const handle = handle_record(fh, false, node!);
+        const request = body.struct(FuseWriteIn);
+        const data = body.bytes(request.size);
+        const handle = handle_record(request.fh, false, node!);
         const written = await filesystem.write(
           handle.node.node,
           handle.handle,
-          offset,
+          request.offset,
           data,
         );
-        if (!Number.isInteger(written) || written < 0 || written > size) {
-          throw new VirtioFileSystemError("EIO", "filesystem returned an invalid write size");
+        if (!Number.isInteger(written) || written < 0 || written > request.size) {
+          throw new FSError("EIO", "filesystem returned an invalid write size");
         }
-        payload.u32(written);
-        payload.u32(0);
+        payload.alloc(FuseWriteOut).value = { size: written, padding: 0 };
         break;
       }
       case FuseOpcode.FLUSH: {
-        const handle = handle_record(body.u64(), false, node!);
+        const request = body.struct(FuseFlushIn);
+        const handle = handle_record(request.fh, false, node!);
         if (filesystem.flush) {
           await filesystem.flush(handle.node.node, handle.handle);
         }
@@ -1038,36 +1165,44 @@ export function virtioFileSystemDevice(
       }
       case FuseOpcode.FSYNC:
       case FuseOpcode.FSYNCDIR: {
+        const request = body.struct(FuseFsyncIn);
         const handle = handle_record(
-          body.u64(),
+          request.fh,
           header.opcode === FuseOpcode.FSYNCDIR,
           node!,
         );
-        const flags = (body.skip(0), body.u32());
         if (filesystem.fsync) {
-          await filesystem.fsync(handle.node.node, handle.handle, (flags & 1) !== 0);
+          await filesystem.fsync(
+            handle.node.node,
+            handle.handle,
+            (request.fsync_flags & 1) !== 0,
+          );
         }
         break;
       }
       case FuseOpcode.RELEASE:
       case FuseOpcode.RELEASEDIR: {
         const directory = header.opcode === FuseOpcode.RELEASEDIR;
-        const fh = body.u64();
-        const handle = handle_record(fh, directory, node!);
+        const request = body.struct(FuseReleaseIn);
+        const handle = handle_record(request.fh, directory, node!);
         if (directory) {
           await filesystem.releasedir?.(handle.node.node, handle.handle);
         } else {
           await filesystem.release?.(handle.node.node, handle.handle);
         }
-        remove_handle(fh, handle);
+        remove_handle(request.fh, handle);
         break;
       }
       case FuseOpcode.READDIR: {
         if (!filesystem.readdir) throw new UnsupportedOperation();
-        const fh = body.u64();
-        const offset = checked_number(body.u64());
-        const size = body.u32();
-        const handle = handle_record(fh, true, node!);
+        const request = body.struct(FuseReadIn);
+        const offset = checked_number(request.offset);
+        const handle = handle_record(request.fh, true, node!);
+        // The guest resumes readdir by `off`, which is an index into the
+        // entry array we rebuild here: the caller's directory plus the "." and
+        // ".." entries this device injects. Each request re-reads the whole
+        // directory and skips `off` entries, so no directory position state is
+        // kept between requests.
         const entries = [
           { name: ".", record: handle.node },
           { name: "..", record: handle.node.parent },
@@ -1076,8 +1211,8 @@ export function virtioFileSystemDevice(
           handle.node.node,
           handle.handle,
         );
-        const transient: NodeRecord[] = [];
-        const limit = Math.min(size, capacity - 16);
+        const transient: NodeRecord<TNode>[] = [];
+        const limit = Math.min(request.size, capacity - FuseOutHeader.size);
         try {
           for (const entry of await async_iterable(directory_entries)) {
             const record = record_for_node(entry.node, handle.node);
@@ -1090,15 +1225,18 @@ export function virtioFileSystemDevice(
           for (let index = offset; index < entries.length; index++) {
             const entry = entries[index]!;
             const name = utf8_encoder.encode(entry.name);
+            // FUSE dirents are padded to 8 bytes: 24-byte header + name.
             const record_length = (24 + name.byteLength + 7) & ~7;
-            if (payload.offset + record_length > limit) break;
+            if (payload.length + record_length > limit) break;
             const attributes = await filesystem.getattr(entry.record.node);
-            payload.u64(entry.record.id);
-            payload.u64(BigInt(index + 1));
-            payload.u32(name.byteLength);
-            payload.u32(DirentType[mode_type(attributes.mode)]);
-            payload.bytes(name);
-            payload.align(8);
+            payload.alloc(FuseDirent).value = {
+              ino: entry.record.id,
+              off: BigInt(index + 1),
+              namelen: name.byteLength,
+              type: DirentType[mode_type(attributes.mode)],
+            };
+            payload.append(name);
+            payload.bump((-payload.length) & 7);
           }
         } finally {
           for (const record of transient) collect_record(record);
@@ -1107,21 +1245,23 @@ export function virtioFileSystemDevice(
       }
       case FuseOpcode.STATFS: {
         const stat = await filesystem.statfs?.(node!.node) ?? {};
-        payload.u64(stat.blocks ?? 0n);
-        payload.u64(stat.blocksFree ?? 0n);
-        payload.u64(stat.blocksAvailable ?? 0n);
-        payload.u64(stat.files ?? 0n);
-        payload.u64(stat.filesFree ?? 0n);
-        payload.u32(stat.blockSize ?? 4096);
-        payload.u32(stat.nameLength ?? 255);
-        payload.u32(stat.fragmentSize ?? stat.blockSize ?? 4096);
-        payload.u32(0);
-        payload.zero(24);
+        payload.alloc(FuseStatfsOut).value = {
+          blocks: stat.blocks ?? 0n,
+          bfree: stat.blocksFree ?? 0n,
+          bavail: stat.blocksAvailable ?? 0n,
+          files: stat.files ?? 0n,
+          ffree: stat.filesFree ?? 0n,
+          bsize: stat.blockSize ?? 4096,
+          namelen: stat.nameLength ?? 255,
+          frsize: stat.fragmentSize ?? stat.blockSize ?? 4096,
+          padding: 0,
+          spare: Array(6).fill(0),
+        };
         break;
       }
       case FuseOpcode.ACCESS: {
-        const mask = body.u32();
-        if (filesystem.access) await filesystem.access(node!.node, mask);
+        const request = body.struct(FuseAccessIn);
+        if (filesystem.access) await filesystem.access(node!.node, request.mask);
         break;
       }
       case FuseOpcode.INTERRUPT:
@@ -1132,7 +1272,10 @@ export function virtioFileSystemDevice(
       default:
         throw new UnsupportedOperation();
     }
-    return payload.array;
+    if (payload.length > capacity - FuseOutHeader.size) {
+      throw new FSError("EIO", "response exceeds the guest's response buffer");
+    }
+    return payload;
   }
 
   async function notify(queue: Virtqueue) {
@@ -1147,44 +1290,59 @@ export function virtioFileSystemDevice(
         let saw_writable = false;
         for (const buffer of buffers) {
           if (!buffer.writable && saw_writable) {
-            throw new VirtioFileSystemError("EINVAL", "readable descriptor follows response");
+            throw new FSError("EINVAL", "readable descriptor follows response");
           }
           saw_writable ||= buffer.writable;
         }
-        const input = new Input(request);
-        const header = request_header(input);
+        const body = new Reader(request);
+        const header = body.struct(FuseInHeader);
         unique = header.unique;
-        if (header.len !== request.byteLength || header.len < 40) {
-          throw new VirtioFileSystemError("EINVAL", "invalid FUSE request length");
+        if (header.len !== request.byteLength || header.len < FuseInHeader.size) {
+          throw new FSError("EINVAL", "invalid FUSE request length");
         }
         if (capacity < minimum_response_capacity(header.opcode)) {
-          throw new VirtioFileSystemError("EINVAL", "FUSE response buffer is too small");
+          throw new FSError("EINVAL", "FUSE response buffer is too small");
         }
-        const payload = await process(header, input, capacity);
+        const payload = await process(header, body, capacity);
         if (payload === undefined) {
           chain.release(0);
           continue;
         }
-        const response = new Output(16 + payload.byteLength);
-        response_header(response, unique, 0, 16 + payload.byteLength);
-        response.bytes(payload);
+        const response = new Bytes(FuseOutHeader.size + payload.length);
+        response.alloc(FuseOutHeader).value = {
+          len: FuseOutHeader.size + payload.length,
+          error: 0,
+          unique,
+        };
+        response.append(payload.array);
         scatter(buffers, response.array);
         chain.release(response.array.byteLength);
       } catch (error) {
-        if (capacity < 16) {
+        if (capacity < FuseOutHeader.size) {
           chain.release(0);
           continue;
         }
-        const response = new Output(16);
-        const errno = error instanceof VirtioFileSystemError ? error.errno : Errno.EIO;
-        response_header(response, unique, -errno, 16);
+        const response = new Bytes(FuseOutHeader.size);
+        // Malformed requests are EINVAL; RangeError comes from the Reader
+        // bounds checks and is the same class of protocol error.
+        const errno = error instanceof FSError
+          ? error.errno
+          : error instanceof RangeError
+            ? Errno.EINVAL
+            : Errno.EIO;
+        response.alloc(FuseOutHeader).value = {
+          len: FuseOutHeader.size,
+          error: -errno,
+          unique,
+        };
         scatter(buffers, response.array);
-        chain.release(16);
+        chain.release(FuseOutHeader.size);
       }
     }
   }
 
   return new VirtioController(
+    // 26 is the virtio-fs device ID.
     { deviceId: 26, config },
     { queues: [notify, notify], close: finalize },
   ).device;

@@ -39,19 +39,17 @@ export { blockDevice, type BlockDeviceStorage } from "./virtio/block.ts";
 export { type ConsoleDevice, consoleDevice } from "./virtio/console.ts";
 export { entropyDevice } from "./virtio/entropy.ts";
 export {
-  type VirtioFileSystem,
-  type VirtioFileSystemAttributes,
-  type VirtioFileSystemCreateContext,
-  type VirtioFileSystemDirectoryEntry,
-  type VirtioFileSystemDeviceOptions,
-  VirtioFileSystemError,
-  type VirtioFileSystemErrorCode,
-  type VirtioFileSystemHandle,
-  type VirtioFileSystemNode,
-  type VirtioFileSystemSetAttributes,
-  type VirtioFileSystemStat,
-  type VirtioFileSystemTimestamp,
-  virtioFileSystemDevice,
+  type FS,
+  type FSAttributes,
+  type FSCreateContext,
+  type FSDirectoryEntry,
+  type FSDeviceOptions,
+  FSError,
+  type FSErrorCode,
+  type FSSetAttributes,
+  type FSStat,
+  type FSTimestamp,
+  fileSystemDevice,
 } from "./virtio/fs.ts";
 export {
   type EthernetDevice,

@@ -295,9 +295,7 @@ export class VirtioController {
     const start_close = () => {
       if (close_promise) return close_promise;
       closed = true;
-      const completion = Promise.withResolvers<void>();
-      close_promise = completion.promise;
-      void (async () => {
+      close_promise = (async () => {
         let failure: PromiseRejectedResult | undefined;
         try {
           driver.stop?.();
@@ -312,7 +310,7 @@ export class VirtioController {
           failure ??= { status: "rejected", reason };
         }
         if (failure) throw failure.reason;
-      })().then(completion.resolve, completion.reject);
+      })();
       void close_promise.catch(() => {});
       return close_promise;
     };

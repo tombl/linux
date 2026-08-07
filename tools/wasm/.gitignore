@@ -2,6 +2,7 @@
 
 /.wrangler
 /dist
+/node_modules
 /npm-package
 /vmlinux.wasm
 *.tgz
