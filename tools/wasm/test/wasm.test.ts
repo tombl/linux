@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
+import { consoleDevice } from "../src/virtio/console.ts";
 import { ethernetNetwork } from "../src/virtio/net.ts";
 import {
   VirtioController,
@@ -163,6 +164,65 @@ test("closing an Ethernet network drops traffic from attached ports", async () =
   await sender.send(frame);
   assert.equal(received, 1);
   assert.throws(() => network.addPort(() => {}));
+});
+
+test("console input is held until the guest opens its port", async () => {
+  let input_controller!: ReadableStreamDefaultController<Uint8Array>;
+  const input = new ReadableStream<Uint8Array>({
+    start(controller) {
+      input_controller = controller;
+    },
+  });
+  const output: string[] = [];
+  const device = consoleDevice(
+    input,
+    new WritableStream({
+      write(chunk) {
+        output.push(new TextDecoder().decode(chunk));
+      },
+    }),
+  );
+  const delivered = Promise.withResolvers<void>();
+  const imports = virtio_imports({
+    memory,
+    devices: [device],
+    trigger_irq() {
+      delivered.resolve();
+    },
+    on_error(error) {
+      throw error;
+    },
+  });
+
+  // A packed vring with one receive descriptor (at 64, length 4) that is not
+  // yet available: the guest console port is not open.
+  const descriptor = new DataView(memory.buffer);
+  descriptor.setBigUint64(0, 64n, true);
+  descriptor.setUint32(8, 4, true);
+  descriptor.setUint16(12, 0, true);
+  descriptor.setUint16(14, 0, true);
+  imports.enable_vring(0, 0, 1, 0, 1);
+  imports.notify(0, 0);
+
+  // The host writes "hi" before the guest opens /dev/hvc0, and the input
+  // handler runs while the descriptor is still unavailable.
+  input_controller.enqueue(new TextEncoder().encode("hi"));
+  input_controller.close();
+  await Promise.resolve();
+
+  // The guest opens the console: the descriptor becomes AVAIL | WRITE and
+  // the device kicks the virtqueue.
+  descriptor.setUint16(14, (1 << 7) | (1 << 1), true);
+  imports.notify(0, 0);
+  const undelivered = new Promise((resolve) => setTimeout(resolve, 50));
+  await Promise.race([delivered.promise, undelivered]);
+
+  const buffer = new Uint8Array(memory.buffer, 64, 4);
+  assert.deepEqual(
+    [...buffer.slice(0, 2)],
+    [0x68, 0x69],
+    "input must be held until the console port opens",
+  );
 });
 
 test("virtio close drains active queue work before one-time cleanup", async () => {

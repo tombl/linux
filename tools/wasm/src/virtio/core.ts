@@ -45,7 +45,12 @@ export interface VirtqueueChain extends Iterable<VirtqueueBuffer> {
   release(written: number): void;
 }
 
-/** A virtqueue: iterate it to take the pending chains. */
+/**
+ * A virtqueue, as seen by a device handler: iterate it to take the chains
+ * the guest queued for this kick. Each kick needs a fresh iteration - an
+ * iterator is single-shot and stays exhausted once the ring is empty, so
+ * never hold one across an `await`.
+ */
 export interface Virtqueue extends Iterable<VirtqueueChain> {}
 
 class Chain implements VirtqueueChain {
@@ -230,7 +235,17 @@ export interface VirtioDeviceOptions {
   config?: Uint8Array;
 }
 
-/** Called when the guest driver notifies a virtqueue. */
+/**
+ * Called when the guest driver notifies a virtqueue, once per kick, and
+ * settled before the next kick is delivered: kicks that arrive while a call
+ * is settling are coalesced into one follow-up call. A handler must
+ * therefore never await guest activity - more chains, or another kick -
+ * because kicks only reach a settled handler. Host-side data that awaits
+ * guest buffers belongs in device state (JS-side queues, matched up as
+ * kicks arrive, as in `console.ts`); awaiting host-side I/O within a call
+ * is fine. Errors thrown or rejected here are reported to the machine's
+ * error handler.
+ */
 export type VirtqueueHandler = (
   queue: Virtqueue,
   controller: VirtioController,

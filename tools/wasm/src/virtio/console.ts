@@ -6,6 +6,7 @@ import {
   VirtioController,
   type VirtioDevice,
   type Virtqueue,
+  type VirtqueueChain,
 } from "./core.ts";
 
 const Features = {
@@ -48,39 +49,48 @@ export function consoleDevice(
   const config = new ConsoleConfig(config_bytes);
   config.columns = 80;
   config.rows = 24;
-  let writing: Promise<void> | undefined;
+  let pumping: Promise<void> | undefined;
   let reader_cancellation: Promise<void> | undefined;
   let writer_abortion: Promise<void> | undefined;
 
-  async function write_input(queue: Virtqueue) {
+  // Host input and guest receive buffers arrive independently, so keep both
+  // in JS-side queues and match them up in `flush_input` whenever either
+  // side gains something new: a guest kick stashes chains, a host chunk
+  // lands in the input queue. Input is held until the guest opens the
+  // console port instead of being dropped.
+  const receive_chains: VirtqueueChain[] = [];
+  const pending_input: Uint8Array[] = [];
+
+  function flush_input() {
+    while (receive_chains.length > 0 && pending_input.length > 0) {
+      const chain = receive_chains.shift()!;
+      const chunk = pending_input[0]!;
+      const [desc, trailing] = chain;
+      assert(desc && desc.writable, "receiver must be writable");
+      assert(!trailing, "too many descriptors");
+
+      const n = Math.min(chunk.byteLength, desc.array.byteLength);
+      desc.array.set(chunk.subarray(0, n));
+      chain.release(n);
+      if (n < chunk.byteLength) pending_input[0] = chunk.subarray(n);
+      else pending_input.shift();
+    }
+  }
+
+  async function pump_input() {
     assert(reader);
-    const queue_iter = queue[Symbol.iterator]();
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
-      let chunk = value;
-
-      while (chunk.length > 0) {
-        const chain = queue_iter.next().value;
-        if (!chain) {
-          console.warn("no more descriptors, dropping console input");
-          break;
-        }
-
-        const [desc, trailing] = chain;
-        assert(desc && desc.writable, "receiver must be writable");
-        assert(!trailing, "too many descriptors");
-
-        const n = Math.min(chunk.length, desc.array.byteLength);
-        desc.array.set(chunk.subarray(0, n));
-        chunk = chunk.subarray(n);
-        chain.release(n);
-      }
+      pending_input.push(value);
+      flush_input();
     }
   }
 
   function notify_input(queue: Virtqueue) {
-    return (writing ??= write_input(queue));
+    for (const chain of queue) receive_chains.push(chain);
+    flush_input();
+    pumping ??= pump_input().catch(console.error);
   }
 
   async function notify_output(queue: Virtqueue) {
