@@ -1,0 +1,131 @@
+--- a/kdrive/fbdev/fbdev.c
++++ b/kdrive/fbdev/fbdev.c
+@@ -26,6 +26,8 @@
+ #endif
+ #include "fbdev.h"
+ #include <sys/ioctl.h>
++#include <stdlib.h>
++#include <unistd.h>
+ 
+ #include <errno.h>
+ 
+@@ -33,6 +35,42 @@
+ 
+ const char *fbdevDevicePath = NULL;
+ 
++/* Wasm has no working mmap for /dev/fb0. Keep a malloc shadow of the
++ * framebuffer and flush it with pwrite. */
++static FbdevPriv *fbdevFlushPriv;
++
++static void fbdevFlushFramebuffer(FbdevPriv *priv)
++{
++	size_t len;
++	ssize_t wrote;
++
++	if (!priv || priv->fd < 0 || !priv->fb_base)
++		return;
++	len = (size_t)priv->fix.smem_len;
++	if (len == 0)
++		return;
++	wrote = pwrite(priv->fd, priv->fb_base, len, 0);
++	if (wrote < 0)
++		perror("fbdev: pwrite framebuffer");
++}
++
++static void
++fbdevFlushBlockHandler(pointer blockData, OSTimePtr pTimeout, pointer pReadmask)
++{
++	(void)blockData;
++	(void)pTimeout;
++	(void)pReadmask;
++	fbdevFlushFramebuffer(fbdevFlushPriv);
++}
++
++static void
++fbdevFlushWakeupHandler(pointer blockData, int result, pointer pReadmask)
++{
++	(void)blockData;
++	(void)result;
++	(void)pReadmask;
++}
++
+ static Bool fbdevMapFramebuffer(KdScreenInfo * screen);
+ 
+ static Bool fbdevInitialize(KdCardInfo * card, FbdevPriv * priv)
+@@ -63,18 +101,18 @@
+ 		return FALSE;
+ 	}
+ 
+-	priv->fb_base = (char *) mmap((caddr_t) NULL,
+-				     priv->fix.smem_len,
+-				     PROT_READ | PROT_WRITE,
+-				     MAP_SHARED, priv->fd, 0);
+-
+-	if (priv->fb_base == (char *) -1) {
+-		perror("ERROR: mmap framebuffer fails!");
++	/* Prefer malloc + pwrite: mmap of /dev/fb0 is unavailable on wasm. */
++	priv->fb_base = malloc(priv->fix.smem_len ? priv->fix.smem_len : 1);
++	if (!priv->fb_base) {
++		perror("ERROR: malloc framebuffer fails!");
+ 		close(priv->fd);
+ 		return FALSE;
+ 	}
+-	off = (unsigned long) priv->fix.smem_start % (unsigned long) getpagesize();
++	memset(priv->fb_base, 0, priv->fix.smem_len);
++	/* No mmap offset: the malloc buffer is the full smem_len window. */
++	off = 0;
+ 	priv->fb = priv->fb_base + off;
++	fbdevFlushPriv = priv;
+ 	return TRUE;
+ }
+ 
+@@ -317,11 +355,9 @@
+ 	KdMouseMatrix m;
+ 	FbdevPriv *priv = screen->card->driver;
+ 
+-	if (scrpriv->randr != RR_Rotate_0 ||
+-		priv->fix.type != FB_TYPE_PACKED_PIXELS)
+-		scrpriv->shadow = TRUE;
+-	else
+-		scrpriv->shadow = FALSE;
++	/* Always use the shadow path so updates land in our malloc buffer
++	 * and can be flushed with pwrite. */
++	scrpriv->shadow = TRUE;
+ 
+ 	KdComputeMouseMatrix(&m, scrpriv->randr, screen->width, screen->height);
+ 
+@@ -642,6 +678,9 @@
+ 	FbdevPriv *priv = pScreenPriv->card->driver;
+ 	int k;
+ 
++	fbdevFlushPriv = priv;
++	RegisterBlockAndWakeupHandlers(fbdevFlushBlockHandler,
++				       fbdevFlushWakeupHandler, 0);
+ 	priv->var.activate = FB_ACTIVATE_NOW | FB_CHANGE_CMAP_VBL;
+ 
+ 	/* display it on the LCD */
+@@ -696,6 +735,12 @@
+ 
+ void fbdevDisable(ScreenPtr pScreen)
+ {
++	KdScreenPriv(pScreen);
++	FbdevPriv *priv = pScreenPriv->card->driver;
++
++	fbdevFlushFramebuffer(priv);
++	RemoveBlockAndWakeupHandlers(fbdevFlushBlockHandler,
++				     fbdevFlushWakeupHandler, 0);
+ }
+ 
+ void fbdevRestore(KdCardInfo * card)
+@@ -710,7 +755,10 @@
+ {
+ 	FbdevPriv *priv = card->driver;
+ 
+-	munmap(priv->fb_base, priv->fix.smem_len);
++	if (fbdevFlushPriv == priv)
++		fbdevFlushPriv = NULL;
++	free(priv->fb_base);
++	priv->fb_base = NULL;
+ 	close(priv->fd);
+ 	free(priv);
+ }

@@ -1,0 +1,172 @@
+--- a/kdrive/linux/linux.c
++++ b/kdrive/linux/linux.c
+@@ -68,47 +68,43 @@
+ 
+ static int LinuxInit(void)
+ {
+-	int fd = -1;
+ 	LinuxApmFd = -1;
+-	char vtname[11];
++	char vtname[32];
+ 	struct vt_stat vts;
++	static const char *candidates[] = {
++		"/dev/hvc0",
++		"/dev/console",
++		"/dev/tty",
++		NULL
++	};
++	int i;
+ 
+ 	LinuxConsoleFd = -1;
+-	/* check if we're run with euid==0 */
+-	if (geteuid() != 0) {
+-		FatalError("LinuxInit: Server must be suid root\n");
+-	}
++	/* Wasm guests have no /dev/tty0 VT layer. Prefer hvc/console. */
++	vtno = kdVirtualTerminal >= 0 ? kdVirtualTerminal : 1;
+ 
+-	if (kdVirtualTerminal >= 0)
+-		vtno = kdVirtualTerminal;
+-	else {
+-		if ((fd = open("/dev/tty0", O_WRONLY, 0)) < 0) {
+-			FatalError("LinuxInit: Cannot open /dev/tty0 (%s)\n",
+-				   strerror(errno));
+-		}
+-		if ((ioctl(fd, VT_OPENQRY, &vtno) < 0) || (vtno == -1)) {
+-			FatalError("xf86OpenConsole: Cannot find a free VT\n");
++	for (i = 0; candidates[i]; i++) {
++		LinuxConsoleFd = open(candidates[i], O_RDWR | O_NDELAY, 0);
++		if (LinuxConsoleFd >= 0) {
++			snprintf(vtname, sizeof(vtname), "%s", candidates[i]);
++			break;
+ 		}
+ 	}
+-	close(fd);
+-
+-	sprintf(vtname, "/dev/tty%d", vtno);	/* /dev/tty1-64 */
+-
+-	if ((LinuxConsoleFd = open(vtname, O_RDWR | O_NDELAY, 0)) < 0) {
+-		FatalError("LinuxInit: Cannot open %s (%s)\n",
+-			   vtname, strerror(errno));
++	if (LinuxConsoleFd < 0) {
++		/* Last resort: stdin/stdout when they are ttys. */
++		if (isatty(0))
++			LinuxConsoleFd = dup(0);
++		else if (isatty(1))
++			LinuxConsoleFd = dup(1);
++		snprintf(vtname, sizeof(vtname), "stdin/stdout");
++	}
++	if (LinuxConsoleFd < 0) {
++		ErrorF("LinuxInit: no console device (hvc0/console); continuing without VT\n");
++		return 1;
+ 	}
+ 
+ 	/* change ownership of the vt */
+ 	LinuxCheckChown(vtname);
+-
+-	/*
+-	 * the current VT device we're running on is not "console", we want
+-	 * to grab all consoles too
+-	 *
+-	 * Why is this needed?
+-	 */
+-	LinuxCheckChown("/dev/tty0");
+ 	/*
+ 	 * Linux doesn't switch to an active vt after the last close of a vt,
+ 	 * so we do this ourselves by remembering which is active now.
+@@ -116,6 +112,8 @@
+ 	memset(&vts, '\0', sizeof(vts));	/* valgrind */
+ 	if (ioctl(LinuxConsoleFd, VT_GETSTATE, &vts) == 0) {
+ 		activeVT = vts.v_active;
++	} else {
++		activeVT = -1;
+ 	}
+ 
+ 	return 1;
+@@ -126,8 +124,12 @@
+ 	struct sigaction act;
+ 	struct vt_mode VT;
+ 
++	if (LinuxConsoleFd < 0)
++		return;
++
+ 	if (ioctl(LinuxConsoleFd, VT_GETMODE, &VT) < 0) {
+-		FatalError("LinuxInit: VT_GETMODE failed\n");
++		/* No VT support (hvc/console): ignore. */
++		return;
+ 	}
+ 
+ 	if (mode == VT_PROCESS) {
+@@ -150,7 +152,7 @@
+ 		VT.acqsig = 0;
+ 	}
+ 	if (ioctl(LinuxConsoleFd, VT_SETMODE, &VT) < 0) {
+-		FatalError("LinuxInit: VT_SETMODE failed\n");
++		return;
+ 	}
+ }
+ 
+@@ -209,6 +211,10 @@
+ 
+ static void LinuxEnable(void)
+ {
++	if (LinuxConsoleFd < 0) {
++		enabled = TRUE;
++		return;
++	}
+ 	if (enabled)
+ 		return;
+ 	if (kdSwitchPending) {
+@@ -235,14 +241,14 @@
+ 	 */
+ 	LinuxSetSwitchMode(VT_AUTO);
+ 	if (ioctl(LinuxConsoleFd, VT_ACTIVATE, vtno) != 0) {
+-		FatalError("LinuxInit: VT_ACTIVATE failed\n");
++		ErrorF("LinuxInit: VT_ACTIVATE skipped (%s)\n", strerror(errno));
+ 	}
+ 	if (ioctl(LinuxConsoleFd, VT_WAITACTIVE, vtno) != 0) {
+-		FatalError("LinuxInit: VT_WAITACTIVE failed\n");
++		ErrorF("LinuxInit: VT_WAITACTIVE skipped (%s)\n", strerror(errno));
+ 	}
+ 	LinuxSetSwitchMode(VT_PROCESS);
+ 	if (ioctl(LinuxConsoleFd, KDSETMODE, KD_GRAPHICS) < 0) {
+-		FatalError("LinuxInit: KDSETMODE KD_GRAPHICS failed\n");
++		ErrorF("LinuxInit: KDSETMODE skipped (%s)\n", strerror(errno));
+ 	}
+ 	enabled = TRUE;
+ }
+@@ -266,6 +272,8 @@
+ 
+ static void LinuxDisable(void)
+ {
++	if (LinuxConsoleFd < 0)
++		return;
+ 	ioctl(LinuxConsoleFd, KDSETMODE, KD_TEXT);	/* Back to text mode ... */
+ 	if (kdSwitchPending) {
+ 		kdSwitchPending = FALSE;
+@@ -284,7 +292,6 @@
+ {
+ 	struct vt_mode VT;
+ 	struct vt_stat vts;
+-	int fd;
+ 
+ 	if (LinuxConsoleFd < 0)
+ 		return;
+@@ -320,16 +327,7 @@
+ 		}
+ 	}
+ 	close(LinuxConsoleFd);	/* make the vt-manager happy */
+-	fd = open("/dev/tty0", O_RDWR | O_NDELAY, 0);
+-	if (fd >= 0) {
+-		memset(&vts, '\0', sizeof(vts));	/* valgrind */
+-		ioctl(fd, VT_GETSTATE, &vts);
+-		if (ioctl(fd, VT_DISALLOCATE, vtno) < 0)
+-			fprintf(stderr,
+-				"Can't deallocate console %d errno %d\n", vtno,
+-				errno);
+-		close(fd);
+-	}
++	LinuxConsoleFd = -1;
+ 	return;
+ }
+ 
