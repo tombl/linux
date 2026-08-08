@@ -1,7 +1,9 @@
 {
   pkgs,
   stdenv,
+  lib,
   xorgproto,
+  xtrans,
   libXfont,
   libfontenc,
   zlib,
@@ -30,10 +32,13 @@ stdenv.mkDerivation {
     pkgs.bison
     pkgs.libtool
     pkgs.util-macros
+    # Provides share/aclocal/xtrans.m4 (XTRANS_CONNECTION_FLAGS).
+    xtrans
   ];
 
   buildInputs = [
     xorgproto
+    xtrans
     libXfont
     libfontenc
     zlib
@@ -58,7 +63,14 @@ stdenv.mkDerivation {
   '';
 
   # Static link the font stack into Xfbdev.
-  env.NIX_LDFLAGS = "-lXfont -lfontenc -lz";
+  env.NIX_LDFLAGS = lib.concatStringsSep " " [
+    "-L${libXfont}/lib"
+    "-L${libfontenc}/lib"
+    "-L${zlib}/lib"
+    "-lXfont"
+    "-lfontenc"
+    "-lz"
+  ];
 
   meta = {
     description = "TinyX / Xfbdev server for the wasm framebuffer";

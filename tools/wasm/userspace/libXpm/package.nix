@@ -15,7 +15,11 @@ stdenv.mkDerivation {
   version = "3.5.19";
   inherit src;
 
-  nativeBuildInputs = [ pkgs.pkg-config ];
+  nativeBuildInputs = [
+    pkgs.pkg-config
+    # cxpm.po / message catalogs need xgettext during `make all`.
+    pkgs.gettext
+  ];
   buildInputs = [
     xorgproto
     libX11

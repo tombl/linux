@@ -1,6 +1,7 @@
 {
   pkgs,
   stdenv,
+  lib,
   ncurses,
   xorgproto,
   libX11,
@@ -11,6 +12,8 @@
   libXpm,
   libSM,
   libICE,
+  libxcb,
+  libXau,
   src ? pkgs.fetchurl {
     urls = [
       "https://invisible-island.net/archives/xterm/xterm-410.tgz"
@@ -25,6 +28,8 @@ stdenv.mkDerivation {
   version = "410";
   inherit src;
 
+  patches = [ ../patches/xterm-posix-spawn.patch ];
+
   nativeBuildInputs = [ pkgs.pkg-config ];
 
   buildInputs = [
@@ -38,6 +43,8 @@ stdenv.mkDerivation {
     libXpm
     libSM
     libICE
+    libxcb
+    libXau
   ];
 
   configureFlags = [
@@ -49,13 +56,37 @@ stdenv.mkDerivation {
     "--enable-256-color"
     "--disable-sixel-graphics"
     "--disable-regis-graphics"
+    # fork()-based parent/child pty negotiation cannot work on wasm32-linux.
+    "--disable-pty-handshake"
     "--with-app-defaults=$(out)/lib/X11/app-defaults"
   ];
 
-  # Force the static Athena widget stack onto the final link.
   env = {
     NIX_CFLAGS_COMPILE = "-D_GNU_SOURCE";
-    NIX_LDFLAGS = "-lXaw -lXmu -lXt -lSM -lICE -lXpm -lXext -lX11 -lncursesw";
+    NIX_LDFLAGS = lib.concatStringsSep " " [
+      "-L${libXaw}/lib"
+      "-L${libXmu}/lib"
+      "-L${libXt}/lib"
+      "-L${libSM}/lib"
+      "-L${libICE}/lib"
+      "-L${libXpm}/lib"
+      "-L${libXext}/lib"
+      "-L${libX11}/lib"
+      "-L${libxcb}/lib"
+      "-L${libXau}/lib"
+      "-L${ncurses}/lib"
+      "-lXaw"
+      "-lXmu"
+      "-lXt"
+      "-lSM"
+      "-lICE"
+      "-lXpm"
+      "-lXext"
+      "-lX11"
+      "-lxcb"
+      "-lXau"
+      "-lncursesw"
+    ];
   };
 
   enableParallelBuilding = true;

@@ -1,0 +1,133 @@
+diff -ruN a/button.c b/button.c
+--- a/button.c	2026-04-07 10:54:25.000000000 +0000
++++ b/button.c	2026-08-08 19:40:00.850387074 +0000
+@@ -6145,7 +6145,7 @@
+ 	    TRACE(("   argv[%d] = %s\n", n, argv[n]));
+ 	}
+ #endif
+-	if (fork() == 0) {
++	if (0) {
+ 	    if (child_cwd) {
+ 		IGNORE_RC(chdir(child_cwd));	/* We don't care if this fails */
+ 	    }
+diff -ruN a/main.c b/main.c
+--- a/main.c	2026-04-07 19:22:45.000000000 +0000
++++ b/main.c	2026-08-08 19:40:00.846386957 +0000
+@@ -109,6 +109,8 @@
+ #endif /* OPT_TOOLBAR */
+ 
+ #include <pwd.h>
++#include <spawn.h>
++#include <errno.h>
+ #include <ctype.h>
+ 
+ #include <data.h>
+@@ -4410,11 +4412,54 @@
+ 	if (resource.ptyHandshake && (pipe(pc_pipe) || pipe(cp_pipe)))
+ 	    SysError(ERROR_FORK);
+ #endif
+-	TRACE(("Forking...\n"));
+-	if ((screen->pid = fork()) == -1)
+-	    SysError(ERROR_FORK);
++	/* wasm32-linux: no fork(); posix_spawnp onto the pty slave. */
++	{
++	    posix_spawn_file_actions_t actions;
++	    posix_spawnattr_t attr;
++	    char **child_argv;
++	    char *fallback_argv[2];
++	    const char *slave_name = ttydev;
++	    int rc;
++
++	    if (command_to_exec && command_to_exec[0]) {
++		child_argv = command_to_exec;
++	    } else {
++		fallback_argv[0] = (char *) "/bin/sh";
++		fallback_argv[1] = NULL;
++		child_argv = fallback_argv;
++	    }
++
++	    if (posix_spawn_file_actions_init(&actions) != 0)
++		SysError(ERROR_FORK);
++	    if (posix_spawnattr_init(&attr) != 0)
++		SysError(ERROR_FORK);
++#ifdef POSIX_SPAWN_SETSID
++	    IGNORE_RC(posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID));
++#endif
++	    if (posix_spawn_file_actions_addopen(&actions, 0, slave_name,
++						 O_RDWR, 0) != 0
++		|| posix_spawn_file_actions_adddup2(&actions, 0, 1) != 0
++		|| posix_spawn_file_actions_adddup2(&actions, 0, 2) != 0)
++		SysError(ERROR_FORK);
++	    if (screen->respond >= 0)
++		IGNORE_RC(posix_spawn_file_actions_addclose(&actions,
++							    screen->respond));
++	    if (screen->display)
++		IGNORE_RC(posix_spawn_file_actions_addclose(&actions,
++							    ConnectionNumber(screen->display)));
++
++	    TRACE(("posix_spawnp %s on %s\n", child_argv[0], slave_name));
++	    rc = posix_spawnp(&screen->pid, child_argv[0], &actions, &attr,
++			     child_argv, environ);
++	    posix_spawn_file_actions_destroy(&actions);
++	    posix_spawnattr_destroy(&attr);
++	    if (rc != 0) {
++		errno = rc;
++		SysError(ERROR_FORK);
++	    }
++	}
+ 
+-	if (screen->pid == 0) {
++	if (0) {			/* original fork-child body kept for reference */
+ #ifdef USE_USG_PTYS
+ 	    int ptyfd = -1;
+ 	    char *pty_name;
+diff -ruN a/misc.c b/misc.c
+--- a/misc.c	2026-04-07 23:33:31.000000000 +0000
++++ b/misc.c	2026-08-08 19:40:00.854387192 +0000
+@@ -59,6 +59,7 @@
+ 
+ #include <sys/stat.h>
+ #include <stdio.h>
++#include <errno.h>
+ #include <stdarg.h>
+ #include <signal.h>
+ #include <ctype.h>
+@@ -1147,7 +1148,7 @@
+     child_cwd = ProcGetCWD(screen->pid);
+ 
+     /* The reaper will take care of cleaning up the child */
+-    pid = fork();
++    pid = -1; errno = ENOSYS;
+     if (pid == -1) {
+ 	xtermWarning("Could not fork: %s\n", SysErrorMsg(errno));
+     } else if (!pid) {
+@@ -2243,7 +2244,7 @@
+ 	return (fd >= 0);
+     }
+ 
+-    pid = fork();
++    pid = -1; errno = ENOSYS;
+     switch (pid) {
+     case 0:			/* child */
+ 	if (setgid(gid) == -1
+@@ -2376,7 +2377,7 @@
+     if (pipe(p) < 0) {
+ 	xtermPerror("Can't make a pipe connection\n");
+ 	return;
+-    } else if ((pid = fork()) < 0) {
++    } else if ((errno = ENOSYS), (pid = -1), 1) {
+ 	xtermPerror("Can't fork...\n");
+ 	return;
+     }
+diff -ruN a/print.c b/print.c
+--- a/print.c	2026-04-07 23:12:06.000000000 +0000
++++ b/print.c	2026-08-08 19:40:00.850387074 +0000
+@@ -423,7 +423,7 @@
+ 
+ 		if (pipe(my_pipe))
+ 		    SysError(ERROR_FORK);
+-		if ((my_pid = fork()) < 0)
++		if ((my_pid = -1), 1)
+ 		    SysError(ERROR_FORK);
+ 
+ 		if (my_pid == 0) {
