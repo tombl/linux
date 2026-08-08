@@ -1,0 +1,19 @@
+# Upstream fix for tombl/distro packages/stdenv.nix — wire libc++ into the
+# wasm cc-wrapper when useCcForLibs=false. Without this, C++ packages such as
+# p7zip fail with `#include <new>` / missing libc++.
+#
+# Apply against a distro checkout:
+#   patch -p1 < tools/wasm/userspace/patches/distro-stdenv-libcxx.patch
+#
+--- a/packages/stdenv.nix
++++ b/packages/stdenv.nix
+@@ -33,6 +33,11 @@ let
+     gccForLibs = null;
+     extraBuildCommands = ''
+       echo "--sysroot=${sysroot} ${toString platform.compilerFlags}" >> $out/nix-support/cc-cflags
++      # useCcForLibs=false skips nixpkgs' libc++ wiring; point clang++ at the
++      # wasm sysroot's libc++ (target __config_site first, then the headers).
++      echo "-stdlib=libc++ -isystem ${sysroot}/include/${platform.multiarchTriple}/c++/v1 -isystem ${sysroot}/include/c++/v1" > $out/nix-support/libcxx-cxxflags
++      echo "-stdlib=libc++ -lc++ -lc++abi" > $out/nix-support/libcxx-ldflags
+     '';
+   };
