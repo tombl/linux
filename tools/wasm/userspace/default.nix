@@ -10,6 +10,7 @@ wasmpkgs.overrideScope (
   final: _prev: {
     htop = final.callPackage ./htop/package.nix { };
     p7zip = final.callPackage ./p7zip/package.nix { };
+    fbtest = final.callPackage ./fbtest/package.nix { };
 
     # X11 protocol / transport (libX11 still needs a static libxcb).
     xorgproto = final.callPackage ./xorgproto/package.nix { };

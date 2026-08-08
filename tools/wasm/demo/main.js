@@ -1,4 +1,4 @@
-// Demo boot: canvas framebuffer + virtio console/input + GUI rootfs when present.
+// Demo boot: canvas framebuffer + virtio console/input + smoke/GUI rootfs.
 import {
   spawnMachine,
   consoleDevice,
@@ -42,9 +42,8 @@ function mapKey(ev) {
   return null;
 }
 
-async function loadRootfs() {
-  // Prefer a locally built GUI rootfs; fall back to a tiny probe image later.
-  for (const url of ["./rootfs.ext4", "/rootfs.ext4"]) {
+async function loadBytes(urls) {
+  for (const url of urls) {
     try {
       const res = await fetch(url);
       if (res.ok) return new Uint8Array(await res.arrayBuffer());
@@ -58,7 +57,14 @@ async function loadRootfs() {
 bootBtn.addEventListener("click", async () => {
   bootBtn.disabled = true;
   status.textContent = "booting…";
-  const rootfs = await loadRootfs();
+  const initramfs = await loadBytes([
+    "./initramfs.cpio",
+    "/demo/initramfs.cpio",
+  ]);
+  const rootfs = initramfs
+    ? null
+    : await loadBytes(["./rootfs.ext4", "/demo/rootfs.ext4"]);
+
   const input = new TransformStream();
   const output = new TransformStream();
   const keyboard = inputDevice({ name: "wasm keyboard" });
@@ -76,7 +82,7 @@ bootBtn.addEventListener("click", async () => {
     keyboard.key(code, false);
   });
   canvas.addEventListener("mousemove", (ev) => {
-    if (ev.buttons || ev.movementX || ev.movementY) {
+    if (ev.movementX || ev.movementY) {
       keyboard.move(ev.movementX | 0, ev.movementY | 0);
     }
   });
@@ -104,7 +110,7 @@ bootBtn.addEventListener("click", async () => {
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
-      log(dec.decode(value, { stream: true }));
+      log(dec.decode(new Uint8Array(value), { stream: true }));
     }
   })();
 
@@ -112,16 +118,28 @@ bootBtn.addEventListener("click", async () => {
     const machine = await spawnMachine({
       cpus: Math.min(2, navigator.hardwareConcurrency || 2),
       cmdline: rootfs
-        ? "root=/dev/vda rootfstype=ext4 rw init=/init"
-        : undefined,
+        ? "root=/dev/vda rootfstype=ext4 rw rootwait init=/init"
+        : "rdinit=/init",
+      initcpio: initramfs ?? undefined,
       devices,
       framebuffer: { canvas, width: 1024, height: 768, bpp: 32 },
     });
-    status.textContent = rootfs
-      ? "running (GUI rootfs)"
-      : "running (no rootfs — framebuffer probe only)";
+    status.textContent = initramfs
+      ? "running (initramfs smoke)"
+      : rootfs
+      ? "running (ext4 rootfs)"
+      : "running (no userspace image)";
     canvas.focus();
     log("[host] machine started");
+    const bootReader = machine.bootConsole.getReader();
+    (async () => {
+      const dec = new TextDecoder();
+      for (;;) {
+        const { value, done } = await bootReader.read();
+        if (done) break;
+        log(dec.decode(new Uint8Array(value), { stream: true }));
+      }
+    })();
     machine.closed.catch((err) => {
       status.textContent = `stopped: ${err}`;
       log(String(err));

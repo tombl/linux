@@ -15,14 +15,21 @@ stdenv.mkDerivation {
   version = "3.3.0";
   inherit src;
 
-  patches = [ ../patches/htop-no-fork.patch ];
-
   nativeBuildInputs = [
     pkgs.autoreconfHook
     pkgs.pkg-config
   ];
 
   buildInputs = [ ncurses ];
+
+  # wasm32-linux has no fork(); helper screens that spawn tools fail closed.
+  postPatch = ''
+    for f in OpenFilesScreen.c TraceScreen.c linux/SystemdMeter.c; do
+      substituteInPlace "$f" \
+        --replace-fail 'pid_t child = fork();' \
+        'pid_t child = -1;'
+    done
+  '';
 
   # Static guest binary: no sensors/hwloc/capabilities/delayacct, and no
   # openvz/vserver probes that pull optional Linux features we do not ship.
@@ -41,7 +48,4 @@ stdenv.mkDerivation {
     "--disable-pcp"
     "--disable-unwind"
   ];
-
-  # setupterm() needs a large stack on this target; the stdenv linker flags
-  # already set 8 MiB, which matches the ncurses port notes.
 }

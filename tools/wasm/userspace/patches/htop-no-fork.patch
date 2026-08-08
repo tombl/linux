@@ -1,17 +1,23 @@
 --- a/OpenFilesScreen.c
 +++ b/OpenFilesScreen.c
-@@ -106,6 +106,14 @@
+@@ -106,6 +106,13 @@
        return pdata;
     }
  
-+#if defined(__wasm__)
-+   /* wasm32-linux has no fork(); skip the lsof helper process. */
++#if 1 /* wasm32-linux: no fork(); disable lsof helper */
 +   close(fdpair[1]);
 +   close(fdpair[0]);
 +   pdata->error = 1;
 +   return pdata;
-+#endif
-+
++#else
     pid_t child = fork();
     if (child == -1) {
        close(fdpair[1]);
+@@ -160,6 +167,7 @@
+ 
+    return pdata;
+ }
++#endif
+ 
+ void OpenFilesScreen_fixItem(Panel* this, ListItem* item) {
+    assert(Object_isA((Object*) item, (const ObjectClass*) &ListItem_class));
