@@ -95,6 +95,7 @@ class PackedVirtqueue implements Virtqueue {
   #used_wrap = true;
   #used_idx = 0;
   #avail_idx = 0;
+  #valid = true;
 
   constructor(
     memory: WebAssembly.Memory,
@@ -107,6 +108,10 @@ class PackedVirtqueue implements Virtqueue {
     this.#size = size;
     this.#desc_addr = desc_addr;
     this.#on_release = on_release;
+  }
+
+  invalidate() {
+    this.#valid = false;
   }
 
   #descriptor(index: number) {
@@ -175,7 +180,7 @@ class PackedVirtqueue implements Virtqueue {
 
   *[Symbol.iterator]() {
     let chain;
-    while ((chain = this.#pop())) yield chain;
+    while (this.#valid && (chain = this.#pop())) yield chain;
   }
 
   #advance() {
@@ -195,6 +200,8 @@ class PackedVirtqueue implements Virtqueue {
   }
 
   #release(id: number, skip: number, written: number) {
+    if (!this.#valid) return;
+
     const desc = VirtqDescriptor.get(
       new DataView(this.#memory.buffer),
       this.#desc_addr + VirtqDescriptor.size * this.#used_idx,
@@ -255,6 +262,8 @@ export type VirtqueueHandler = (
 export interface VirtioDriver {
   /** One handler per virtqueue. */
   readonly queues: readonly VirtqueueHandler[];
+  /** Drops guest-owned protocol state when the guest resets the device. */
+  reset?(): void;
   /** Synchronously starts cancellation needed to unblock queue handlers. */
   stop?(): void;
   /** Called after in-flight queue handlers settle when the device is closed. */
@@ -270,6 +279,7 @@ interface TransportDevice {
     raise_config: RaiseConfigInterrupt,
   ): void;
   notify(vq: number, queue: Virtqueue): void | PromiseLike<void>;
+  reset(): void;
   close(): Promise<void>;
 }
 
@@ -370,6 +380,10 @@ export class VirtioController {
         return completion.promise;
       },
 
+      reset: () => {
+        if (!closed) driver.reset?.();
+      },
+
       close: start_close,
     };
     const device = {} as VirtioDevice;
@@ -399,7 +413,7 @@ export class VirtioController {
 }
 
 interface VirtqueueState {
-  queue: Virtqueue | undefined;
+  queue: PackedVirtqueue | undefined;
   /** A kernel notification arrived while its previous handler was in flight. */
   pending: boolean;
   notifying: boolean;
@@ -478,6 +492,7 @@ export function virtio_imports({
       const device = states[dev];
       assert(device);
       const state = queue_state(device, vq);
+      state.queue?.invalidate();
       // Interrupt once per synchronous batch of released chains.
       let armed = false;
       const queue: PackedVirtqueue = new PackedVirtqueue(
@@ -500,8 +515,21 @@ export function virtio_imports({
       const device = states[dev];
       assert(device);
       const state = device.queues[vq];
-      assert(state?.queue);
+      state?.queue?.invalidate();
+      if (!state) return;
       state.queue = undefined;
+      state.pending = false;
+    },
+    reset(dev) {
+      const device = states[dev];
+      assert(device);
+      for (const state of device.queues) {
+        if (!state) continue;
+        state.queue?.invalidate();
+        state.queue = undefined;
+        state.pending = false;
+      }
+      device.device.reset();
     },
 
     setup(dev, config_irq, config_addr, config_len) {
