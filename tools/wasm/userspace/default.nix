@@ -33,6 +33,7 @@ wasmpkgs.overrideScope (
     libfontenc = final.callPackage ./libfontenc/package.nix { };
     libXfont = final.callPackage ./libXfont/package.nix { };
     font-misc-misc = final.callPackage ./font-misc-misc/package.nix { };
+    font-cursor-misc = final.callPackage ./font-cursor-misc/package.nix { };
 
     tinyx = final.callPackage ./tinyx/package.nix { };
     xterm = final.callPackage ./xterm/package.nix { };

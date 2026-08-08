@@ -25,4 +25,12 @@ stdenv.mkDerivation {
   configureFlags = [
     "--with-fontrootdir=$(out)/share/fonts/X11"
   ];
+
+  # Upstream ships no fonts.alias; X servers look up the short name "fixed".
+  postInstall = ''
+    cat > $out/share/fonts/X11/misc/fonts.alias <<'EOF'
+fixed        -misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1
+variable     -misc-fixed-medium-r-normal--13-120-75-75-c-80-iso8859-1
+EOF
+  '';
 }

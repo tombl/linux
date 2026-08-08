@@ -25,7 +25,9 @@ if [ -d /share/fonts/X11/misc ]; then
 fi
 
 # Framebuffer TinyX server, then an xterm running htop.
-Xfbdev :0 -ac -screen 1024x768x32 -nolisten tcp &
+# Explicit -fp: fonts live under /share/fonts/X11/{misc,cursor}.
+Xfbdev :0 -ac -screen 1024x768x32 -nolisten tcp \
+  -fp /share/fonts/X11/misc,/share/fonts/X11/cursor &
 xpid=$!
 
 # Wait briefly for the server socket under /tmp/.X11-unix.

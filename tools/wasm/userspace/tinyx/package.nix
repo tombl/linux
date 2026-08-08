@@ -69,7 +69,7 @@ stdenv.mkDerivation {
     # we only ship xorgproto's dpmsproto.h, so leave DPMS out.
     "--disable-dpms"
     "--with-fontdir=/share/fonts/X11"
-    "--with-default-font-path=/share/fonts/X11/misc"
+    "--with-default-font-path=/share/fonts/X11/misc,/share/fonts/X11/cursor"
   ];
 
   # Reinforcing the platform site file: TinyX probes mmap for Xvfb paths.

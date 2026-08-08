@@ -8,6 +8,7 @@
   tinyx,
   xterm,
   font-misc-misc,
+  font-cursor-misc,
   ncurses,
   image,
   pkgs,
@@ -27,6 +28,7 @@ let
         tinyx
         xterm
         font-misc-misc
+        font-cursor-misc
         ncurses
         ;
     };
@@ -44,6 +46,7 @@ let
       tinyx
       xterm
       font-misc-misc
+      font-cursor-misc
       ncurses
     ];
     files = {
