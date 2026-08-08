@@ -197,6 +197,7 @@ export interface Imports {
       config_addr: number,
       config_len: number,
     ): void;
+    reset(dev: number): void;
 
     enable_vring(
       dev: number,

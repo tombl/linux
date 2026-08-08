@@ -552,6 +552,7 @@ function start({
     virtio: {
       set_features: unavailable,
       setup: unavailable,
+      reset: unavailable,
       enable_vring: unavailable,
       disable_vring: unavailable,
       notify: unavailable,

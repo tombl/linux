@@ -112,9 +112,20 @@ static void vw_set_status(struct virtio_device *vdev, u8 status)
 				 !!(status & VIRTIO_CONFIG_S_FEATURES_OK));
 	}
 }
+
+/* The callback may run after vw_reset() returns, so pass the host id by value. */
+static void _reset(void *arg)
+{
+	wasm_virtio_reset((uintptr_t)arg);
+}
+
 static void vw_reset(struct virtio_device *vdev)
 {
+	struct virtio_wasm_device *vw_dev = to_virtio_wasm_device(vdev);
+	u32 host_id = vw_dev->host_id;
+
 	vw_set_status(vdev, 0);
+	wasm_kernel_run_on_main(_reset, (void *)(uintptr_t)host_id);
 }
 
 /*
