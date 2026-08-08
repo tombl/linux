@@ -1524,7 +1524,7 @@ static void __init do_initcalls(void)
 		panic("%s: Failed to allocate %zu bytes\n", __func__, len);
 
 #ifdef CONFIG_WASM
-	for (level = 0; level < ARRAY_SIZE(initcall_level_names) - 1; level++) {
+	for (level = 0; level < ARRAY_SIZE(initcall_level_names); level++) {
 #else
 	for (level = 0; level < ARRAY_SIZE(initcall_levels) - 1; level++) {
 #endif
