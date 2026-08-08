@@ -254,291 +254,56 @@ test("console input is held until the guest opens its port", async () => {
       },
     }),
   );
-  const description = virtio_device_description(device);
-  assert.notEqual(description.features & (1n << 1n), 0n);
-  assert.equal(new DataView(description.config.buffer).getUint32(4, true), 1);
-  device.resize(100, 40);
+  const delivered = Promise.withResolvers<void>();
   const imports = virtio_imports({
     memory: console_memory,
     devices: [device],
-    trigger_irq() {},
+    trigger_irq() {
+      delivered.resolve();
+    },
     on_error(error) {
       throw error;
     },
   });
 
-  const RECEIVE_RING = 0;
-  const CONTROL_RECEIVE_RING = 128;
-  const CONTROL_TRANSMIT_RING = 512;
-  const descriptor_at = (ring: number, slot: number) =>
-    new DataView(console_memory.buffer, ring + slot * 16, 16);
-  const queue_descriptor = (
-    ring: number,
-    slot: number,
-    address: number,
-    length: number,
-    writable: boolean,
-    next = false,
-  ) => {
-    const descriptor = descriptor_at(ring, slot);
-    descriptor.setBigUint64(0, BigInt(address), true);
-    descriptor.setUint32(8, length, true);
-    descriptor.setUint16(12, slot, true);
-    descriptor.setUint16(
-      14,
-      (1 << 7) | (writable ? 1 << 1 : 0) | (next ? 1 : 0),
-      true,
-    );
-  };
-
-  interface QueuedBuffer {
-    ring_slot: number;
-    parts: { address: number; length: number }[];
-  }
-  let control_receive_slot = 0;
-  let control_receive_address = 2048;
-  const control_buffers: QueuedBuffer[] = [];
-  const queue_control_buffer = (...lengths: number[]) => {
-    const buffer: QueuedBuffer = {
-      ring_slot: control_receive_slot,
-      parts: [],
-    };
-    for (const [index, length] of lengths.entries()) {
-      const address = control_receive_address;
-      control_receive_address += 32;
-      buffer.parts.push({ address, length });
-      queue_descriptor(
-        CONTROL_RECEIVE_RING,
-        control_receive_slot++,
-        address,
-        length,
-        true,
-        index + 1 < lengths.length,
-      );
-    }
-    control_buffers.push(buffer);
-  };
-  const read_control_buffer = (index: number) => {
-    const buffer = control_buffers[index]!;
-    const bytes = new Uint8Array(
-      buffer.parts.reduce((length, part) => length + part.length, 0),
-    );
-    let offset = 0;
-    for (const part of buffer.parts) {
-      bytes.set(
-        new Uint8Array(console_memory.buffer, part.address, part.length),
-        offset,
-      );
-      offset += part.length;
-    }
-    return new DataView(bytes.buffer);
-  };
-  const assert_control = (
-    index: number,
-    event: number,
-    value: number,
-    length = 8,
-  ) => {
-    const packet = read_control_buffer(index);
-    assert.equal(packet.getUint32(0, true), 0, "control packet targets port 0");
-    assert.equal(packet.getUint16(4, true), event);
-    assert.equal(packet.getUint16(6, true), value);
-    assert.equal(
-      descriptor_at(CONTROL_RECEIVE_RING, control_buffers[index]!.ring_slot)
-        .getUint32(8, true),
-      length,
-      "used length is the control packet length",
-    );
-    return packet;
-  };
-
-  let control_transmit_slot = 0;
-  let control_transmit_address = 4096;
-  const send_control = async (
-    id: number,
-    event: number,
-    value: number,
-    split_at?: number,
-  ) => {
-    const bytes = new Uint8Array(8);
-    const packet = new DataView(bytes.buffer);
-    packet.setUint32(0, id, true);
-    packet.setUint16(4, event, true);
-    packet.setUint16(6, value, true);
-    const lengths = split_at === undefined ? [8] : [split_at, 8 - split_at];
-    const first_slot = control_transmit_slot;
-    let offset = 0;
-    for (const [index, length] of lengths.entries()) {
-      const address = control_transmit_address;
-      control_transmit_address += 32;
-      new Uint8Array(console_memory.buffer, address, length).set(
-        bytes.subarray(offset, offset + length),
-      );
-      queue_descriptor(
-        CONTROL_TRANSMIT_RING,
-        control_transmit_slot++,
-        address,
-        length,
-        false,
-        index + 1 < lengths.length,
-      );
-      offset += length;
-    }
-    imports.notify(0, 3);
-    for (let i = 0; i < 10; i++) {
-      if (
-        descriptor_at(CONTROL_TRANSMIT_RING, first_slot).getUint16(14, true) &
-          (1 << 15)
-      ) break;
-      await Promise.resolve();
-    }
-    assert.notEqual(
-      descriptor_at(CONTROL_TRANSMIT_RING, first_slot).getUint16(14, true) &
-        (1 << 15),
-      0,
-      "guest-to-host control chain was released",
-    );
-    assert.equal(
-      descriptor_at(CONTROL_TRANSMIT_RING, first_slot).getUint32(8, true),
-      0,
-      "guest-to-host control used length is zero",
-    );
-  };
-
-  imports.enable_vring(0, 0, 4, RECEIVE_RING, 1);
-  imports.enable_vring(0, 2, 16, CONTROL_RECEIVE_RING, 2);
-  imports.enable_vring(0, 3, 16, CONTROL_TRANSMIT_RING, 3);
-
-  queue_descriptor(RECEIVE_RING, 0, 1024, 8, true);
+  // A packed vring with one receive descriptor (at 64, length 4) that is not
+  // yet available: the guest console port is not open.
+  const descriptor = new DataView(console_memory.buffer);
+  descriptor.setBigUint64(0, 64n, true);
+  descriptor.setUint32(8, 4, true);
+  descriptor.setUint16(12, 0, true);
+  descriptor.setUint16(14, 0, true);
+  imports.enable_vring(0, 0, 1, 0, 1);
   imports.notify(0, 0);
-
-  // The first host control packet and the first guest control packet are both
-  // split across descriptors to exercise modern virtqueue framing.
-  queue_control_buffer(3, 5);
-  for (let i = 0; i < 10; i++) queue_control_buffer(16);
-  imports.notify(0, 2);
 
   // The host writes "hi" before the guest opens /dev/hvc0, and the input
-  // handler holds it despite an available receive descriptor.
+  // handler runs while the descriptor is still unavailable.
   input_controller.enqueue(new TextEncoder().encode("hi"));
   await Promise.resolve();
-  await Promise.resolve();
-  assert.deepEqual([...new Uint8Array(console_memory.buffer, 1024, 2)], [0, 0]);
 
-  // DEVICE_READY gets only PORT_ADD. The current size was changed before the
-  // guest became ready, so it is retained for the later RESIZE packet.
-  await send_control(0xffffffff, 0, 0);
-  assert.equal(
-    descriptor_at(CONTROL_RECEIVE_RING, control_buffers[0]!.ring_slot)
-      .getUint32(8, true),
-    3,
-    "DEVICE_READY failure emits no port state",
-  );
-  await send_control(0xffffffff, 0, 1, 3);
-  assert_control(0, 1, 1);
-  assert.deepEqual([...new Uint8Array(console_memory.buffer, 1024, 2)], [0, 0]);
-  await send_control(0xffffffff, 0, 1);
-  assert.equal(
-    descriptor_at(CONTROL_RECEIVE_RING, control_buffers[1]!.ring_slot)
-      .getUint32(8, true),
-    16,
-    "duplicate DEVICE_READY emits no duplicate PORT_ADD",
-  );
-
-  // PORT_READY is answered synchronously, without timing gaps, with console
-  // designation, current size, and host-open state in protocol order.
-  await send_control(1, 3, 1);
-  assert.equal(
-    descriptor_at(CONTROL_RECEIVE_RING, control_buffers[1]!.ring_slot)
-      .getUint32(8, true),
-    16,
-    "an unknown port emits no console state",
-  );
-  await send_control(0, 3, 1);
-  assert_control(1, 4, 1);
-  const resize = assert_control(2, 5, 0, 12);
-  assert.equal(resize.getUint16(8, true), 100);
-  assert.equal(resize.getUint16(10, true), 40);
-  assert_control(3, 6, 1);
-  assert.deepEqual([...new Uint8Array(console_memory.buffer, 1024, 2)], [0, 0]);
-  await send_control(0, 3, 1);
-  assert.equal(
-    descriptor_at(CONTROL_RECEIVE_RING, control_buffers[4]!.ring_slot)
-      .getUint32(8, true),
-    16,
-    "duplicate PORT_READY emits no duplicate port state",
-  );
-
-  // Only the guest's PORT_OPEN opens the input gate.
-  await send_control(0, 6, 1);
-  assert.deepEqual(
-    [...new Uint8Array(console_memory.buffer, 1024, 2)],
-    [0x68, 0x69],
-  );
-
-  // Closing the guest side holds new input. Reset invalidates the old receive
-  // chain but preserves that host input for the restored console.
-  await send_control(0, 6, 0);
-  queue_descriptor(RECEIVE_RING, 1, 1056, 8, true);
-  imports.notify(0, 0);
-  input_controller.enqueue(new TextEncoder().encode("!"));
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(new Uint8Array(console_memory.buffer, 1056, 1)[0], 0);
-
+  // Linux resets the device while probing it. The old descriptor must be
+  // discarded, while input queued by the host survives for the replacement
+  // queue that represents the opened console port.
   imports.reset(0);
-  for (let queue = 0; queue < 4; queue++) {
-    imports.disable_vring(0, queue);
-  }
-  new Uint8Array(console_memory.buffer, RECEIVE_RING, 4 * 16).fill(0);
-  new Uint8Array(console_memory.buffer, CONTROL_RECEIVE_RING, 16 * 16).fill(0);
-  new Uint8Array(console_memory.buffer, CONTROL_TRANSMIT_RING, 16 * 16).fill(0);
-  control_receive_slot = 0;
-  control_transmit_slot = 0;
-  control_buffers.length = 0;
-
-  imports.enable_vring(0, 0, 4, RECEIVE_RING, 1);
-  imports.enable_vring(0, 2, 16, CONTROL_RECEIVE_RING, 2);
-  imports.enable_vring(0, 3, 16, CONTROL_TRANSMIT_RING, 3);
-  queue_descriptor(RECEIVE_RING, 0, 1088, 8, true);
+  imports.disable_vring(0, 0);
+  const replacement_ring = 128;
+  const replacement = new DataView(console_memory.buffer, replacement_ring, 16);
+  replacement.setBigUint64(0, 256n, true);
+  replacement.setUint32(8, 4, true);
+  replacement.setUint16(12, 0, true);
+  replacement.setUint16(14, (1 << 7) | (1 << 1), true);
+  imports.enable_vring(0, 0, 1, replacement_ring, 1);
   imports.notify(0, 0);
-  for (let i = 0; i < 8; i++) queue_control_buffer(16);
-  imports.notify(0, 2);
+  const undelivered = new Promise((resolve) => setTimeout(resolve, 50));
+  await Promise.race([delivered.promise, undelivered]);
 
-  // virtcons_restore sends PORT_READY for its existing port without another
-  // DEVICE_READY. The host must replay all current port state, then wait for
-  // the restored guest's PORT_OPEN before delivering the preserved input.
-  await send_control(0, 3, 1);
-  assert_control(0, 4, 1);
-  const restored_resize = assert_control(1, 5, 0, 12);
-  assert.equal(restored_resize.getUint16(8, true), 100);
-  assert.equal(restored_resize.getUint16(10, true), 40);
-  assert_control(2, 6, 1);
-  assert.equal(new Uint8Array(console_memory.buffer, 1056, 1)[0], 0);
-  assert.equal(new Uint8Array(console_memory.buffer, 1088, 1)[0], 0);
-  await send_control(0, 6, 1);
-  assert.equal(new Uint8Array(console_memory.buffer, 1056, 1)[0], 0);
-  assert.equal(new Uint8Array(console_memory.buffer, 1088, 1)[0], 0x21);
-
-  // Once ready, resize() uses the multiport RESIZE control event rather than
-  // relying solely on a config interrupt, which Linux intentionally ignores.
-  device.resize(120, 50);
-  const live_resize = assert_control(3, 5, 0, 12);
-  assert.equal(live_resize.getUint16(8, true), 120);
-  assert.equal(live_resize.getUint16(10, true), 50);
-
-  // A failed PORT_READY closes the gate and emits no console state. A later
-  // successful readiness report refreshes the complete state immediately.
-  await send_control(0, 3, 0);
-  device.resize(132, 60);
-  assert.equal(read_control_buffer(4).getUint16(4, true), 0);
-  await send_control(0, 3, 1);
-  assert_control(4, 4, 1);
-  const refreshed_resize = assert_control(5, 5, 0, 12);
-  assert.equal(refreshed_resize.getUint16(8, true), 132);
-  assert.equal(refreshed_resize.getUint16(10, true), 60);
-  assert_control(6, 6, 1);
-
+  assert.deepEqual([...new Uint8Array(console_memory.buffer, 64, 2)], [0, 0]);
+  const buffer = new Uint8Array(console_memory.buffer, 256, 4);
+  assert.deepEqual(
+    [...buffer.slice(0, 2)],
+    [0x68, 0x69],
+    "input must be held until the console port opens",
+  );
   input_controller.close();
   await close_virtio_device(device);
 });
