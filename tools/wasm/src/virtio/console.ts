@@ -60,15 +60,19 @@ export function consoleDevice(
   // console port instead of being dropped.
   const receive_chains: VirtqueueChain[] = [];
   const pending_input: Uint8Array[] = [];
+  let guest_ready = false;
 
   function reset() {
     // Receive descriptors belong to the old queue, but host input belongs to
     // the console and must survive the reset Linux performs during probing.
     receive_chains.length = 0;
+    guest_ready = false;
   }
 
   function flush_input() {
-    while (receive_chains.length > 0 && pending_input.length > 0) {
+    while (
+      guest_ready && receive_chains.length > 0 && pending_input.length > 0
+    ) {
       const chain = receive_chains.shift()!;
       const chunk = pending_input[0]!;
       const [desc, trailing] = chain;
@@ -100,6 +104,13 @@ export function consoleDevice(
   }
 
   async function notify_output(queue: Virtqueue) {
+    // Linux exposes the legacy console receive queue before hvc0 is ready to
+    // consume it. Its first output kick proves that the console handoff has
+    // completed, so input queued before boot is safe to release from here.
+    if (!guest_ready) {
+      guest_ready = true;
+      flush_input();
+    }
     for (const chain of queue) {
       let n = 0;
       for (const { array, writable } of chain) {

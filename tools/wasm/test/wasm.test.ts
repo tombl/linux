@@ -294,6 +294,24 @@ test("console input is held until the guest opens its port", async () => {
   replacement.setUint16(14, (1 << 7) | (1 << 1), true);
   imports.enable_vring(0, 0, 1, replacement_ring, 1);
   imports.notify(0, 0);
+  assert.deepEqual(
+    [...new Uint8Array(console_memory.buffer, 256, 2)],
+    [0, 0],
+    "input remains queued until the guest console can consume it",
+  );
+
+  const output_ring = 384;
+  const output_address = 512;
+  new Uint8Array(console_memory.buffer, output_address, 5).set(
+    new TextEncoder().encode("ready"),
+  );
+  const output_descriptor = new DataView(console_memory.buffer, output_ring, 16);
+  output_descriptor.setBigUint64(0, BigInt(output_address), true);
+  output_descriptor.setUint32(8, 5, true);
+  output_descriptor.setUint16(12, 0, true);
+  output_descriptor.setUint16(14, 1 << 7);
+  imports.enable_vring(0, 1, 1, output_ring, 2);
+  imports.notify(0, 1);
   const undelivered = new Promise((resolve) => setTimeout(resolve, 50));
   await Promise.race([delivered.promise, undelivered]);
 
