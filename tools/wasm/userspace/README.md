@@ -9,12 +9,12 @@ Nix package definitions for a `wasm32-unknown-linux-musl` userspace overlay on t
 | `htop` | Process viewer (ncurses, static) |
 | `p7zip` | 7-Zip Alone2 (`7z` / `7za` / `7zz`), `DISABLE_RAR=1` (needs wasm libc++) |
 | `xorgproto` … `libXaw` | Static X11 client libraries |
-| *(deferred)* `gcc` | Native wasm gcc toolchain — out of scope for this pass |
 | `libfontenc` / `libXfont` | Font support for TinyX |
 | `font-misc-misc` | Misc bitmap fonts |
 | `tinyx` | `Xfbdev` with no-mmap / no-VT patches |
 | `xterm` | Terminal linked against the static Xaw stack |
-| `gui-rootfs` | ext4 image: busybox + agent + htop + p7zip + TinyX + xterm |
+| `gui-rootfs` | ext4 image: busybox + agent + htop + p7zip + TinyX + xterm (`passthru.initramfs` / `gui-initramfs`) |
+| *(deferred)* | Native wasm `gcc` toolchain — out of scope for this pass |
 
 `libxcb`, `xcb-proto`, and `libpthread-stubs` are also in the scope because modern `libX11` requires them (linked statically).
 
