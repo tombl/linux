@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wasm Linux — X11 display</title>
+    <!-- Cross-origin isolation required for shared wasm memory. -->
+    <script type="module" src="./main.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg0: #0b1020;
+        --bg1: #152038;
+        --fg: #e7eefc;
+        --muted: #9aaccb;
+        --accent: #3dd6c6;
+        --line: #2a3b5c;
+        --font-display: "IBM Plex Sans", "Segoe UI", sans-serif;
+        --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background:
+          radial-gradient(1200px 600px at 10% -10%, #1c335f 0%, transparent 55%),
+          radial-gradient(900px 500px at 100% 0%, #12352f 0%, transparent 50%),
+          linear-gradient(180deg, var(--bg1), var(--bg0));
+        color: var(--fg);
+        font-family: var(--font-display);
+      }
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 28px 20px 48px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(1.8rem, 3vw, 2.4rem);
+        letter-spacing: -0.03em;
+      }
+      .brand { color: var(--accent); }
+      .lead {
+        margin: 0 0 20px;
+        color: var(--muted);
+        max-width: 52ch;
+        line-height: 1.45;
+      }
+      .stage {
+        position: relative;
+        border: 1px solid var(--line);
+        background: #000;
+        overflow: hidden;
+      }
+      canvas#fb {
+        display: block;
+        width: 100%;
+        height: auto;
+        image-rendering: pixelated;
+        background: #000;
+      }
+      .bar {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin: 14px 0 18px;
+      }
+      button {
+        appearance: none;
+        border: 1px solid var(--accent);
+        background: color-mix(in oklab, var(--accent) 18%, transparent);
+        color: var(--fg);
+        padding: 10px 16px;
+        font: 600 0.95rem var(--font-display);
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      #status {
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 0.85rem;
+      }
+      #console {
+        margin-top: 18px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        background: rgba(0, 0, 0, 0.35);
+        font: 12px/1.4 var(--font-mono);
+        white-space: pre-wrap;
+        max-height: 220px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1><span class="brand">Wasm Linux</span> X11 display</h1>
+      <p class="lead">
+        Native wasm32 Linux with a real <code>/dev/fb0</code>, TinyX
+        <code>Xfbdev</code>, and <code>xterm -e htop</code> — not a fake web UI.
+      </p>
+      <div class="bar">
+        <button id="boot" type="button">Boot guest</button>
+        <span id="status">idle</span>
+      </div>
+      <div class="stage">
+        <canvas id="fb" width="1024" height="768" tabindex="0"></canvas>
+      </div>
+      <pre id="console"></pre>
+    </main>
+  </body>
+</html>

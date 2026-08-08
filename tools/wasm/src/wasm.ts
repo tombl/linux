@@ -209,6 +209,17 @@ export interface Imports {
     disable_vring(dev: number, vq: number): void;
 
     notify(dev: number, vq: number): void;
+    config_written(dev: number): void;
+  };
+  fb: {
+    get_mode(width_ptr: number, height_ptr: number, bpp_ptr: number): void;
+    present(
+      addr: number,
+      width: number,
+      height: number,
+      stride: number,
+      bpp: number,
+    ): void;
   };
 }
 

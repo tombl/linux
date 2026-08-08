@@ -24,6 +24,8 @@ export interface InitMessage {
   user: UserContext | null;
   /** One-shot user-memory copy result: 0 pending, 1 complete, negative errno. */
   user_copy_status: Int32Array<SharedArrayBuffer> | null;
+  /** Framebuffer mode advertised to the guest (/dev/fb0). */
+  framebuffer: { width: number; height: number; bpp: number };
 }
 export interface ForwardedInitMessage {
   type: "forwarded_init";
@@ -39,6 +41,12 @@ export type WorkerMessage =
   | { type: "boot_console_close" }
   | { type: "terminate_machine"; reason: MachineTerminationReason }
   | { type: "run_on_main"; fn: number; arg: number }
+  | {
+    type: "virtio_config_written";
+    dev: number;
+    /** 0 pending, 1 done. Shared with the worker's Atomics.wait. */
+    status: Int32Array<SharedArrayBuffer>;
+  }
   | { type: "worker_exit" };
 
 const unavailable = () => {
@@ -448,6 +456,7 @@ function start({
   memory,
   user: initial_user_context,
   user_copy_status,
+  framebuffer,
 }: InitMessage) {
   let user_context = initial_user_context;
   if (user_copy_status) {
@@ -517,6 +526,7 @@ function start({
             memory,
             user,
             user_copy_status,
+            framebuffer,
           } satisfies InitMessage,
         );
         if (!user_copy_status) return 0;
@@ -556,6 +566,27 @@ function start({
       enable_vring: unavailable,
       disable_vring: unavailable,
       notify: unavailable,
+      // Probe runs on workers and needs a synchronous config rewrite.
+      config_written(dev) {
+        const status = new Int32Array(new SharedArrayBuffer(4));
+        postMessage({
+          type: "virtio_config_written",
+          dev: dev >>> 0,
+          status,
+        });
+        Atomics.wait(status, 0, 0);
+      },
+    },
+    // get_mode must work on workers (probe runs there). present() is only
+    // invoked from the main agent after run_on_main.
+    fb: {
+      get_mode(width_ptr, height_ptr, bpp_ptr) {
+        const view = new DataView(memory.buffer);
+        view.setUint32(width_ptr >>> 0, framebuffer.width, true);
+        view.setUint32(height_ptr >>> 0, framebuffer.height, true);
+        view.setUint32(bpp_ptr >>> 0, framebuffer.bpp, true);
+      },
+      present: unavailable,
     },
   } satisfies Imports;
 

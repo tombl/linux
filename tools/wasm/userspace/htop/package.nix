@@ -15,6 +15,8 @@ stdenv.mkDerivation {
   version = "3.3.0";
   inherit src;
 
+  patches = [ ../patches/htop-no-fork.patch ];
+
   nativeBuildInputs = [
     pkgs.autoreconfHook
     pkgs.pkg-config

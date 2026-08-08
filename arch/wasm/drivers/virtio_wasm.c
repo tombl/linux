@@ -59,6 +59,11 @@ static void vw_set(struct virtio_device *vdev, unsigned offset, const void *buf,
 	}
 
 	memcpy(vw_dev->config + offset, buf, len);
+	/*
+	 * Devices such as virtio-input rewrite config responses when the guest
+	 * writes select/subsel. The host updates the shared buffer in place.
+	 */
+	wasm_virtio_config_written(vw_dev->host_id);
 }
 
 static void _notify(void *arg)

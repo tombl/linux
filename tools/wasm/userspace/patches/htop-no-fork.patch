@@ -1,0 +1,17 @@
+--- a/OpenFilesScreen.c
++++ b/OpenFilesScreen.c
+@@ -106,6 +106,14 @@
+       return pdata;
+    }
+ 
++#if defined(__wasm__)
++   /* wasm32-linux has no fork(); skip the lsof helper process. */
++   close(fdpair[1]);
++   close(fdpair[0]);
++   pdata->error = 1;
++   return pdata;
++#endif
++
+    pid_t child = fork();
+    if (child == -1) {
+       close(fdpair[1]);

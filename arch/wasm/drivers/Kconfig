@@ -5,5 +5,10 @@ config VIRTIO_WASM
 	 This driver supports virtio devices on the WebAssembly platform.
 
 config FB_WASM
-	tristate
+	tristate "WebAssembly canvas framebuffer"
 	depends on FB
+	select FB_DEVICE
+	select FB_SYSMEM_HELPERS
+	help
+	  System-RAM framebuffer presented to the host as a browser canvas
+	  via wasm imports. Userspace uses /dev/fb0 with read/write (no mmap).

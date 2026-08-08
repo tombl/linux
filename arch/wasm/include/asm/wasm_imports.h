@@ -79,6 +79,14 @@ void wasm_import(virtio, enable_vring)(u32 id, u32 index, u32 size,
 void wasm_import(virtio, disable_vring)(u32 id, u32 index);
 
 void wasm_import(virtio, notify)(u32 id, u32 index);
+/* Synchronous: host may rewrite the shared config buffer before return. */
+void wasm_import(virtio, config_written)(u32 id);
+#endif
+
+#ifdef CONFIG_FB_WASM
+void wasm_import(fb, get_mode)(u32 *width, u32 *height, u32 *bpp);
+void wasm_import(fb, present)(void *addr, u32 width, u32 height, u32 stride,
+			      u32 bpp);
 #endif
 
 #undef wasm_import

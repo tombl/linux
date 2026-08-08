@@ -268,6 +268,11 @@ export interface VirtioDriver {
   stop?(): void;
   /** Called after in-flight queue handlers settle when the device is closed. */
   close?(controller: VirtioController): void | PromiseLike<void>;
+  /**
+   * Optional synchronous config-space rewrite after a guest config write.
+   * Receives the live guest-mapped config buffer (shared kernel memory).
+   */
+  configWritten?(guest_config: Uint8Array): void;
 }
 
 interface TransportDevice {
@@ -279,6 +284,7 @@ interface TransportDevice {
     raise_config: RaiseConfigInterrupt,
   ): void;
   notify(vq: number, queue: Virtqueue): void | PromiseLike<void>;
+  config_written(): void;
   reset(): void;
   close(): Promise<void>;
 }
@@ -378,6 +384,12 @@ export class VirtioController {
           .finally(() => active.delete(completion.promise))
           .catch(() => {});
         return completion.promise;
+      },
+
+      config_written: () => {
+        if (closed || !driver.configWritten) return;
+        const guest = get_guest_config?.();
+        if (guest) driver.configWritten(guest);
       },
 
       reset: () => {
@@ -549,6 +561,12 @@ export function virtio_imports({
       assert(device);
       queue_state(device, vq).pending = true;
       void drain_notifications(device, vq);
+    },
+
+    config_written(dev) {
+      const device = states[dev]?.device;
+      assert(device);
+      device.config_written();
     },
   };
 }
