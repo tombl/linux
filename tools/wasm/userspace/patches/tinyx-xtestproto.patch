@@ -1,0 +1,14 @@
+diff --git a/mi/miinitext.c b/mi/miinitext.c
+index 5edb683..1853371 100644
+--- a/mi/miinitext.c
++++ b/mi/miinitext.c
+@@ -91,7 +91,8 @@ typedef void (*InitExtension)(INITARGS);
+ #define _XSHM_SERVER_
+ #include <X11/extensions/shmstr.h>
+ #define _XTEST_SERVER_
+-#include <X11/extensions/XTest.h>
++/* Client XTest.h pulls XInput.h; server only needs protocol constants. */
++#include <X11/extensions/xtestproto.h>
+ #ifdef XF86BIGFONT
+ #include <X11/extensions/xf86bigfproto.h>
+ #endif

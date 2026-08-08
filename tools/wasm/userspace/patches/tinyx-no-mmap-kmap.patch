@@ -1,0 +1,36 @@
+diff --git a/kdrive/src/kmap.c b/kdrive/src/kmap.c
+index 9c4c8f1..423a947 100644
+--- a/kdrive/src/kmap.c
++++ b/kdrive/src/kmap.c
+@@ -35,7 +35,7 @@
+ 
+ void *KdMapDevice(CARD32 addr, CARD32 size)
+ {
+-#ifdef linux
++#if defined(linux) && !defined(__wasm__)
+ 	void *a;
+ 
+ 	int fd;
+@@ -56,13 +56,21 @@ void *KdMapDevice(CARD32 addr, CARD32 size)
+ 		FatalError("KdMapDevice: failed to map frame buffer (%s)\n",
+ 			   strerror(errno));
+ 	return a;
++#else
++	(void)addr;
++	(void)size;
++	FatalError("KdMapDevice: not supported on this platform\n");
++	return NULL;
+ #endif
+ }
+ 
+ void KdUnmapDevice(void *addr, CARD32 size)
+ {
+-#ifdef linux
++#if defined(linux) && !defined(__wasm__)
+ 	munmap(addr, size);
++#else
++	(void)addr;
++	(void)size;
+ #endif
+ }
+ 

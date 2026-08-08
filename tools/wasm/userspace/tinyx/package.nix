@@ -6,6 +6,7 @@
   xtrans,
   libXext,
   libXdmcp,
+  libXau,
   libXfont,
   libfontenc,
   zlib,
@@ -25,6 +26,9 @@ stdenv.mkDerivation {
   patches = [
     ../patches/tinyx-no-mmap-fb.patch
     ../patches/tinyx-no-vt.patch
+    ../patches/tinyx-no-fork.patch
+    ../patches/tinyx-xtestproto.patch
+    ../patches/tinyx-no-mmap-kmap.patch
   ];
 
   nativeBuildInputs = [
@@ -45,6 +49,8 @@ stdenv.mkDerivation {
     libXext
     # osdep.h includes <X11/Xdmcp.h> for ARRAY8Ptr even with --disable-xdmcp.
     libXdmcp
+    # access.c includes <X11/Xauth.h>.
+    libXau
     libXfont
     libfontenc
     zlib
@@ -85,6 +91,10 @@ stdenv.mkDerivation {
       "-DIMAGE_BYTE_ORDER=LSBFirst"
     ];
     NIX_LDFLAGS = lib.concatStringsSep " " [
+      # libXfont ships server-side stubs (serverGeneration/serverClient) that
+      # collide with dix when everything is statically linked for wasm.
+      # NIX_LDFLAGS is passed straight to the linker (no -Wl, prefix).
+      "--allow-multiple-definition"
       "-L${libXfont}/lib"
       "-L${libfontenc}/lib"
       "-L${zlib}/lib"

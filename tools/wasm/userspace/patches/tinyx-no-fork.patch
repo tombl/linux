@@ -1,0 +1,63 @@
+diff --git a/os/utils.c b/os/utils.c
+index 657a3fa..d00f51f 100644
+--- a/os/utils.c
++++ b/os/utils.c
+@@ -1139,6 +1139,49 @@ OsReleaseSignals (void)
+  * as well.  As it is now, xkbcomp messages don't end up in the log file.
+  */
+ 
++#ifdef __wasm__
++/* wasm32-linux musl hides fork(); Xfbdev does not need shell helpers. */
++int
++System(char *command)
++{
++    (void)command;
++    errno = ENOSYS;
++    return -1;
++}
++
++pointer
++Popen(char *command, char *type)
++{
++    (void)command;
++    (void)type;
++    errno = ENOSYS;
++    return NULL;
++}
++
++pointer
++Fopen(char *file, char *type)
++{
++    if (file == NULL || type == NULL)
++	return NULL;
++    return fopen(file, type);
++}
++
++int
++Pclose(pointer iop)
++{
++    if (!iop)
++	return -1;
++    return fclose(iop) == 0 ? 0 : -1;
++}
++
++int
++Fclose(pointer iop)
++{
++    if (!iop)
++	return -1;
++    return fclose(iop);
++}
++#else
+ int
+ System(char *command)
+ {
+@@ -1404,6 +1447,8 @@ Fclose(pointer iop)
+ }
+ 
+ 
++#endif /* !__wasm__ */
++
+ /*
+  * CheckUserParameters: check for long command line arguments and long
+  * environment variables.  By default, these checks are only done when
