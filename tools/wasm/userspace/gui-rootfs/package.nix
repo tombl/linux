@@ -56,10 +56,33 @@ let
       '';
     };
   };
+
+  # Prefer initramfs in the browser demo: virtio-blk ext4 boot has been flaky.
+  initramfs = pkgs.runCommand "gui-rootfs.cpio" {
+    nativeBuildInputs = [
+      pkgs.cpio
+      pkgs.findutils
+    ];
+  } ''
+    mkdir root
+    cp -a --no-preserve=ownership ${system}/. root/
+    chmod -R u+w root
+    mkdir -p root/dev root/proc root/sys root/tmp root/run root/root root/workspace
+    chmod 01777 root/tmp
+    cd root
+    find . -print0 | sort -z | cpio --null --reproducible --owner=0:0 -H newc -o > $out
+  '';
+
+  ext4 = image.mkFilesystem {
+    name = "gui-rootfs";
+    root = system;
+    format = "ext4";
+    size = "128M";
+  };
 in
-image.mkFilesystem {
-  name = "gui-rootfs";
-  root = system;
-  format = "ext4";
-  size = "128M";
-}
+# Default output stays the ext4 image; passthru exposes the initramfs sibling.
+ext4.overrideAttrs (old: {
+  passthru = (old.passthru or { }) // {
+    inherit system initramfs;
+  };
+})

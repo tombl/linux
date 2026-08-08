@@ -57,6 +57,7 @@ async function loadBytes(urls) {
 bootBtn.addEventListener("click", async () => {
   bootBtn.disabled = true;
   status.textContent = "booting…";
+  // Prefer the GUI initramfs (Xfbdev + xterm -e htop). Fall back to ext4.
   const initramfs = await loadBytes([
     "./initramfs.cpio",
     "/demo/initramfs.cpio",
@@ -125,10 +126,10 @@ bootBtn.addEventListener("click", async () => {
       framebuffer: { canvas, width: 1024, height: 768, bpp: 32 },
     });
     status.textContent = initramfs
-      ? "running (initramfs smoke)"
+      ? "running (gui initramfs)"
       : rootfs
-      ? "running (ext4 rootfs)"
-      : "running (no userspace image)";
+        ? "running (gui ext4 rootfs)"
+        : "running (no userspace image)";
     canvas.focus();
     log("[host] machine started");
     const bootReader = machine.bootConsole.getReader();

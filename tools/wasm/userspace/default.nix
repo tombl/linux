@@ -37,5 +37,7 @@ wasmpkgs.overrideScope (
     tinyx = final.callPackage ./tinyx/package.nix { };
     xterm = final.callPackage ./xterm/package.nix { };
     gui-rootfs = final.callPackage ./gui-rootfs/package.nix { };
+    # Browser demo prefers initramfs (see gui-rootfs.passthru.initramfs).
+    gui-initramfs = final.gui-rootfs.passthru.initramfs;
   }
 )

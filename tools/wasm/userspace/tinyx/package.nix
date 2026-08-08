@@ -20,7 +20,8 @@
 
 stdenv.mkDerivation {
   pname = "tinyx";
-  version = "1.3-unstable-2024-11-13";
+  # apk(1) rejects Nix-style "1.3-unstable-…" versions; use Alpine _git form.
+  version = "1.3_git20241113";
   inherit src;
 
   patches = [

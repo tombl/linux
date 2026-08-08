@@ -16,6 +16,7 @@ const types = {
   ".css": "text/css; charset=utf-8",
   ".wasm": "application/wasm",
   ".ext4": "application/octet-stream",
+  ".cpio": "application/octet-stream",
   ".json": "application/json",
   ".map": "application/json",
 };
