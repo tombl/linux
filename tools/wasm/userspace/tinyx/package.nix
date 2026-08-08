@@ -4,6 +4,8 @@
   lib,
   xorgproto,
   xtrans,
+  libXext,
+  libXdmcp,
   libXfont,
   libfontenc,
   zlib,
@@ -39,6 +41,10 @@ stdenv.mkDerivation {
   buildInputs = [
     xorgproto
     xtrans
+    # Client headers (XShm.h, shape.h, …) that TinyX still includes directly.
+    libXext
+    # osdep.h includes <X11/Xdmcp.h> for ARRAY8Ptr even with --disable-xdmcp.
+    libXdmcp
     libXfont
     libfontenc
     zlib
@@ -52,6 +58,9 @@ stdenv.mkDerivation {
     "--disable-xdmcp"
     "--disable-xdm-auth-1"
     "--disable-install-setuid"
+    # Server sources include the libXext client header <X11/extensions/dpms.h>;
+    # we only ship xorgproto's dpmsproto.h, so leave DPMS out.
+    "--disable-dpms"
     "--with-fontdir=/share/fonts/X11"
     "--with-default-font-path=/share/fonts/X11/misc"
   ];
@@ -62,15 +71,28 @@ stdenv.mkDerivation {
     export ac_cv_func_mmap_fixed_mapped=no
   '';
 
-  # Static link the font stack into Xfbdev.
-  env.NIX_LDFLAGS = lib.concatStringsSep " " [
-    "-L${libXfont}/lib"
-    "-L${libfontenc}/lib"
-    "-L${zlib}/lib"
-    "-lXfont"
-    "-lfontenc"
-    "-lz"
-  ];
+  # TinyX still ships K&R definitions; the wasm stdenv defaults to gnu23.
+  # servermd.h has no wasm32 section, so force the usual 32-bit LE glyph pad.
+  # Extension *.c files use INITARGS as a macro (normally only defined in
+  # miinitext.c); define it globally so `FooExtensionInit(INITARGS)` parses.
+  env = {
+    NIX_CFLAGS_COMPILE = lib.concatStringsSep " " [
+      "-std=gnu17"
+      "-DINITARGS=void"
+      "-DGLYPHPADBYTES=4"
+      "-DBITMAP_SCANLINE_UNIT=32"
+      "-DBITMAP_BIT_ORDER=LSBFirst"
+      "-DIMAGE_BYTE_ORDER=LSBFirst"
+    ];
+    NIX_LDFLAGS = lib.concatStringsSep " " [
+      "-L${libXfont}/lib"
+      "-L${libfontenc}/lib"
+      "-L${zlib}/lib"
+      "-lXfont"
+      "-lfontenc"
+      "-lz"
+    ];
+  };
 
   meta = {
     description = "TinyX / Xfbdev server for the wasm framebuffer";

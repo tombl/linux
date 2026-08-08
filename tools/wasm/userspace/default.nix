@@ -19,6 +19,7 @@ wasmpkgs.overrideScope (
     libxcb = final.callPackage ./libxcb/package.nix { };
     xtrans = final.callPackage ./xtrans/package.nix { };
     libXau = final.callPackage ./libXau/package.nix { };
+    libXdmcp = final.callPackage ./libXdmcp/package.nix { };
 
     libX11 = final.callPackage ./libX11/package.nix { };
     libXext = final.callPackage ./libXext/package.nix { };
