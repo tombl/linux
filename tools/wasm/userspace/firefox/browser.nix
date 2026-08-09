@@ -189,6 +189,13 @@ PY
     cp ${./shim/oblivious_http_Cargo.toml} netwerk/protocol/http/oblivious_http/Cargo.toml
     cp ${./shim/oblivious_http_stub.rs} netwerk/protocol/http/oblivious_http/src/lib.rs
     ${python}/bin/python3 ${./shim/patch-oblivious-http-lock.py}
+    # WebAuthn pulls authenticator-rs -> nss-gk-api; NSS bindgen is incomplete
+    # on wasm32. example.com does not need WebAuthn.
+    cp ${./shim/authrs_bridge_Cargo.toml} dom/webauthn/authrs_bridge/Cargo.toml
+    cp ${./shim/authrs_bridge_stub.rs} dom/webauthn/authrs_bridge/src/lib.rs
+    rm -f dom/webauthn/authrs_bridge/src/about_webauthn_controller.rs \
+          dom/webauthn/authrs_bridge/src/test_token.rs
+    ${python}/bin/python3 ${./shim/patch-authrs-bridge-lock.py}
   '';
 
   buildPhase = ''
