@@ -1,0 +1,18 @@
+--- a/build/moz.configure/toolchain.configure
++++ b/build/moz.configure/toolchain.configure
+@@ -2023,7 +2023,14 @@
+     ):
+         flags = list((linker and linker.LINKER_FLAG) or [])
+         # rpath-link is irrelevant to wasm, see for more info https://github.com/emscripten-core/emscripten/issues/11076.
+-        if sysroot.path and multiarch_dir and target.os != "WASI":
++        # Also skip for wasm32-*-linux-* (tombl wasm linux); wasm-ld has no -rpath-link
++        # and treats the following path as an input file.
++        if (
++            sysroot.path
++            and multiarch_dir
++            and target.os != "WASI"
++            and target.cpu != "wasm32"
++        ):
+             for d in ("lib", "usr/lib"):
+                 multiarch_lib_dir = os.path.join(sysroot.path, d, multiarch_dir)
+                 if os.path.exists(multiarch_lib_dir):
