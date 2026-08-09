@@ -1,0 +1,18 @@
+--- a/meson.build
++++ b/meson.build
+@@ -437,6 +437,7 @@
+           continue
+         else
+           # Check external cairo-ft has the required FontConfig support
++          if not meson.is_cross_build()
+           if dep.type_name() != 'internal'
+             cairo_fc_test = '''
+ #include <cairo-ft.h>
+@@ -450,6 +451,7 @@
+               error('@0@ does not have the required FontConfig support'.format(b[0]))
+             endif
+           endif
++          endif
+         endif
+       endif
+       if b[0] == 'cairo-quartz' and not pango_conf.has('HAVE_CORE_TEXT')

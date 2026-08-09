@@ -1,0 +1,18 @@
+--- a/gdk-pixbuf/meson.build
++++ b/gdk-pixbuf/meson.build
+@@ -333,6 +333,7 @@ gdkpixbuf_bin = [
+   [ 'gdk-pixbuf-query-loaders', [ 'queryloaders.c' ] ],
+ ]
+ 
++if not meson.is_cross_build()
+ foreach bin: gdkpixbuf_bin
+   bin_name = bin[0]
+   bin_source = bin.get(1, bin_name + '.c')
+@@ -348,6 +349,7 @@ foreach bin: gdkpixbuf_bin
+   # Used in tests
+   set_variable(bin_name.underscorify(), bin)
+ endforeach
++endif
+ 
+ if not meson.is_cross_build()
+   # The 'loaders.cache' used for testing, so we don't accidentally

@@ -1,0 +1,16 @@
+--- a/meson.build
++++ b/meson.build
+@@ -537,8 +537,10 @@
+ root_inc = include_directories('.')
+ pango_inc = include_directories('pango')
+ 
+ subdir('pango')
+-subdir('utils')
+-subdir('tools')
++if not meson.is_cross_build()
++  subdir('utils')
++  subdir('tools')
++endif
+ if get_option('documentation')
+   subdir('docs')
+ endif

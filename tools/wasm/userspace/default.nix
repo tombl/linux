@@ -47,6 +47,28 @@ wasmpkgs.overrideScope (
     };
     pixman = final.callPackage ./pixman/package.nix { };
     cairo = final.callPackage ./cairo/package.nix { };
+    gdk-pixbuf = final.callPackage ./gdk-pixbuf/package.nix {
+      inherit (final) glib libpng zlib;
+    };
+    pango = final.callPackage ./pango/package.nix {
+      inherit (final)
+        glib
+        cairo
+        freetype
+        fontconfig
+        harfbuzz
+        fribidi
+        libpng
+        zlib
+        expat
+        pixman
+        libX11
+        libXext
+        libXrender
+        libxcb
+        xorgproto
+        ;
+    };
     libICE = final.callPackage ./libICE/package.nix { };
     libSM = final.callPackage ./libSM/package.nix { };
     libXt = final.callPackage ./libXt/package.nix { };

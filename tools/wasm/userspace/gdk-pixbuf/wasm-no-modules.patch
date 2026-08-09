@@ -1,0 +1,25 @@
+--- a/meson.build
++++ b/meson.build
+@@ -222,20 +222,14 @@
+   mathlib_dep,
+   glib_dep,
+   gobject_dep,
+-  gmodule_dep,
+   gio_dep,
+   shared_mime_dep,
+   medialib_dep,
+   intl_dep,
+ ]
+ 
+-# Check if we can build shared modules
+-if gmodule_dep.type_name() == 'pkgconfig'
+-  build_modules = gmodule_dep.get_variable(pkgconfig: 'gmodule_supported') == 'true'
+-else
+-  build_modules = subproject('glib').get_variable('g_module_impl') != '0'
+-endif
+-gdk_pixbuf_conf.set('USE_GMODULE', build_modules)
++build_modules = false
++gdk_pixbuf_conf.set('USE_GMODULE', false)
+ 
+ # Check which loaders should be built into gdk-pixbuf
+ builtin_loaders = get_option('builtin_loaders')
