@@ -69,6 +69,7 @@ stdenv.mkDerivation {
     ./patches/0003-icu-data-asm-wasm.patch
     ./patches/0004-wasm-no-mmap-like-wasi.patch
     ./patches/0005-wasm-execmem-and-ilp32.patch
+    ./patches/0006-wasm-ilp32-nofork.patch
   ];
 
   postPatch = ''
@@ -136,6 +137,16 @@ EOF
     export RUSTC=${rust-toolchain.rustc}/bin/rustc
     export CARGO=${rust-toolchain.cargo}/bin/cargo
     export RUST_TARGET_PATH="${rust-toolchain.targetSpecDir}''${RUST_TARGET_PATH:+:$RUST_TARGET_PATH}"
+
+    # Firefox-local anonymous mmap shim (musl hides sys/mman.h on __wasm__).
+    SHIM="$TMPDIR/firefox-mmap-shim"
+    mkdir -p "$SHIM/sys"
+    cp ${./shim/sys/mman.h} "$SHIM/sys/mman.h"
+    cp ${./shim/mmap-shim.c} "$SHIM/mmap-shim.c"
+    $CC -c "$SHIM/mmap-shim.c" -I"$SHIM" -o "$SHIM/mmap-shim.o"
+    export CFLAGS="-I$SHIM ''${CFLAGS:-}"
+    export CXXFLAGS="-I$SHIM ''${CXXFLAGS:-}"
+    export LIBS="$SHIM/mmap-shim.o ''${LIBS:-}"
 
     echo "=== firefox mach configure (python ${python.pythonVersion}) ==="
     ${python}/bin/python3 ./mach configure
