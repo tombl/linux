@@ -221,6 +221,9 @@ print(f"updated checksums for {len(files)} ohttp stub files")
 PY
     # Stub Cargo.toml edits orphan lock entries; prune so --frozen stays happy.
     ${python}/bin/python3 ${./shim/prune-cargo-lock.py}
+    # Stylo: ensure rusty-enums used as style-struct fields are allowlisted so
+    # bindgen does not make nsStylePosition/Display opaque on wasm32.
+    ${python}/bin/python3 ${./shim/expand-stylo-allowlist.py} layout/style/ServoBindings.toml
   '';
 
   buildPhase = ''
