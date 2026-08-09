@@ -12,6 +12,7 @@
   font-cursor-misc,
   ncurses,
   curl,
+  firefox,
   image,
   pkgs,
 }:
@@ -19,6 +20,8 @@
 let
   # Self-contained repository for the GUI demo image.
   # curl is statically linked to openssl; apk-tools already ships /etc/ssl/cert.pem.
+  # firefox lands on PATH as /bin/firefox (+ /usr/share/applications/firefox.desktop
+  # via the package payload) so aurora-wm can discover the Browser app.
   guiRepository = apk.mkRepository {
     name = "gui-repository";
     packages = {
@@ -35,6 +38,7 @@ let
         font-cursor-misc
         ncurses
         curl
+        firefox
         ;
     };
   };
@@ -55,6 +59,7 @@ let
       font-cursor-misc
       ncurses
       curl
+      firefox
     ];
     files = {
       "/init" = {
@@ -87,8 +92,8 @@ let
     name = "gui-rootfs";
     root = system;
     format = "ext4";
-    # Larger image once curl/openssl/cacert are installed.
-    size = "192M";
+    # Firefox + GTK assets need more than the earlier curl-only image.
+    size = "512M";
   };
 in
 # Default output stays the ext4 image; passthru exposes the initramfs sibling.

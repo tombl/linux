@@ -1,0 +1,11 @@
+--- a/js/src/builtin/TestingFunctions.cpp
++++ b/js/src/builtin/TestingFunctions.cpp
+@@ -1573,7 +1573,7 @@
+       break;
+     }
+     case wasm::ValType::Ref: {
+-      result = JS_smprintf("ref:%" PRIxPTR, globalVal.ref().rawValue());
++      result = JS_smprintf("ref:%lx", (unsigned long)globalVal.ref().rawValue());
+       break;
+     }
+     default:

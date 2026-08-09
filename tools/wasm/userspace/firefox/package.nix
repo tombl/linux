@@ -71,6 +71,7 @@ stdenv.mkDerivation {
     ./patches/0005-wasm-execmem-and-ilp32.patch
     ./patches/0006-wasm-ilp32-nofork.patch
     ./patches/0007-wasm-sharedarray-shell.patch
+    ./patches/0008-wasm-prixptr-format.patch
   ];
 
   postPatch = ''
@@ -129,6 +130,8 @@ ac_add_options --disable-release
 ac_add_options --disable-debug
 ac_add_options --disable-jit
 ac_add_options --disable-lto
+# musl ILP32: uintptr_t is unsigned long while PRIxPTR may be "x".
+ac_add_options --disable-warnings-as-errors
 mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-wasm-js
 EOF
 
@@ -161,20 +164,41 @@ EOF
 
   installPhase = ''
     runHook preInstall
-    mkdir -p $out/bin
+    mkdir -p $out/bin $out/share/applications
     if [ -x obj-wasm-js/dist/bin/js ]; then
       cp -a obj-wasm-js/dist/bin/js $out/bin/js
+    elif [ -x obj-wasm-browser/dist/bin/firefox ]; then
+      cp -a obj-wasm-browser/dist/bin/firefox $out/bin/firefox
     else
-      echo "spidermonkey js shell missing; obj tree:" >&2
-      find obj-wasm-js -maxdepth 3 -type f 2>/dev/null | head -80 >&2 || true
+      echo "firefox/js binary missing; obj tree:" >&2
+      find obj-wasm-* -maxdepth 3 -type f 2>/dev/null | head -80 >&2 || true
       exit 1
+    fi
+    # Prefer a real firefox binary on PATH for aurora-wm Browser discovery.
+    if [ -x $out/bin/firefox ]; then
+      :
+    elif [ -x obj-wasm-browser/dist/bin/firefox ]; then
+      cp -a obj-wasm-browser/dist/bin/firefox $out/bin/firefox
+    fi
+    if [ -x $out/bin/firefox ]; then
+      cat > $out/share/applications/firefox.desktop <<'DESKTOP'
+[Desktop Entry]
+Name=Firefox
+Comment=Web Browser
+Exec=firefox %u
+Terminal=false
+Type=Application
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
+DESKTOP
     fi
     runHook postInstall
   '';
 
   meta = {
-    description = "SpiderMonkey JS shell from Firefox 128 ESR (wasm32-linux-musl experiment)";
+    description = "Firefox / SpiderMonkey for wasm32-linux-musl (TinyX experiment)";
     license = lib.licenses.mpl20;
+    # Cleared once `bin/js` or `bin/firefox` installs cleanly.
     broken = true;
   };
 }

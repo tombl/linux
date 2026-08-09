@@ -105,6 +105,21 @@ fi
 
 # TinyX has no Composite redirect; force the light compositor off.
 # aurora-wm / aurora-files are on PATH under /bin (apk).
+#
+# Launch Firefox as soon as X is up so the Browser app is not missing from
+# PATH / the WM session. Single-process: this platform has no fork().
+if [ -x /bin/firefox ]; then
+  export MOZ_FORCE_DISABLE_E10S=1
+  export MOZ_DISABLE_CONTENT_SANDBOX=1
+  export MOZ_ENABLE_WAYLAND=0
+  echo "starting /bin/firefox https://example.com" >&2
+  /bin/firefox --no-remote --new-instance https://example.com &
+elif [ -x /bin/js ]; then
+  echo "firefox GUI binary missing; SpiderMonkey /bin/js is installed" >&2
+else
+  echo "firefox not installed on PATH" >&2
+fi
+
 if [ -x /bin/aurora-wm ]; then
   echo "starting /bin/aurora-wm --compositor=no" >&2
   # Keep X alive if the WM exits; fall through to xterm.
