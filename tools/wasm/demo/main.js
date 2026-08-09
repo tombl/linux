@@ -149,13 +149,15 @@ bootBtn.addEventListener("click", async () => {
   bootBtn.disabled = true;
   status.textContent = "booting…";
   // Prefer the GUI initramfs (Xfbdev + WM/xterm). Fall back to ext4.
+  // Cache-bust so the browser always fetches the latest GUI image.
+  const bust = `?v=${Date.now()}`;
   const initramfs = await loadBytes([
-    "./initramfs.cpio",
-    "/demo/initramfs.cpio",
+    `./initramfs.cpio${bust}`,
+    `/demo/initramfs.cpio${bust}`,
   ]);
   const rootfs = initramfs
     ? null
-    : await loadBytes(["./rootfs.ext4", "/demo/rootfs.ext4"]);
+    : await loadBytes([`./rootfs.ext4${bust}`, `/demo/rootfs.ext4${bust}`]);
 
   const input = new TransformStream();
   const output = new TransformStream();

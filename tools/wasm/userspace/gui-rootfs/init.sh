@@ -58,11 +58,12 @@ if ! kill -0 "$xpid" 2>/dev/null; then
 fi
 
 # TinyX has no Composite redirect; force the light compositor off.
-# aurora-wm / aurora-files are installed on PATH under /bin by apk.
+# aurora-wm / aurora-files are on PATH under /bin (apk).
 if [ -x /bin/aurora-wm ]; then
-  echo "starting /bin/aurora-wm" >&2
-  exec /bin/aurora-wm --compositor=no
+  echo "starting /bin/aurora-wm --compositor=no" >&2
+  # Keep X alive if the WM exits; fall through to xterm.
+  /bin/aurora-wm --compositor=no
+  echo "aurora-wm exited with status $?; falling back to xterm" >&2
 fi
 
-echo "aurora-wm missing from PATH; falling back to xterm" >&2
 exec /bin/xterm -ls -e htop
