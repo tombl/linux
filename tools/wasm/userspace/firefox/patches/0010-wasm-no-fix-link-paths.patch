@@ -1,11 +1,33 @@
 --- a/js/src/old-configure.in
 +++ b/js/src/old-configure.in
-@@ -413,6 +413,11 @@
+@@ -163,6 +163,11 @@
+ dnl set the defaults first
+ dnl ========================================================
+ MOZ_FIX_LINK_PATHS="-Wl,-rpath-link,${DIST}/bin -Wl,-rpath-link,${prefix}/lib"
++case "$target_cpu" in
++wasm32)
++    MOZ_FIX_LINK_PATHS=
++    ;;
++esac
+ 
+ dnl Configure platform-specific CPU architecture compiler options.
+ dnl ==============================================================
+@@ -270,6 +275,10 @@
+     alpha*)
+     	CFLAGS="$CFLAGS -mieee"
+     	CXXFLAGS="$CXXFLAGS -mieee"
++    ;;
++    wasm32)
++        # wasm-ld has no -rpath-link; default MOZ_FIX_LINK_PATHS breaks the link.
++        MOZ_FIX_LINK_PATHS=
+     ;;
+     esac
+     ;;
+@@ -413,6 +422,10 @@
      MOZ_FIX_LINK_PATHS=
      ;;
  
 +wasm32-*)
-+    # wasm-ld has no -rpath-link; default MOZ_FIX_LINK_PATHS breaks the link.
 +    MOZ_FIX_LINK_PATHS=
 +    ;;
 +
@@ -14,15 +36,15 @@
  CFLAGS="$CFLAGS $DSO_PIC_CFLAGS"
 --- a/old-configure.in
 +++ b/old-configure.in
-@@ -431,6 +431,11 @@
-     MOZ_FIX_LINK_PATHS="-L${DIST}/bin"
-     ;;
- 
-+wasm32-*)
-+    # wasm-ld has no -rpath-link; default MOZ_FIX_LINK_PATHS breaks the link.
+@@ -162,6 +162,11 @@
+ dnl set the defaults first
+ dnl ========================================================
+ MOZ_FIX_LINK_PATHS="-Wl,-rpath-link,${DIST}/bin -Wl,-rpath-link,${prefix}/lib"
++case "$target_cpu" in
++wasm32)
 +    MOZ_FIX_LINK_PATHS=
 +    ;;
-+
- esac
++esac
  
- CFLAGS="$CFLAGS $DSO_PIC_CFLAGS"
+ dnl Configure platform-specific CPU architecture compiler options.
+ dnl ==============================================================
