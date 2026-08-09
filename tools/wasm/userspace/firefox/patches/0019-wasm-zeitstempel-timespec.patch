@@ -1,0 +1,17 @@
+Construct zeitstempel timespec via zeroed() for padded wasm32 libc.
+
+--- a/third_party/rust/zeitstempel/src/linux.rs
++++ b/third_party/rust/zeitstempel/src/linux.rs
+@@ -12,10 +12,8 @@
+ ///
+ /// [`clock_gettime`]: https://manpages.debian.org/buster/manpages-dev/clock_gettime.3.en.html
+ pub fn now_including_suspend() -> u64 {
+-    let mut ts = libc::timespec {
+-        tv_sec: 0,
+-        tv_nsec: 0,
+-    };
++    // tombl libc timespec may include private padding on wasm32 ILP32/time64.
++    let mut ts: libc::timespec = unsafe { std::mem::zeroed() };
+     unsafe {
+         libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut ts);
+     }
