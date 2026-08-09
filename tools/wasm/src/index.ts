@@ -81,10 +81,28 @@ export {
 } from "./virtio/input.ts";
 export {
   createFramebufferHost,
+  swizzle_bgra_to_rgba,
   type FramebufferCanvas,
   type FramebufferHost,
   type FramebufferOptions,
 } from "./framebuffer.ts";
+export {
+  attach_guest,
+  connectTcpOverWebSocket,
+  createNetwork,
+  resolveDnsOverProxy,
+  wsTcpProxyNetwork,
+  type GuestNetwork,
+  type Network,
+  type NetworkAddress,
+  type NetworkOptions,
+  type TcpConnection,
+  type TcpConnectOptions,
+  type TcpSession,
+  type UdpConnection,
+  type UdpConnectOptions,
+  type WsTcpProxyOptions,
+} from "./network/index.ts";
 
 type MaybePromise<T> = T | PromiseLike<T>;
 

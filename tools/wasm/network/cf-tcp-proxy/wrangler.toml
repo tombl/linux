@@ -1,0 +1,8 @@
+name = "linuxwasm-tcp-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Optional: comma-separated host suffixes to allow (empty = allow all).
+# [vars]
+# ALLOW_HOSTS = "google.com,example.com,cloudflare.com"

@@ -11,12 +11,14 @@
   font-misc-misc,
   font-cursor-misc,
   ncurses,
+  curl,
   image,
   pkgs,
 }:
 
 let
   # Self-contained repository for the GUI demo image.
+  # curl is statically linked to openssl; apk-tools already ships /etc/ssl/cert.pem.
   guiRepository = apk.mkRepository {
     name = "gui-repository";
     packages = {
@@ -32,6 +34,7 @@ let
         font-misc-misc
         font-cursor-misc
         ncurses
+        curl
         ;
     };
   };
@@ -51,6 +54,7 @@ let
       font-misc-misc
       font-cursor-misc
       ncurses
+      curl
     ];
     files = {
       "/init" = {
@@ -83,7 +87,8 @@ let
     name = "gui-rootfs";
     root = system;
     format = "ext4";
-    size = "128M";
+    # Larger image once curl/openssl/cacert are installed.
+    size = "192M";
   };
 in
 # Default output stays the ext4 image; passthru exposes the initramfs sibling.

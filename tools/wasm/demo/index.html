@@ -100,9 +100,9 @@
     <main>
       <h1><span class="brand">Wasm Linux</span> X11 display</h1>
       <p class="lead">
-        Native wasm32 Linux with a real <code>/dev/fb0</code>, TinyX
-        <code>Xfbdev</code>, virtio keyboard/mouse, and aurora-wm — click the
-        canvas after boot to focus input.
+        Native wasm32 Linux with <code>/dev/fb0</code>, TinyX, aurora-wm, and
+        virtio-net tunneled through a WebSocket TCP proxy (Cloudflare Worker or
+        the local demo server). Click the canvas after boot to focus input.
       </p>
       <div class="bar">
         <button id="boot" type="button">Boot guest</button>

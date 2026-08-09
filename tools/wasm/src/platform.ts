@@ -48,12 +48,29 @@ const web: Platform = {
     worker.onmessage = (event) => handlers.on_message(event.data);
     worker.onerror = (event) => {
       event.preventDefault();
+      if (event.error instanceof Error) {
+        handlers.on_error(event.error);
+        return;
+      }
+      // Browsers often leave event.error null for wasm traps / OOMs; keep the
+      // location so the demo status line is actionable.
+      const where =
+        event.filename != null && event.filename !== ""
+          ? ` (${event.filename}:${event.lineno}:${event.colno})`
+          : "";
       handlers.on_error(
-        event.error instanceof Error
-          ? event.error
-          : new Error(event.message || "machine worker failed"),
+        new Error(
+          `${event.message || "machine worker failed"}${where}`,
+        ),
       );
     };
+    worker.addEventListener("unhandledrejection", (event) => {
+      event.preventDefault();
+      const reason = (event as PromiseRejectionEvent).reason;
+      handlers.on_error(
+        reason instanceof Error ? reason : new Error(String(reason)),
+      );
+    });
     return {
       post: (message, transfer) => worker.postMessage(message, transfer ?? []),
       terminate: async () => worker.terminate(),

@@ -41,8 +41,51 @@ export interface FramebufferHost {
 }
 
 /**
+ * Convert guest little-endian x8r8g8b8 (memory bytes B,G,R,A → u32 0xAARRGGBB)
+ * into Canvas ImageData RGBA (u32 0xAABBGGRR). Alpha is forced opaque.
+ *
+ * Uses word-sized loads/stores; much faster than a per-channel nested loop.
+ */
+export function swizzle_bgra_to_rgba(
+  dst: Uint8ClampedArray,
+  src: Uint8Array,
+  width: number,
+  height: number,
+  stride: number,
+) {
+  const pixels = width * height;
+  const dst32 = new Uint32Array(dst.buffer, dst.byteOffset, pixels);
+  // Prefer a single tight copy when stride matches the packed row width.
+  if (stride === width * 4 && src.byteOffset % 4 === 0) {
+    const src32 = new Uint32Array(src.buffer, src.byteOffset, pixels);
+    for (let i = 0; i < pixels; i++) {
+      const p = src32[i]!;
+      dst32[i] =
+        (p & 0xff00ff00) |
+        ((p & 0x000000ff) << 16) |
+        ((p & 0x00ff0000) >> 16) |
+        0xff000000;
+    }
+    return;
+  }
+  for (let y = 0; y < height; y++) {
+    const row_offset = src.byteOffset + y * stride;
+    const row = new Uint32Array(src.buffer, row_offset, width);
+    const dst_row = y * width;
+    for (let x = 0; x < width; x++) {
+      const p = row[x]!;
+      dst32[dst_row + x] =
+        (p & 0xff00ff00) |
+        ((p & 0x000000ff) << 16) |
+        ((p & 0x00ff0000) >> 16) |
+        0xff000000;
+    }
+  }
+}
+
+/**
  * Host-side canvas presenter for the wasm framebuffer driver.
- * Kernel memory is copied into ImageData and painted with Canvas2D.
+ * Kernel memory is swizzled into ImageData and painted with Canvas2D.
  */
 export function createFramebufferHost(
   memory: WebAssembly.Memory,
@@ -62,27 +105,32 @@ export function createFramebufferHost(
   const image = ctx.createImageData(width, height);
   let closed = false;
   let raf = 0;
-  let dirty: Uint8Array | null = null;
+  let dirty = false;
+  // Recycled staging buffer so present() does not allocate 3MiB per frame.
+  let staging: Uint8Array | null = null;
 
-  const paint = () => {
-    raf = 0;
-    if (closed || !dirty) return;
-    const pixels = image.data;
-    // Guest is x8r8g8b8 (byte order B,G,R,A on little-endian). Canvas wants RGBA.
-    for (let y = 0; y < height; y++) {
-      const src_row = y * (dirty.byteLength / height);
-      const dst_row = y * width * 4;
-      for (let x = 0; x < width; x++) {
-        const s = src_row + x * 4;
-        const d = dst_row + x * 4;
-        pixels[d] = dirty[s + 2]!; // R
-        pixels[d + 1] = dirty[s + 1]!; // G
-        pixels[d + 2] = dirty[s]!; // B
-        pixels[d + 3] = 255;
-      }
-    }
-    ctx.putImageData(image, 0, 0);
-    dirty = null;
+  let present_stride = width * 4;
+
+  const schedule_paint = () => {
+    if (raf || closed) return;
+    const request =
+      globalThis.requestAnimationFrame ??
+      ((cb: FrameRequestCallback) => setTimeout(cb, 16) as unknown as number);
+    raf = request(() => {
+      raf = 0;
+      if (closed || !dirty || !staging) return;
+      dirty = false;
+      // Convert at most once per animation frame even if the guest queued
+      // many presents while the main thread was busy.
+      swizzle_bgra_to_rgba(
+        image.data,
+        staging,
+        width,
+        height,
+        present_stride,
+      );
+      ctx.putImageData(image, 0, 0);
+    });
   };
 
   return {
@@ -98,14 +146,20 @@ export function createFramebufferHost(
     present(addr, fb_width, fb_height, stride, fb_bpp) {
       if (closed) return;
       if (fb_width !== width || fb_height !== height || fb_bpp !== 32) return;
+      if (stride < width * 4) return;
       const bytes = memory_bytes(memory, addr >>> 0, stride * height);
       if (!bytes) return;
-      // Copy out of shared memory before rAF so concurrent guest writes are stable.
-      dirty = bytes.slice();
-      if (!raf) {
-        raf = (globalThis.requestAnimationFrame ?? ((cb: FrameRequestCallback) =>
-          setTimeout(cb, 16) as unknown as number))(paint);
+
+      // Snapshot out of shared memory before the guest draws again. Reuse the
+      // staging allocation; only the first frame (or a mode change) allocates.
+      const need = stride * height;
+      if (!staging || staging.byteLength !== need) {
+        staging = new Uint8Array(need);
       }
+      staging.set(bytes);
+      present_stride = stride;
+      dirty = true;
+      schedule_paint();
     },
     close() {
       closed = true;
@@ -113,7 +167,8 @@ export function createFramebufferHost(
         (globalThis.cancelAnimationFrame ?? clearTimeout)(raf);
         raf = 0;
       }
-      dirty = null;
+      dirty = false;
+      staging = null;
     },
   };
 }

@@ -1,4 +1,4 @@
-// Demo boot: canvas framebuffer + virtio console/input + smoke/GUI rootfs.
+// Demo boot: canvas framebuffer + virtio console/input/net + smoke/GUI rootfs.
 import {
   spawnMachine,
   consoleDevice,
@@ -6,7 +6,19 @@ import {
   blockDevice,
   inputDevice,
   Key,
+  createNetwork,
+  attach_guest,
+  wsTcpProxyNetwork,
 } from "../dist/index.js";
+
+/** Same-origin demo proxy by default; override with ?proxy=wss://worker... */
+function proxyBaseUrl() {
+  const params = new URLSearchParams(location.search);
+  const override = params.get("proxy");
+  if (override) return override.replace(/\/$/, "");
+  const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${wsProto}//${location.host}`;
+}
 
 const status = document.getElementById("status");
 const consoleEl = document.getElementById("console");
@@ -184,9 +196,27 @@ bootBtn.addEventListener("click", async () => {
     pointer.key(code, false);
   });
 
+  // Coalesce pointermove to animation frames so high-rate mouse samples do not
+  // flood virtio-input / the main thread while the framebuffer is painting.
+  let pointerRaf = 0;
+  let pendingPointer = null;
+  const flushPointer = () => {
+    pointerRaf = 0;
+    if (!pendingPointer) return;
+    const { x, y } = pendingPointer;
+    pendingPointer = null;
+    pointer.abs(x, y);
+  };
+  const queuePointer = (x, y) => {
+    pendingPointer = { x, y };
+    if (!pointerRaf) {
+      pointerRaf = requestAnimationFrame(flushPointer);
+    }
+  };
+
   canvas.addEventListener("pointermove", (ev) => {
     const { x, y } = canvasCoords(ev);
-    pointer.abs(x, y);
+    queuePointer(x, y);
   });
   canvas.addEventListener("pointerdown", (ev) => {
     canvas.focus();
@@ -195,6 +225,12 @@ bootBtn.addEventListener("click", async () => {
     } catch {
       /* ignore */
     }
+    // Buttons flush immediately so clicks are not delayed by rAF.
+    if (pointerRaf) {
+      cancelAnimationFrame(pointerRaf);
+      pointerRaf = 0;
+    }
+    pendingPointer = null;
     const { x, y } = canvasCoords(ev);
     pointer.abs(x, y);
     const btn = mapButton(ev.button);
@@ -202,6 +238,11 @@ bootBtn.addEventListener("click", async () => {
     ev.preventDefault();
   });
   canvas.addEventListener("pointerup", (ev) => {
+    if (pointerRaf) {
+      cancelAnimationFrame(pointerRaf);
+      pointerRaf = 0;
+    }
+    pendingPointer = null;
     const { x, y } = canvasCoords(ev);
     pointer.abs(x, y);
     const btn = mapButton(ev.button);
@@ -224,10 +265,16 @@ bootBtn.addEventListener("click", async () => {
   );
   canvas.addEventListener("contextmenu", (ev) => ev.preventDefault());
 
+  const proxyUrl = proxyBaseUrl();
+  const network = createNetwork(wsTcpProxyNetwork({ proxyUrl }));
+  const attached = attach_guest(network);
+  log(`[host] network proxy ${proxyUrl} (guest ${attached.attachment.address} via ${network.gateway})`);
+
   const devices = [
     consoleDevice(input.readable, output.writable),
     entropyDevice(),
     pointer,
+    attached.attachment.device,
   ];
   if (rootfs) {
     devices.push(
@@ -261,13 +308,17 @@ bootBtn.addEventListener("click", async () => {
       devices,
       framebuffer: { canvas, width: FB_W, height: FB_H, bpp: 32 },
     });
+    machine.closed.finally(() => {
+      attached.attachment.close();
+      network.close();
+    });
     status.textContent = initramfs
-      ? "running (gui initramfs)"
+      ? "running (gui initramfs + net)"
       : rootfs
-        ? "running (gui ext4 rootfs)"
+        ? "running (gui ext4 rootfs + net)"
         : "running (no userspace image)";
     canvas.focus();
-    log("[host] machine started (absolute pointer + keyboard → virtio-input)");
+    log("[host] machine started (fb + virtio-input + virtio-net → WS TCP proxy)");
     const bootReader = machine.bootConsole.getReader();
     (async () => {
       const dec = new TextDecoder();

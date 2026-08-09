@@ -577,3 +577,23 @@ test("virtio stop can unblock a handler before final cleanup", async () => {
   await close_virtio_device(controller.device);
   assert.deepEqual(events, ["notify", "stop", "close"]);
 });
+
+test("framebuffer swizzle converts BGRA words to opaque RGBA", async () => {
+  const { swizzle_bgra_to_rgba } = await import("../src/framebuffer.ts");
+  const width = 2;
+  const height = 1;
+  // Memory bytes B,G,R,A per pixel.
+  const src = Uint8Array.of(
+    0x11,
+    0x22,
+    0x33,
+    0x00, // blue-ish, transparent in guest
+    0xff,
+    0x00,
+    0x00,
+    0x80, // pure blue
+  );
+  const dst = new Uint8ClampedArray(width * height * 4);
+  swizzle_bgra_to_rgba(dst, src, width, height, width * 4);
+  assert.deepEqual([...dst], [0x33, 0x22, 0x11, 0xff, 0x00, 0x00, 0xff, 0xff]);
+});

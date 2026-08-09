@@ -7,6 +7,10 @@ export HOME=/root
 export TERM=xterm-256color
 export SHELL=/bin/sh
 export XDG_RUNTIME_DIR=/tmp
+# curl was built without an embedded CA path; point it at the cacert package.
+export SSL_CERT_FILE=/etc/ssl/cert.pem
+export CURL_CA_BUNDLE=/etc/ssl/cert.pem
+export SSL_CERT_DIR=/etc/ssl/certs
 
 mount -t devtmpfs devtmpfs /dev
 mount -t proc proc /proc
@@ -19,6 +23,38 @@ chmod 01777 /tmp
 # Guest protocol agent for host-driven setup (optional if absent).
 if [ -x /bin/linux-guest-agent ]; then
   /bin/linux-guest-agent &
+fi
+
+# Virtio-net: host createNetwork gateway is 192.0.2.1; this guest is .2.
+# DNS is already in /etc/resolv.conf (nameserver 192.0.2.1).
+ifconfig lo up 2>/dev/null || true
+if [ -d /sys/class/net/eth0 ]; then
+  ifconfig eth0 192.0.2.2 netmask 255.255.255.0 up
+  route add default gw 192.0.2.1 eth0 2>/dev/null || \
+    ip route add default via 192.0.2.1 dev eth0 2>/dev/null || true
+  echo "network: eth0 192.0.2.2/24 gw 192.0.2.1" >&2
+  # Optional smoke (touch /network-smoke before boot). Kept off the default
+  # GUI path so wget/curl cannot stall X/input during interactive use.
+  if [ -e /network-smoke ]; then
+    if command -v wget >/dev/null 2>&1; then
+      echo "network: wget google.com ..." >&2
+      if wget -q -O /tmp/wget-google.out --timeout=20 google.com; then
+        echo "network: wget google.com ok ($(wc -c </tmp/wget-google.out) bytes)" >&2
+      else
+        echo "network: wget google.com FAILED ($?)" >&2
+      fi
+    fi
+    if command -v curl >/dev/null 2>&1; then
+      echo "network: curl -I https://www.google.com ..." >&2
+      if curl -fsSIL --max-time 20 -o /tmp/curl-google.hdr https://www.google.com/; then
+        echo "network: curl https://www.google.com ok" >&2
+      else
+        echo "network: curl https://www.google.com FAILED ($?)" >&2
+      fi
+    fi
+  fi
+else
+  echo "network: no eth0 (host did not attach virtio-net)" >&2
 fi
 
 # Sample files so the folder UI is not empty.

@@ -38,6 +38,14 @@ wasmpkgs.overrideScope (
     tinyx = final.callPackage ./tinyx/package.nix { };
     xterm = final.callPackage ./xterm/package.nix { };
     aurora-wm = final.callPackage ./aurora-wm/package.nix { };
+
+    # Networking userland (distro packages, already wasm32-musl).
+    inherit (wasmpkgs) curl openssl;
+
+    cacert = final.callPackage ./cacert/package.nix { };
+    # Experimental — see package.nix; not yet in gui-rootfs.
+    firefox = final.callPackage ./firefox/package.nix { };
+
     gui-rootfs = final.callPackage ./gui-rootfs/package.nix { };
     # Browser demo prefers initramfs (see gui-rootfs.passthru.initramfs).
     gui-initramfs = final.gui-rootfs.passthru.initramfs;

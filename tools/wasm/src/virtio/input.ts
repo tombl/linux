@@ -281,6 +281,8 @@ export function inputDevice(options?: {
 
   const pending: Array<{ type: number; code: number; value: number }> = [];
   const event_chains: VirtqueueChain[] = [];
+  /** Cap host→guest backlog so a stalled reader cannot OOM the page. */
+  const MAX_PENDING_EVENTS = 512;
 
   function flush() {
     while (pending.length > 0 && event_chains.length > 0) {
@@ -296,6 +298,15 @@ export function inputDevice(options?: {
       view.value = evt.value;
       chain.release(InputEvent.size);
     }
+  }
+
+  function enqueue(type: number, code: number, value: number) {
+    if (pending.length >= MAX_PENDING_EVENTS) {
+      // Drop the oldest half; keep recent motion/keys so the guest recovers.
+      pending.splice(0, pending.length >> 1);
+    }
+    pending.push({ type, code, value });
+    flush();
   }
 
   const controller = new VirtioController(
@@ -326,33 +337,54 @@ export function inputDevice(options?: {
 
   const api = {
     send(type: number, code: number, value: number) {
-      pending.push({ type, code, value });
-      flush();
+      enqueue(type, code, value);
     },
     key(code: number, down: boolean) {
-      this.send(Ev.KEY, code, down ? 1 : 0);
-      this.send(Ev.SYN, Syn.REPORT, 0);
+      enqueue(Ev.KEY, code, down ? 1 : 0);
+      enqueue(Ev.SYN, Syn.REPORT, 0);
     },
     move(dx: number, dy: number) {
-      if (dx) this.send(Ev.REL, Rel.X, dx);
-      if (dy) this.send(Ev.REL, Rel.Y, dy);
-      this.send(Ev.SYN, Syn.REPORT, 0);
+      if (dx) enqueue(Ev.REL, Rel.X, dx);
+      if (dy) enqueue(Ev.REL, Rel.Y, dy);
+      enqueue(Ev.SYN, Syn.REPORT, 0);
     },
     abs(x: number, y: number) {
       const cx = Math.max(0, Math.min(absXMax, x | 0));
       const cy = Math.max(0, Math.min(absYMax, y | 0));
-      this.send(Ev.ABS, Abs.X, cx);
-      this.send(Ev.ABS, Abs.Y, cy);
-      this.send(Ev.SYN, Syn.REPORT, 0);
+      // Coalesce consecutive absolute samples still waiting for the guest.
+      // pointermove can exceed 100Hz; replacing the tail keeps latency low
+      // without growing an unbounded backlog.
+      const n = pending.length;
+      if (n >= 3) {
+        const a = pending[n - 3]!;
+        const b = pending[n - 2]!;
+        const c = pending[n - 1]!;
+        if (
+          a.type === Ev.ABS &&
+          a.code === Abs.X &&
+          b.type === Ev.ABS &&
+          b.code === Abs.Y &&
+          c.type === Ev.SYN &&
+          c.code === Syn.REPORT
+        ) {
+          a.value = cx;
+          b.value = cy;
+          flush();
+          return;
+        }
+      }
+      enqueue(Ev.ABS, Abs.X, cx);
+      enqueue(Ev.ABS, Abs.Y, cy);
+      enqueue(Ev.SYN, Syn.REPORT, 0);
     },
     button(code: number, down: boolean) {
-      this.send(Ev.KEY, code, down ? 1 : 0);
-      this.send(Ev.SYN, Syn.REPORT, 0);
+      enqueue(Ev.KEY, code, down ? 1 : 0);
+      enqueue(Ev.SYN, Syn.REPORT, 0);
     },
     wheel(delta: number) {
       if (!delta) return;
-      this.send(Ev.REL, Rel.WHEEL, delta | 0);
-      this.send(Ev.SYN, Syn.REPORT, 0);
+      enqueue(Ev.REL, Rel.WHEEL, delta | 0);
+      enqueue(Ev.SYN, Syn.REPORT, 0);
     },
   };
   return controller.expose(api) as unknown as InputDevice;
