@@ -73,6 +73,7 @@ stdenv.mkDerivation {
     ./patches/0007-wasm-sharedarray-shell.patch
     ./patches/0008-wasm-prixptr-format.patch
     ./patches/0009-wasm-no-rpath-link.patch
+    ./patches/0010-wasm-no-fix-link-paths.patch
   ];
 
   postPatch = ''

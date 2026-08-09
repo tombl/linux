@@ -1,0 +1,28 @@
+--- a/js/src/old-configure.in
++++ b/js/src/old-configure.in
+@@ -413,6 +413,11 @@
+     MOZ_FIX_LINK_PATHS=
+     ;;
+ 
++wasm32-*)
++    # wasm-ld has no -rpath-link; default MOZ_FIX_LINK_PATHS breaks the link.
++    MOZ_FIX_LINK_PATHS=
++    ;;
++
+ esac
+ 
+ CFLAGS="$CFLAGS $DSO_PIC_CFLAGS"
+--- a/old-configure.in
++++ b/old-configure.in
+@@ -431,6 +431,11 @@
+     MOZ_FIX_LINK_PATHS="-L${DIST}/bin"
+     ;;
+ 
++wasm32-*)
++    # wasm-ld has no -rpath-link; default MOZ_FIX_LINK_PATHS breaks the link.
++    MOZ_FIX_LINK_PATHS=
++    ;;
++
+ esac
+ 
+ CFLAGS="$CFLAGS $DSO_PIC_CFLAGS"
