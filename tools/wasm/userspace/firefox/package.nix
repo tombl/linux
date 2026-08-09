@@ -72,6 +72,7 @@ stdenv.mkDerivation {
     ./patches/0006-wasm-ilp32-nofork.patch
     ./patches/0007-wasm-sharedarray-shell.patch
     ./patches/0008-wasm-prixptr-format.patch
+    ./patches/0009-wasm-no-rpath-link.patch
   ];
 
   postPatch = ''
@@ -154,6 +155,9 @@ EOF
     export CFLAGS="-I$SHIM ''${CFLAGS:-}"
     export CXXFLAGS="-I$SHIM ''${CXXFLAGS:-}"
     export LIBS="$SHIM/mmap-shim.o ''${LIBS:-}"
+    # Drop any ELF rpath flags that still leak into the wasm-ld command line.
+    export NIX_LDFLAGS="$(printf %s "''${NIX_LDFLAGS-}" | sed -E 's/(^| )-rpath( |=)[^ ]+//g; s/(^| )-rpath-link( |=)[^ ]+//g')"
+    export LDFLAGS="$(printf %s "''${LDFLAGS-}" | sed -E 's/-Wl,-rpath[^ ]*//g; s/-Wl,--rpath-link[^ ]*//g')"
 
     echo "=== firefox mach configure (python ${python.pythonVersion}) ==="
     ${python}/bin/python3 ./mach configure
