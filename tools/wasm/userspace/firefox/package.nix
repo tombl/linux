@@ -89,7 +89,12 @@ for path in sorted(root.rglob("*")):
         continue
     rel = path.relative_to(root).as_posix()
     files[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
-(root / ".cargo-checksum.json").write_text(json.dumps({"files": files, "package": None}))
+# Keep the crates.io package checksum from Cargo.lock so cargo accepts
+# the vendored replacement (file hashes are local-only metadata).
+package = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
+(root / ".cargo-checksum.json").write_text(
+    json.dumps({"files": files, "package": package})
+)
 print(f"wrote checksums for {len(files)} libc files")
 PY
   '';
