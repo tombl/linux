@@ -1,0 +1,14 @@
+--- glib-2.82.1/glib/gtestutils.c	2024-09-19 20:56:26.000000000 +0000
++++ glib-patched/glib/gtestutils.c	2026-08-09 06:09:01.279206259 +0000
+@@ -3853,7 +3853,10 @@
+ g_test_trap_fork (guint64        usec_timeout,
+                   GTestTrapFlags test_trap_flags)
+ {
+-#ifdef G_OS_UNIX
++#ifdef __wasm__
++  g_message ("Not implemented: g_test_trap_fork");
++  return FALSE;
++#elif defined(G_OS_UNIX)
+   int stdout_pipe[2] = { -1, -1 };
+   int stderr_pipe[2] = { -1, -1 };
+   int errsv;

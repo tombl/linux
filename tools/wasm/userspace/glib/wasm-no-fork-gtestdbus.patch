@@ -1,0 +1,21 @@
+--- glib-2.82.1/gio/gtestdbus.c	2024-09-19 20:56:26.000000000 +0000
++++ glib-patched/gio/gtestdbus.c	2026-08-09 06:09:01.095203773 +0000
+@@ -262,6 +262,7 @@
+       fflush (stdout);
+       fflush (stderr);
+ 
++#ifndef __wasm__
+       switch (fork ())
+         {
+         case -1:
+@@ -281,6 +282,10 @@
+           close (pipe_fds[0]);
+           channel = g_io_channel_unix_new (pipe_fds[1]);
+         }
++#else
++      close (pipe_fds[0]);
++      close (pipe_fds[1]);
++#endif
+ 
+       g_once_init_leave (&started, 1);
+     }

@@ -40,17 +40,20 @@ stdenv.mkDerivation {
 
   mesonFlags = [
     (lib.mesonOption "default_library" "static")
-    (lib.mesonOption "tests" "disabled")
-    (lib.mesonOption "installed_tests" "disabled")
+    (lib.mesonOption "tests" "false")
+    (lib.mesonOption "installed_tests" "false")
     (lib.mesonOption "introspection" "disabled")
-    (lib.mesonOption "documentation" "disabled")
+    (lib.mesonOption "documentation" "false")
     (lib.mesonOption "man-pages" "disabled")
     (lib.mesonOption "nls" "disabled")
     (lib.mesonOption "libmount" "disabled")
     (lib.mesonOption "selinux" "disabled")
-    (lib.mesonOption "xattr" "disabled")
+    (lib.mesonOption "xattr" "false")
     (lib.mesonOption "libelf" "disabled")
     (lib.mesonOption "glib_debug" "disabled")
+    (lib.mesonOption "dtrace" "disabled")
+    (lib.mesonOption "systemtap" "disabled")
+    (lib.mesonOption "sysprof" "disabled")
   ];
 
   mesonBuildType = "release";
@@ -58,6 +61,8 @@ stdenv.mkDerivation {
   patches = [
     ./wasm-no-fork.patch
     ./wasm-no-fork-backtrace.patch
+    ./wasm-no-fork-gtestutils.patch
+    ./wasm-no-fork-gtestdbus.patch
     ./wasm-no-mmap-gmappedfile.patch
   ];
 
@@ -67,6 +72,12 @@ stdenv.mkDerivation {
       substituteInPlace "$f" --replace '#!/usr/bin/env python3' '#!${pkgs.python3}/bin/python3'
     done
     patchShebangs glib/gen-unicode-tables.pl
+  '';
+
+  # wasm-ld has no --start-group; meson adds it for static CLI tools.
+  postConfigure = ''
+    find . -name build.ninja -exec \
+      sed -i 's/-Wl,--start-group//g; s/-Wl,--end-group//g; s/ --start-group//g; s/ --end-group//g' {} +
   '';
 
   meta = {

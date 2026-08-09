@@ -1,5 +1,5 @@
 --- glib-2.82.1/glib/gspawn-posix.c	2024-09-19 20:56:26.000000000 +0000
-+++ glib-patched/glib/gspawn-posix.c	2026-08-09 06:05:48.636605121 +0000
++++ glib-patched/glib/gspawn-posix.c	2026-08-09 06:07:45.626184324 +0000
 @@ -79,6 +79,10 @@
  #define INHERITS_OR_NULL_STDOUT (G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_CHILD_INHERITS_STDOUT)
  #define INHERITS_OR_NULL_STDERR (G_SPAWN_STDERR_TO_DEV_NULL | G_SPAWN_CHILD_INHERITS_STDERR)
@@ -86,7 +86,7 @@
      }
    else
      {
-@@ -1384,6 +1419,14 @@
+@@ -1384,6 +1419,15 @@
      }
  #endif /* POSIX_SPAWN_AVAILABLE */
  
@@ -98,6 +98,16 @@
 +  goto cleanup_and_fail;
 +#endif
 +
++#ifndef GLIB_PLATFORM_NO_FORK
    /* Choose a search path. This has to be done before calling fork()
     * as getenv() isn’t async-signal-safe (see `man 7 signal-safety`). */
    chosen_search_path = NULL;
+@@ -1745,6 +1789,8 @@
+       goto success;
+     }
+ 
++#endif /* !GLIB_PLATFORM_NO_FORK */
++
+ success:
+   /* Close the uncared-about ends of the pipes */
+   g_unix_pipe_close (&stdin_pipe, G_UNIX_PIPE_END_READ, NULL);
