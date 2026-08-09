@@ -82,6 +82,7 @@ stdenv.mkDerivation {
     ./patches/0015-wasm-chrono-linux.patch
     ./patches/0016-wasm-linux-raw-sys-x86.patch
     ./patches/0017-wasm-nspr-no-fork.patch
+    ./patches/0018-wasm-rustix-ioctl-consts.patch
   ];
 
   postPatch = ''
