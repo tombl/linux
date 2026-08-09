@@ -136,6 +136,7 @@ stdenv.mkDerivation {
     ./patches/0020-wasm-webrender-budgettype-count.patch
     ./patches/0021-wasm-neqo-bindgen-c-mode.patch
     ./patches/0022-wasm-wgpu-types-no-web-sys-linux.patch
+    ./patches/0023-wasm-wgpu-empty-backend.patch
   ];
 
   postPatch = ''
@@ -159,7 +160,7 @@ package = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 (root / ".cargo-checksum.json").write_text(json.dumps({"files": files, "package": package}))
 print(f"wrote checksums for {len(files)} libc files")
 # Refresh vendored crate checksums after linux/wasm sys.rs patches.
-for crate in ("time-0.1.45", "chrono", "linux-raw-sys", "rustix", "zeitstempel", "wgpu-types"):
+for crate in ("time-0.1.45", "chrono", "linux-raw-sys", "rustix", "zeitstempel", "wgpu-types", "wgpu-core"):
     root = Path("third_party/rust") / crate
     checksum_path = root / ".cargo-checksum.json"
     if not checksum_path.is_file():
@@ -268,6 +269,15 @@ EOF
     # Host build-scripts (webrender/glslopt) link libstdc++ but the sandbox has
     # no /lib/x86_64-linux-gnu; put nix's libstdc++ on the loader path.
     export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+    # rust-bindgen uses libclang, which does not see nix cc-wrapper's injected
+    # --target/sysroot/libcxx flags. Without these, Stylo's gecko structs.rs
+    # emits opaque `{ _address: u8 }` types and omits Gecko_* functions.
+    _bindgen_sysroot="$(cat "$NIX_CC/nix-support/orig-libc")"
+    _bindgen_libcxx="$(cat "$NIX_CC/nix-support/libcxx-cxxflags")"
+    _bindgen_resource="$($CXX -print-resource-dir)"
+    export BINDGEN_CFLAGS="--target=wasm32-unknown-linux-musl --sysroot=''${_bindgen_sysroot} ''${_bindgen_libcxx} -resource-dir=''${_bindgen_resource}"
+    echo "BINDGEN_CFLAGS=$BINDGEN_CFLAGS"
 
     SHIM="$TMPDIR/firefox-mmap-shim"
     mkdir -p "$SHIM/sys"

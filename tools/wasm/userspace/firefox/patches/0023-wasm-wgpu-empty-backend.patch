@@ -1,0 +1,26 @@
+Enable wgpu-core Empty backend on wasm32.
+
+Vulkan is feature-selected for unix targets in gfx/wgpu_bindings, but
+wgpu-hal compiles the Vulkan backend out on target_arch=wasm32. That
+leaves gfx_select! with no usable arms (never type). Allow Empty on
+wasm32 so WebGPU bindings can compile; runtime will use the stub HAL.
+
+--- a/third_party/rust/wgpu-core/src/lib.rs	2026-08-09 12:17:09.331612414 +0000
++++ b/third_party/rust/wgpu-core/src/lib.rs	2026-08-09 12:16:26.483082315 +0000
+@@ -231,9 +231,13 @@
+ define_backend_caller! { gfx_if_metal, gfx_if_metal_hidden, "metal" if all(feature = "metal", any(target_os = "macos", target_os = "ios")) }
+ define_backend_caller! { gfx_if_dx12, gfx_if_dx12_hidden, "dx12" if all(feature = "dx12", windows) }
+ define_backend_caller! { gfx_if_gles, gfx_if_gles_hidden, "gles" if feature = "gles" }
+-define_backend_caller! { gfx_if_empty, gfx_if_empty_hidden, "empty" if all(
+-    not(any(feature = "metal", feature = "vulkan", feature = "gles")),
+-    any(target_os = "macos", target_os = "ios"),
++define_backend_caller! { gfx_if_empty, gfx_if_empty_hidden, "empty" if any(
++    all(
++        not(any(feature = "metal", feature = "vulkan", feature = "gles")),
++        any(target_os = "macos", target_os = "ios"),
++    ),
++    // Vulkan HAL is compiled out on wasm32; use Empty instead of a never-typed gfx_select!.
++    all(target_arch = "wasm32", not(any(feature = "metal", feature = "gles"))),
+ ) }
+ 
+ /// Dispatch on an [`Id`]'s backend to a backend-generic method.
