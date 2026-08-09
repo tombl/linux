@@ -180,6 +180,10 @@ PY
     cp ${./shim/neqo_glue_Cargo.toml} netwerk/socket/neqo_glue/Cargo.toml
     cp ${./shim/neqo_glue_stub.rs} netwerk/socket/neqo_glue/src/lib.rs
     ${python}/bin/python3 ${./shim/patch-neqo-glue-lock.py}
+    # gecko-profiler bindgen needs MOZ_GECKO_PROFILER types absent on wasm32.
+    cp ${./shim/gecko_profiler_stub_Cargo.toml} tools/profiler/rust-api/Cargo.toml
+    cp ${./shim/gecko_profiler_stub_build.rs} tools/profiler/rust-api/build.rs
+    cp ${./shim/gecko_profiler_stub_lib.rs} tools/profiler/rust-api/src/lib.rs
   '';
 
   buildPhase = ''
