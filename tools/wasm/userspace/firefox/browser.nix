@@ -125,6 +125,7 @@ stdenv.mkDerivation {
     ./patches/0009-wasm-no-rpath-link.patch
     ./patches/0010-wasm-no-fix-link-paths.patch
     ./patches/0011-wasm-linux-target-cpu.patch
+    ./patches/0012-wasm-no-midir-alsa.patch
   ];
 
   postPatch = ''
