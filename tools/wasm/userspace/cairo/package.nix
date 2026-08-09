@@ -56,11 +56,70 @@ stdenv.mkDerivation {
 
   mesonBuildType = "release";
 
-  patches = [ ./patches/xrender-0.11-typedef-guards.patch ];
+  # meson cross-check misses ctime_r on wasm32-musl; cairo's fallback clashes with musl.
+  env.NIX_CFLAGS_COMPILE = "-DHAVE_CTIME_R=1";
 
   postPatch = ''
     substituteInPlace version.py \
       --replace '#!/usr/bin/env python3' '#!${pkgs.python3}/bin/python3'
+
+    # xorgproto Render 0.11 defines gradient types in Xrender.h; skip cairo fallbacks.
+    substituteInPlace src/cairo-xlib-xrender-private.h \
+      --replace '#define XRenderCreateLinearGradient			_int_consume
+
+typedef struct _XLinearGradient {' \
+'#define XRenderCreateLinearGradient			_int_consume
+
+#if !defined(PictOpBlendMinimum)
+typedef struct _XLinearGradient {' \
+      --replace '} XLinearGradient;
+#endif
+
+#if !HAVE_XRENDERCREATERADIALGRADIENT' \
+'} XLinearGradient;
+#endif
+#endif
+
+#if !HAVE_XRENDERCREATERADIALGRADIENT' \
+      --replace '#define XRenderCreateRadialGradient			_int_consume
+
+typedef struct _XCircle {' \
+'#define XRenderCreateRadialGradient			_int_consume
+
+#if !defined(PictOpBlendMinimum)
+typedef struct _XCircle {' \
+      --replace '} XRadialGradient;
+#endif
+
+#if !HAVE_XRENDERCREATECONICALGRADIENT' \
+'} XRadialGradient;
+#endif
+#endif
+
+#if !HAVE_XRENDERCREATECONICALGRADIENT' \
+      --replace '#define XRenderCreateConicalGradient			_int_consume
+
+typedef struct _XConicalGradient {' \
+'#define XRenderCreateConicalGradient			_int_consume
+
+#if !defined(PictOpBlendMinimum)
+typedef struct _XConicalGradient {' \
+      --replace '} XConicalGradient;
+#endif
+
+
+#else /* !CAIRO_HAS_XLIB_XRENDER_SURFACE */' \
+'} XConicalGradient;
+#endif
+#endif
+
+
+#else /* !CAIRO_HAS_XLIB_XRENDER_SURFACE */'
+
+    # wasm-ld rejects --start-group; skip cairo-script/trace utilities.
+    substituteInPlace util/meson.build \
+      --replace "if conf.get('CAIRO_HAS_INTERPRETER'" "if false and conf.get('CAIRO_HAS_INTERPRETER'" \
+      --replace "if conf.get('CAIRO_HAS_TRACE'" "if false and conf.get('CAIRO_HAS_TRACE'"
   '';
 
   meta = {

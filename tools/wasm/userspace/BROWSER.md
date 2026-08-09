@@ -27,7 +27,6 @@ Package: `tools/wasm/userspace/firefox/package.nix` (Firefox **128.14.0esr**,
 
 Still blocked for a full browser:
 
-- GTK stack partially packaged (see below); cairo XRender header clash remains
 - libffi blocked (mmap in closure trampolines) — blocks GLib/GObject and above
 - Gecko multiprocess assumes `fork` (platform has posix_spawn only)
 - jemalloc / sandbox paths want `mmap`
@@ -46,25 +45,32 @@ Built static libraries:
 | harfbuzz | `/tmp/result-harfbuzz` → `…-harfbuzz-static-wasm32-unknown-linux-musl-13.2.1` |
 | pixman | `/tmp/result-pixman` → `…-pixman-static-wasm32-unknown-linux-musl-0.46.4` |
 | pcre2 | `/tmp/result-pcre2` → `…-pcre2-static-wasm32-unknown-linux-musl-10.46` |
+| **cairo** | `/tmp/result-cairo` → `…-cairo-static-wasm32-unknown-linux-musl-1.18.4` |
 
 Failed / blocked:
 
 | Package | Reason |
 |---------|--------|
-| libffi | `closures.c` requires `mmap` for executable trampolines |
-| cairo | `cairo-xlib-xrender-private.h` typedef clash with xorgproto Render 0.11 |
+| libffi | `closures.c` forces `FFI_MMAP_EXEC_WRIT` on `__linux__`; mmap unavailable on wasm musl |
 | glib, pango, gdk-pixbuf, atk, gtk3 | depend on libffi (GObject closures) |
+| links | clang 22 ICE on `charsets-encode.c` after data-table split; `bfu.c` needs `-O0` |
 
 Build example: `cd /tmp/distro && nix build --impure --accept-flake-config --expr 'let flake=builtins.getFlake "path:/tmp/distro"; pkgs=import flake.inputs.nixpkgs {system="x86_64-linux";}; wasmpkgs=flake.legacyPackages.x86_64-linux; gui=import /workspace/tools/wasm/userspace {inherit pkgs wasmpkgs;}; in gui.PACKAGE' -L --out-link /tmp/result-PACKAGE`
 
-Next concrete steps:
+## Links
 
-1. Pin the ESR `src` hash and clear `meta.broken` for the JS shell attempt
-2. Package GTK prerequisites only if the JS shell configures cleanly
-3. Keep NetSurf libs (`tools/wasm/userspace/netsurf`) as an alternate engine path
+Package: `tools/wasm/userspace/links/package.nix` (text mode, `--disable-graphics`).
 
-## Links / NetSurf
+Progress:
 
-- **Links**: package exists; clang 22 ICEs on `charsets.c` / `bfu.c` for this
-  target (`meta.broken`).
-- **NetSurf**: leaf libs packaged; X surface needs `xcb-util-*` (not yet).
+- `charsets-data.c` + `charsets-tables.c` build (lookup tables split out of `charsets.c`)
+- `bfu.c` compiles with per-file `-O0`
+- `charsets-encode.c` (cp2u/encode_utf_8/translation tables) still hits clang 22 codegen ICE
+
+Still `meta.broken` until encode/entity/extra TUs compile and link.
+
+## libffi
+
+`--disable-exec-static-tramp` and `FFI_MMAP_EXEC_WRIT=0` are insufficient: `closures.c`
+redefines `FFI_MMAP_EXEC_WRIT=1` for `__linux__` and calls `mmap` in `dlmmap`. Needs a
+wasm-specific patch stubbing trampolines with malloc (mprotect may be no-op).
