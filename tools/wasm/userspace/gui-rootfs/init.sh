@@ -33,24 +33,29 @@ if [ -d /sys/class/net/eth0 ]; then
   route add default gw 192.0.2.1 eth0 2>/dev/null || \
     ip route add default via 192.0.2.1 dev eth0 2>/dev/null || true
   echo "network: eth0 192.0.2.2/24 gw 192.0.2.1" >&2
-  # Optional smoke (touch /network-smoke before boot). Kept off the default
-  # GUI path so wget/curl cannot stall X/input during interactive use.
-  if [ -e /network-smoke ]; then
-    if command -v wget >/dev/null 2>&1; then
-      echo "network: wget google.com ..." >&2
-      if wget -q -O /tmp/wget-google.out --timeout=20 google.com; then
-        echo "network: wget google.com ok ($(wc -c </tmp/wget-google.out) bytes)" >&2
-      else
-        echo "network: wget google.com FAILED ($?)" >&2
+  # Network smoke in the background so X/input stay responsive. Skip with
+  # `touch /network-smoke-skip` in the image, or force-wait with /network-smoke.
+  if [ ! -e /network-smoke-skip ]; then
+    (
+      if command -v wget >/dev/null 2>&1; then
+        echo "network: wget google.com ..." >&2
+        if wget -q -O /tmp/wget-google.out --timeout=25 google.com; then
+          echo "network: wget google.com ok ($(wc -c </tmp/wget-google.out) bytes)" >&2
+        else
+          echo "network: wget google.com FAILED ($?)" >&2
+        fi
       fi
-    fi
-    if command -v curl >/dev/null 2>&1; then
-      echo "network: curl -I https://www.google.com ..." >&2
-      if curl -fsSIL --max-time 20 -o /tmp/curl-google.hdr https://www.google.com/; then
-        echo "network: curl https://www.google.com ok" >&2
-      else
-        echo "network: curl https://www.google.com FAILED ($?)" >&2
+      if command -v curl >/dev/null 2>&1; then
+        echo "network: curl -I https://www.google.com ..." >&2
+        if curl -fsSIL --max-time 25 -o /tmp/curl-google.hdr https://www.google.com/; then
+          echo "network: curl https://www.google.com ok" >&2
+        else
+          echo "network: curl https://www.google.com FAILED ($?)" >&2
+        fi
       fi
+    ) &
+    if [ -e /network-smoke ]; then
+      wait
     fi
   fi
 else
@@ -61,6 +66,11 @@ fi
 mkdir -p /root/Documents /root/Downloads
 echo "hello from aurora-wm on wasm" > /root/Documents/readme.txt
 echo "sample" > /root/Downloads/note.txt
+cat > /root/Documents/browse.txt <<'EOF'
+Guest network is up (virtio-net → WebSocket TCP proxy).
+Try:  wget google.com
+      curl -I https://www.google.com/
+EOF
 
 # Bitmap fonts for TinyX / xterm.
 if [ -d /share/fonts/X11/misc ]; then

@@ -14,13 +14,19 @@ import {
 } from "../dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const initramfs = new Uint8Array(
-  fs.readFileSync(path.join(__dirname, "initramfs.cpio")),
-);
+const initramfsPath =
+  process.env.INITRAMFS || path.join(__dirname, "initramfs.cpio");
+const initramfs = new Uint8Array(fs.readFileSync(initramfsPath));
 
 const proxyUrl = process.env.PROXY_URL || "ws://127.0.0.1:4173";
+const timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS || 90_000);
+console.error(`[net-smoke] initramfs=${initramfsPath} proxy=${proxyUrl}`);
+
 const network = createNetwork(wsTcpProxyNetwork({ proxyUrl }));
 const attached = attach_guest(network);
+console.error(
+  `[net-smoke] guest ${attached.attachment.address} gw ${network.gateway}`,
+);
 
 const input = new TransformStream();
 const output = new TransformStream();
@@ -31,15 +37,18 @@ const devices = [
 ];
 
 let consoleText = "";
+const append = (chunk) => {
+  consoleText += chunk;
+  process.stdout.write(chunk);
+};
+
 const reader = output.readable.getReader();
 (async () => {
   const dec = new TextDecoder();
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
-    const chunk = dec.decode(new Uint8Array(value), { stream: true });
-    consoleText += chunk;
-    process.stdout.write(chunk);
+    append(dec.decode(new Uint8Array(value), { stream: true }));
   }
 })();
 
@@ -56,13 +65,11 @@ const bootReader = machine.bootConsole.getReader();
   for (;;) {
     const { value, done } = await bootReader.read();
     if (done) break;
-    const chunk = dec.decode(new Uint8Array(value), { stream: true });
-    consoleText += chunk;
-    process.stdout.write(chunk);
+    append(dec.decode(new Uint8Array(value), { stream: true }));
   }
 })();
 
-const deadline = Date.now() + 120_000;
+const deadline = Date.now() + timeoutMs;
 let result = "timeout";
 while (Date.now() < deadline) {
   if (consoleText.includes("network: wget google.com ok")) {
@@ -77,7 +84,7 @@ while (Date.now() < deadline) {
     result = "no-eth0";
     break;
   }
-  await new Promise((r) => setTimeout(r, 500));
+  await new Promise((r) => setTimeout(r, 250));
 }
 
 machine.close();

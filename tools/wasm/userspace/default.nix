@@ -43,7 +43,25 @@ wasmpkgs.overrideScope (
     inherit (wasmpkgs) curl openssl;
 
     cacert = final.callPackage ./cacert/package.nix { };
-    # Experimental — see package.nix; not yet in gui-rootfs.
+    libpng = final.callPackage ./libpng/package.nix { };
+
+    # Graphical Links (Xlib) — runnable TinyX browser.
+    links = final.callPackage ./links/package.nix { };
+
+    # NetSurf leaf libs (X/xcb-util surface still WIP).
+    netsurfLibs = final.callPackage ./netsurf { };
+    inherit (final.netsurfLibs)
+      netsurf-buildsystem
+      libwapcaplet
+      libparserutils
+      libhubbub
+      libcss
+      libdom
+      libnsbmp
+      libnsgif
+      ;
+
+    # Firefox/SpiderMonkey experiment (meta.broken until mach configure works).
     firefox = final.callPackage ./firefox/package.nix { };
 
     gui-rootfs = final.callPackage ./gui-rootfs/package.nix { };
