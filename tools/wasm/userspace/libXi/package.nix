@@ -5,6 +5,7 @@
   xorgproto,
   libX11,
   libXext,
+  libXfixes,
   src ? pkgs.fetchurl {
     url = "https://www.x.org/releases/individual/lib/libXi-1.8.3.tar.xz";
     hash = "sha256-etYAVvAa9PeGz+k7OncHRHcRYm/I2iY3vscakECbq+U=";
@@ -21,6 +22,7 @@ stdenv.mkDerivation {
     xorgproto
     libX11
     libXext
+    libXfixes
   ];
   propagatedBuildInputs = [ xorgproto ];
 
