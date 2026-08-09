@@ -62,6 +62,7 @@ stdenv.mkDerivation {
   ];
 
   dontConfigure = true;
+  dontUpdateAutotoolsGnuConfigScripts = true;
 
   patches = [
     ./patches/0001-rust-target-list-wasm-musl.patch
@@ -74,6 +75,7 @@ stdenv.mkDerivation {
     ./patches/0008-wasm-prixptr-format.patch
     ./patches/0009-wasm-no-rpath-link.patch
     ./patches/0010-wasm-no-fix-link-paths.patch
+    ./patches/0011-wasm-linux-target-cpu.patch
   ];
 
   postPatch = ''
