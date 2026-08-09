@@ -71,6 +71,7 @@ export {
   vsockDevice,
 } from "./virtio/vsock.ts";
 export {
+  Abs,
   Ev,
   inputDevice,
   type InputDevice,

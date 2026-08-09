@@ -5,6 +5,8 @@ export PATH
 export DISPLAY=:0
 export HOME=/root
 export TERM=xterm-256color
+export SHELL=/bin/sh
+export XDG_RUNTIME_DIR=/tmp
 
 mount -t devtmpfs devtmpfs /dev
 mount -t proc proc /proc
@@ -19,12 +21,22 @@ if [ -x /bin/linux-guest-agent ]; then
   /bin/linux-guest-agent &
 fi
 
+# Sample files so the folder UI is not empty.
+mkdir -p /root/Documents /root/Downloads
+echo "hello from aurora-wm on wasm" > /root/Documents/readme.txt
+echo "sample" > /root/Downloads/note.txt
+
 # Bitmap fonts for TinyX / xterm.
 if [ -d /share/fonts/X11/misc ]; then
   export FONTCONFIG_PATH=/share/fonts/X11
 fi
 
-# Framebuffer TinyX server, then an xterm running htop.
+# Activate VT1 so TinyX can read K_MEDIUMRAW scancodes from virtio-input.
+if [ -c /dev/tty1 ]; then
+  chvt 1 2>/dev/null || true
+fi
+
+# Framebuffer TinyX server, then aurora-wm (folder / terminal / settings).
 # Explicit -fp: fonts live under /share/fonts/X11/{misc,cursor}.
 Xfbdev :0 -ac -screen 1024x768x32 -nolisten tcp \
   -fp /share/fonts/X11/misc,/share/fonts/X11/cursor &
@@ -45,4 +57,10 @@ if ! kill -0 "$xpid" 2>/dev/null; then
   exec setsid cttyhack sh
 fi
 
+# TinyX has no Composite redirect; force the light compositor off.
+if [ -x /bin/aurora-wm ]; then
+  exec aurora-wm --compositor=no
+fi
+
+# Fallback if aurora-wm is missing from the image.
 exec xterm -ls -e htop

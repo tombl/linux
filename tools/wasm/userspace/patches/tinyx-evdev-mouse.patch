@@ -1,0 +1,281 @@
+--- a/kdrive/linux/mouse.c	2026-08-09 02:35:47.010532710 +0000
++++ b/kdrive/linux/mouse.c	2026-08-09 02:36:48.875635023 +0000
+@@ -26,6 +26,10 @@
+ #endif
+ #include <errno.h>
+ #include <termios.h>
++#include <string.h>
++#include <stdio.h>
++#include <fcntl.h>
++#include <stdlib.h>
+ #include <X11/X.h>
+ #include <X11/Xproto.h>
+ #include <X11/Xpoll.h>
+@@ -865,10 +869,184 @@
+ 
+ static int MouseInputType;
+ 
++/* Evdev absolute/relative pointer for virtio-input (/dev/input/event*).
++ * Avoid linux/input.h (not always on the TinyX include path); use the
++ * stable ABI values from include/uapi/linux/input-event-codes.h. */
++#ifndef EV_SYN
++#define EV_SYN			0x00
++#define EV_KEY			0x01
++#define EV_REL			0x02
++#define EV_ABS			0x03
++#define SYN_REPORT		0
++#define REL_X			0x00
++#define REL_Y			0x01
++#define REL_WHEEL		0x08
++#define ABS_X			0x00
++#define ABS_Y			0x01
++#define BTN_LEFT		0x110
++#define BTN_RIGHT		0x111
++#define BTN_MIDDLE		0x112
++#define BTN_SIDE		0x113
++#define BTN_EXTRA		0x114
++#define BTN_FORWARD		0x115
++#define BTN_BACK		0x116
++#endif
++
++/* On wasm32, kernel input_event is 16 bytes: two longs + type/code/value. */
++struct wasm_input_event32 {
++	long tv_sec;
++	long tv_usec;
++	unsigned short type;
++	unsigned short code;
++	int value;
++};
++
++typedef struct _evdevMouse {
++	int fd;
++	int x;
++	int y;
++	unsigned long buttons;
++	Bool pending;
++} EvdevMouse;
++
++static unsigned long EvdevMapButton(unsigned int code)
++{
++	switch (code) {
++	case BTN_LEFT:
++		return KD_BUTTON_1;
++	case BTN_MIDDLE:
++		return KD_BUTTON_2;
++	case BTN_RIGHT:
++		return KD_BUTTON_3;
++	case BTN_SIDE:
++	case BTN_BACK:
++		return KD_BUTTON_4;
++	case BTN_EXTRA:
++	case BTN_FORWARD:
++		return KD_BUTTON_5;
++	default:
++		return 0;
++	}
++}
++
++static void EvdevFlush(KdMouseInfo *mi, EvdevMouse *em)
++{
++	unsigned long flags = em->buttons;	/* absolute: no KD_MOUSE_DELTA */
++	KdEnqueueMouseEvent(mi, flags, em->x, em->y);
++	em->pending = FALSE;
++}
++
++static void EvdevRead(int mousePort, void *closure)
++{
++	KdMouseInfo *mi = closure;
++	EvdevMouse *em = mi->driver;
++	struct wasm_input_event32 ev[32];
++	ssize_t n;
++	int i, count;
++
++	(void)mousePort;
++	while ((n = read(em->fd, ev, sizeof(ev))) > 0) {
++		count = n / (ssize_t)sizeof(struct wasm_input_event32);
++		for (i = 0; i < count; i++) {
++			unsigned int type = ev[i].type;
++			unsigned int code = ev[i].code;
++			int value = ev[i].value;
++
++			if (type == EV_ABS) {
++				if (code == ABS_X) {
++					em->x = value;
++					em->pending = TRUE;
++				} else if (code == ABS_Y) {
++					em->y = value;
++					em->pending = TRUE;
++				}
++			} else if (type == EV_REL) {
++				if (code == REL_X) {
++					KdEnqueueMouseEvent(mi,
++							    em->buttons |
++							    KD_MOUSE_DELTA,
++							    value, 0);
++					em->pending = FALSE;
++				} else if (code == REL_Y) {
++					KdEnqueueMouseEvent(mi,
++							    em->buttons |
++							    KD_MOUSE_DELTA,
++							    0, value);
++					em->pending = FALSE;
++				} else if (code == REL_WHEEL) {
++					unsigned long wheel =
++					    value > 0 ? KD_BUTTON_4 :
++					    KD_BUTTON_5;
++					KdEnqueueMouseEvent(mi,
++							    em->buttons | wheel,
++							    em->x, em->y);
++					KdEnqueueMouseEvent(mi, em->buttons,
++							    em->x, em->y);
++					em->pending = FALSE;
++				}
++			} else if (type == EV_KEY) {
++				unsigned long btn = EvdevMapButton(code);
++				if (btn) {
++					if (value)
++						em->buttons |= btn;
++					else
++						em->buttons &= ~btn;
++					em->pending = TRUE;
++				}
++			} else if (type == EV_SYN && code == SYN_REPORT) {
++				if (em->pending)
++					EvdevFlush(mi, em);
++			}
++		}
++	}
++}
++
++static Bool EvdevOpen(KdMouseInfo *mi, const char *path, int fd)
++{
++	EvdevMouse *em;
++
++	em = calloc(1, sizeof(*em));
++	if (!em) {
++		close(fd);
++		return FALSE;
++	}
++	em->fd = fd;
++	em->x = 0;
++	em->y = 0;
++	if (!mi->name)
++		mi->name = strdup(path);
++	mi->driver = em;
++	mi->inputType = MouseInputType;
++	mi->transformCoordinates = FALSE;
++	if (!KdRegisterFd(MouseInputType, fd, EvdevRead, (void *)mi)) {
++		if (mi->name) {
++			free(mi->name);
++			mi->name = 0;
++		}
++		free(em);
++		mi->driver = 0;
++		mi->inputType = 0;
++		close(fd);
++		return FALSE;
++	}
++	ErrorF("Using evdev pointer %s\n", path);
++	return TRUE;
++}
++
++static Bool path_is_evdev(const char *path)
++{
++	return path && strncmp(path, "/dev/input/event", 16) == 0;
++}
++
++
+ const char * const kdefaultMouse[] = {
++	"/dev/input/event0",
++	"/dev/input/event1",
++	"/dev/input/event2",
++	"/dev/input/event3",
++	"/dev/input/mice",
+ 	"/dev/mouse",
+ 	"/dev/psaux",
+-	"/dev/input/mice",
+ 	"/dev/adbmouse",
+ 	"/dev/ttyS0",
+ 	"/dev/ttyS1",
+@@ -883,6 +1061,7 @@
+ 	Kmouse *km;
+ 	KdMouseInfo *mi, *next;
+ 	int n = 0;
++	const char *opened = NULL;
+ 
+ 	if (!MouseInputType)
+ 		MouseInputType = KdAllocInputType();
+@@ -891,34 +1070,53 @@
+ 		next = mi->next;
+ 		if (mi->inputType)
+ 			continue;
++		opened = NULL;
++		fd = -1;
+ 		if (!mi->name) {
+ 			for (i = 0; i < NUM_DEFAULT_MOUSE; i++) {
+-				fd = open(kdefaultMouse[i], 2);
++				fd = open(kdefaultMouse[i], O_RDWR | O_NONBLOCK);
++				if (fd < 0)
++					fd = open(kdefaultMouse[i],
++						  O_RDONLY | O_NONBLOCK);
+ 				if (fd >= 0) {
+-					mi->name = strdup(kdefaultMouse[i]);
++					opened = kdefaultMouse[i];
+ 					break;
+ 				}
+ 			}
+-		} else
+-			fd = open(mi->name, 2);
++		} else {
++			fd = open(mi->name, O_RDWR | O_NONBLOCK);
++			if (fd < 0)
++				fd = open(mi->name, O_RDONLY | O_NONBLOCK);
++			opened = mi->name;
++		}
+ 
+-		if (fd >= 0) {
+-			km = malloc(sizeof(Kmouse));
+-			if (km) {
+-				km->iob.fd = fd;
+-				km->iob.avail = km->iob.used = 0;
+-				km->prot = 0;
+-				km->i_prot = 0;
+-				km->tty = isatty(fd);
+-				mi->driver = km;
+-				mi->inputType = MouseInputType;
+-				MouseFirstProtocol(km, mi->prot);
+-				if (KdRegisterFd
+-				    (MouseInputType, fd, MouseRead, (void *)mi))
+-					n++;
+-			} else
+-				close(fd);
++		if (fd < 0)
++			continue;
++
++		if (path_is_evdev(opened)) {
++			if (EvdevOpen(mi, opened, fd))
++				n++;
++			continue;
+ 		}
++
++		if (!mi->name)
++			mi->name = strdup(opened);
++
++		km = malloc(sizeof(Kmouse));
++		if (km) {
++			km->iob.fd = fd;
++			km->iob.avail = km->iob.used = 0;
++			km->prot = 0;
++			km->i_prot = 0;
++			km->tty = isatty(fd);
++			mi->driver = km;
++			mi->inputType = MouseInputType;
++			MouseFirstProtocol(km, mi->prot);
++			if (KdRegisterFd
++			    (MouseInputType, fd, MouseRead, (void *)mi))
++				n++;
++		} else
++			close(fd);
+ 	}
+ 	return TRUE;
+ }

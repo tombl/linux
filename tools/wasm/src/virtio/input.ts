@@ -28,21 +28,99 @@ export const Rel = {
   WHEEL: 0x08,
 } as const;
 
+export const Abs = {
+  X: 0x00,
+  Y: 0x01,
+} as const;
+
+/** Common Linux KEY_* / BTN_* codes (include/uapi/linux/input-event-codes.h). */
 export const Key = {
   RESERVED: 0,
   ESC: 1,
-  A: 30,
-  LEFTSHIFT: 42,
-  LEFTCTRL: 29,
-  LEFTALT: 56,
-  SPACE: 57,
-  ENTER: 28,
+  "1": 2,
+  "2": 3,
+  "3": 4,
+  "4": 5,
+  "5": 6,
+  "6": 7,
+  "7": 8,
+  "8": 9,
+  "9": 10,
+  "0": 11,
+  MINUS: 12,
+  EQUAL: 13,
   BACKSPACE: 14,
   TAB: 15,
+  Q: 16,
+  W: 17,
+  E: 18,
+  R: 19,
+  T: 20,
+  Y: 21,
+  U: 22,
+  I: 23,
+  O: 24,
+  P: 25,
+  LEFTBRACE: 26,
+  RIGHTBRACE: 27,
+  ENTER: 28,
+  LEFTCTRL: 29,
+  A: 30,
+  S: 31,
+  D: 32,
+  F: 33,
+  G: 34,
+  H: 35,
+  J: 36,
+  K: 37,
+  L: 38,
+  SEMICOLON: 39,
+  APOSTROPHE: 40,
+  GRAVE: 41,
+  LEFTSHIFT: 42,
+  BACKSLASH: 43,
+  Z: 44,
+  X: 45,
+  C: 46,
+  V: 47,
+  B: 48,
+  N: 49,
+  M: 50,
+  COMMA: 51,
+  DOT: 52,
+  SLASH: 53,
+  RIGHTSHIFT: 54,
+  LEFTALT: 56,
+  SPACE: 57,
+  CAPSLOCK: 58,
+  F1: 59,
+  F2: 60,
+  F3: 61,
+  F4: 62,
+  F5: 63,
+  F6: 64,
+  F7: 65,
+  F8: 66,
+  F9: 67,
+  F10: 68,
+  F11: 87,
+  F12: 88,
+  RIGHTCTRL: 97,
+  RIGHTALT: 100,
+  HOME: 102,
   UP: 103,
+  PAGEUP: 104,
   LEFT: 105,
   RIGHT: 106,
+  END: 107,
   DOWN: 108,
+  PAGEDOWN: 109,
+  INSERT: 110,
+  DELETE: 111,
+  /** Mouse buttons (BTN_*). */
+  BTN_LEFT: 0x110,
+  BTN_RIGHT: 0x111,
+  BTN_MIDDLE: 0x112,
 } as const;
 
 const CFG_ID_NAME = 0x01;
@@ -50,6 +128,10 @@ const CFG_ID_SERIAL = 0x02;
 const CFG_ID_DEVIDS = 0x03;
 const CFG_PROP_BITS = 0x10;
 const CFG_EV_BITS = 0x11;
+const CFG_ABS_INFO = 0x12;
+
+/** INPUT_PROP_DIRECT — tablet-like absolute pointer. */
+const PROP_DIRECT = 0x01;
 
 class InputEvent extends Struct({
   type: U16LE,
@@ -69,6 +151,24 @@ function write_string(config: Uint8Array, text: string): number {
   return n;
 }
 
+function write_absinfo(
+  config: Uint8Array,
+  min: number,
+  max: number,
+  fuzz = 0,
+  flat = 0,
+  res = 0,
+): number {
+  config.fill(0, 8);
+  const view = new DataView(config.buffer, config.byteOffset + 8, 20);
+  view.setUint32(0, min >>> 0, true);
+  view.setUint32(4, max >>> 0, true);
+  view.setUint32(8, fuzz >>> 0, true);
+  view.setUint32(12, flat >>> 0, true);
+  view.setUint32(16, res >>> 0, true);
+  return 20;
+}
+
 /**
  * A virtio-input keyboard/mouse. Host code calls `send` with Linux evdev
  * triples; the guest sees `/dev/input/event*`.
@@ -76,26 +176,50 @@ function write_string(config: Uint8Array, text: string): number {
 export interface InputDevice extends VirtioDevice {
   /** Queue a single input event (type/code/value). */
   send(type: number, code: number, value: number): void;
-  /** Convenience: key press/release + SYN_REPORT. */
+  /** Convenience: key/button press/release + SYN_REPORT. */
   key(code: number, down: boolean): void;
   /** Convenience: relative mouse motion + SYN_REPORT. */
   move(dx: number, dy: number): void;
+  /** Convenience: absolute pointer position + SYN_REPORT. */
+  abs(x: number, y: number): void;
+  /** Convenience: mouse button press/release + SYN_REPORT. */
+  button(code: number, down: boolean): void;
+  /** Convenience: vertical wheel ticks + SYN_REPORT. */
+  wheel(delta: number): void;
 }
 
 export function inputDevice(options?: {
   name?: string;
   serial?: string;
+  /** Absolute X axis max (inclusive). Default 1023. */
+  absXMax?: number;
+  /** Absolute Y axis max (inclusive). Default 767. */
+  absYMax?: number;
 }): InputDevice {
-  const name = options?.name ?? "wasm keyboard";
+  const name = options?.name ?? "wasm keyboard/mouse";
   const serial = options?.serial ?? "wasm0";
+  const absXMax = options?.absXMax ?? 1023;
+  const absYMax = options?.absYMax ?? 767;
   const config_bytes = new Uint8Array(8 + 128);
 
-  const keybits = new Uint8Array(128);
-  for (let code = 1; code <= 248; code++) set_bit(keybits, code);
+  // KEY_* through 255 plus BTN_LEFT/RIGHT/MIDDLE (0x110-0x112).
+  const keybits = new Uint8Array(64);
+  for (let code = 1; code <= 255; code++) set_bit(keybits, code);
+  set_bit(keybits, Key.BTN_LEFT);
+  set_bit(keybits, Key.BTN_RIGHT);
+  set_bit(keybits, Key.BTN_MIDDLE);
+
   const relbits = new Uint8Array(16);
   set_bit(relbits, Rel.X);
   set_bit(relbits, Rel.Y);
   set_bit(relbits, Rel.WHEEL);
+
+  const absbits = new Uint8Array(8);
+  set_bit(absbits, Abs.X);
+  set_bit(absbits, Abs.Y);
+
+  const propbits = new Uint8Array(1);
+  set_bit(propbits, PROP_DIRECT);
 
   const respond = (guest: Uint8Array) => {
     const select = guest[0]!;
@@ -111,8 +235,12 @@ export function inputDevice(options?: {
         guest[2] = write_string(guest, serial);
         break;
       case CFG_ID_DEVIDS:
-      case CFG_PROP_BITS:
         guest[2] = 0;
+        break;
+      case CFG_PROP_BITS:
+        guest.fill(0, 8);
+        guest.set(propbits, 8);
+        guest[2] = propbits.length;
         break;
       case CFG_EV_BITS:
         guest.fill(0, 8);
@@ -122,9 +250,21 @@ export function inputDevice(options?: {
         } else if (subsel === Ev.REL) {
           guest.set(relbits, 8);
           guest[2] = relbits.length;
+        } else if (subsel === Ev.ABS) {
+          guest.set(absbits, 8);
+          guest[2] = absbits.length;
         } else if (subsel === Ev.REP) {
           guest[8] = 0xff;
           guest[2] = 1;
+        } else {
+          guest[2] = 0;
+        }
+        break;
+      case CFG_ABS_INFO:
+        if (subsel === Abs.X) {
+          guest[2] = write_absinfo(guest, 0, absXMax);
+        } else if (subsel === Abs.Y) {
+          guest[2] = write_absinfo(guest, 0, absYMax);
         } else {
           guest[2] = 0;
         }
@@ -196,6 +336,22 @@ export function inputDevice(options?: {
     move(dx: number, dy: number) {
       if (dx) this.send(Ev.REL, Rel.X, dx);
       if (dy) this.send(Ev.REL, Rel.Y, dy);
+      this.send(Ev.SYN, Syn.REPORT, 0);
+    },
+    abs(x: number, y: number) {
+      const cx = Math.max(0, Math.min(absXMax, x | 0));
+      const cy = Math.max(0, Math.min(absYMax, y | 0));
+      this.send(Ev.ABS, Abs.X, cx);
+      this.send(Ev.ABS, Abs.Y, cy);
+      this.send(Ev.SYN, Syn.REPORT, 0);
+    },
+    button(code: number, down: boolean) {
+      this.send(Ev.KEY, code, down ? 1 : 0);
+      this.send(Ev.SYN, Syn.REPORT, 0);
+    },
+    wheel(delta: number) {
+      if (!delta) return;
+      this.send(Ev.REL, Rel.WHEEL, delta | 0);
       this.send(Ev.SYN, Syn.REPORT, 0);
     },
   };

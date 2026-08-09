@@ -7,6 +7,7 @@
   p7zip,
   tinyx,
   xterm,
+  aurora-wm,
   font-misc-misc,
   font-cursor-misc,
   ncurses,
@@ -27,6 +28,7 @@ let
         p7zip
         tinyx
         xterm
+        aurora-wm
         font-misc-misc
         font-cursor-misc
         ncurses
@@ -45,6 +47,7 @@ let
       p7zip
       tinyx
       xterm
+      aurora-wm
       font-misc-misc
       font-cursor-misc
       ncurses

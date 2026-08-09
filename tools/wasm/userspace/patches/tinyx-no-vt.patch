@@ -1,6 +1,6 @@
---- a/kdrive/linux/linux.c
-+++ b/kdrive/linux/linux.c
-@@ -68,47 +68,43 @@
+--- a/kdrive/linux/linux.c	2026-08-09 02:39:17.517986765 +0000
++++ b/kdrive/linux/linux.c	2026-08-09 02:39:12.501912607 +0000
+@@ -68,47 +68,48 @@
  
  static int LinuxInit(void)
  {
@@ -10,6 +10,11 @@
 +	char vtname[32];
  	struct vt_stat vts;
 +	static const char *candidates[] = {
++		/* Prefer a real VT so K_MEDIUMRAW keyboard scancodes work
++		 * with virtio-input -> VT kbd handler. hvc0 is console only. */
++		"/dev/tty1",
++		"/dev/tty0",
++		"/dev/tty2",
 +		"/dev/hvc0",
 +		"/dev/console",
 +		"/dev/tty",
@@ -22,7 +27,7 @@
 -	if (geteuid() != 0) {
 -		FatalError("LinuxInit: Server must be suid root\n");
 -	}
-+	/* Wasm guests have no /dev/tty0 VT layer. Prefer hvc/console. */
++	/* Prefer VT for X keyboard; fall back to hvc/console if no VT. */
 +	vtno = kdVirtualTerminal >= 0 ? kdVirtualTerminal : 1;
  
 -	if (kdVirtualTerminal >= 0)
@@ -74,7 +79,7 @@
  	/*
  	 * Linux doesn't switch to an active vt after the last close of a vt,
  	 * so we do this ourselves by remembering which is active now.
-@@ -116,6 +112,8 @@
+@@ -116,6 +117,8 @@
  	memset(&vts, '\0', sizeof(vts));	/* valgrind */
  	if (ioctl(LinuxConsoleFd, VT_GETSTATE, &vts) == 0) {
  		activeVT = vts.v_active;
@@ -83,7 +88,7 @@
  	}
  
  	return 1;
-@@ -126,8 +124,12 @@
+@@ -126,8 +129,12 @@
  	struct sigaction act;
  	struct vt_mode VT;
  
@@ -97,7 +102,7 @@
  	}
  
  	if (mode == VT_PROCESS) {
-@@ -150,7 +152,7 @@
+@@ -150,7 +157,7 @@
  		VT.acqsig = 0;
  	}
  	if (ioctl(LinuxConsoleFd, VT_SETMODE, &VT) < 0) {
@@ -106,7 +111,7 @@
  	}
  }
  
-@@ -209,6 +211,10 @@
+@@ -209,6 +216,10 @@
  
  static void LinuxEnable(void)
  {
@@ -117,7 +122,7 @@
  	if (enabled)
  		return;
  	if (kdSwitchPending) {
-@@ -235,14 +241,14 @@
+@@ -235,14 +246,14 @@
  	 */
  	LinuxSetSwitchMode(VT_AUTO);
  	if (ioctl(LinuxConsoleFd, VT_ACTIVATE, vtno) != 0) {
@@ -135,7 +140,7 @@
  	}
  	enabled = TRUE;
  }
-@@ -266,6 +272,8 @@
+@@ -266,6 +277,8 @@
  
  static void LinuxDisable(void)
  {
@@ -144,7 +149,7 @@
  	ioctl(LinuxConsoleFd, KDSETMODE, KD_TEXT);	/* Back to text mode ... */
  	if (kdSwitchPending) {
  		kdSwitchPending = FALSE;
-@@ -284,7 +292,6 @@
+@@ -284,7 +297,6 @@
  {
  	struct vt_mode VT;
  	struct vt_stat vts;
@@ -152,7 +157,7 @@
  
  	if (LinuxConsoleFd < 0)
  		return;
-@@ -320,16 +327,7 @@
+@@ -320,16 +332,7 @@
  		}
  	}
  	close(LinuxConsoleFd);	/* make the vt-manager happy */

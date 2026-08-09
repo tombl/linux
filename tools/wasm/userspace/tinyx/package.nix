@@ -30,6 +30,8 @@ stdenv.mkDerivation {
     ../patches/tinyx-no-fork.patch
     ../patches/tinyx-xtestproto.patch
     ../patches/tinyx-no-mmap-kmap.patch
+    # virtio-input exposes /dev/input/event*; TinyX stock only speaks PS/2 mice.
+    ../patches/tinyx-evdev-mouse.patch
   ];
 
   nativeBuildInputs = [
