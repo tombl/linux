@@ -7,7 +7,6 @@
   p7zip,
   tinyx,
   xterm,
-  aurora-wm,
   font-misc-misc,
   font-cursor-misc,
   ncurses,
@@ -21,7 +20,9 @@ let
   # Self-contained repository for the GUI demo image.
   # curl is statically linked to openssl; apk-tools already ships /etc/ssl/cert.pem.
   # firefox lands on PATH as /bin/firefox (+ /usr/share/applications/firefox.desktop
-  # via the package payload) so aurora-wm can discover the Browser app.
+  # via the package payload) so a guest WM can discover the Browser app.
+  # aurora-wm is no longer a Nix/apk package here — build/install it with pacman
+  # from https://github.com/woiceatus/aurora-wm-wasm (init falls back to xterm).
   guiRepository = apk.mkRepository {
     name = "gui-repository";
     packages = {
@@ -33,7 +34,6 @@ let
         p7zip
         tinyx
         xterm
-        aurora-wm
         font-misc-misc
         font-cursor-misc
         ncurses
@@ -54,7 +54,6 @@ let
       p7zip
       tinyx
       xterm
-      aurora-wm
       font-misc-misc
       font-cursor-misc
       ncurses

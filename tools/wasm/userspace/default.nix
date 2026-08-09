@@ -7,7 +7,16 @@
 }:
 
 wasmpkgs.overrideScope (
-  final: _prev: {
+  final: prev: {
+    # wasm32 has no architecture-specific inline syscall ABI. Make crates such
+    # as rustix use musl for syscalls by default, while leaving host build
+    # scripts on their native backend.
+    stdenv = prev.stdenv.override (old: {
+      preHook = (old.preHook or "") + ''
+        export CARGO_TARGET_WASM32_UNKNOWN_LINUX_MUSL_RUSTFLAGS="--cfg rustix_use_libc --cfg rustix_no_linux_raw''${CARGO_TARGET_WASM32_UNKNOWN_LINUX_MUSL_RUSTFLAGS:+ $CARGO_TARGET_WASM32_UNKNOWN_LINUX_MUSL_RUSTFLAGS}"
+      '';
+    });
+
     htop = final.callPackage ./htop/package.nix { };
     p7zip = final.callPackage ./p7zip/package.nix { };
     fbtest = final.callPackage ./fbtest/package.nix { };
@@ -123,7 +132,8 @@ wasmpkgs.overrideScope (
 
     tinyx = final.callPackage ./tinyx/package.nix { };
     xterm = final.callPackage ./xterm/package.nix { };
-    aurora-wm = final.callPackage ./aurora-wm/package.nix { };
+    # aurora-wm is packaged with pacman in https://github.com/woiceatus/aurora-wm-wasm
+    # (not Nix). See ./aurora-wm/README.md.
 
     # Networking userland (distro packages, already wasm32-musl).
     inherit (wasmpkgs) curl openssl;
