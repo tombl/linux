@@ -93,3 +93,17 @@ int madvise(void *addr, size_t length, int flags) {
   (void)flags;
   return 0;
 }
+
+int posix_madvise(void *addr, size_t length, int advice) {
+  return madvise(addr, length, advice);
+}
+
+/* File-backed maps are already copied into RAM by mmap(); treat sync as
+ * a no-op so LMDB/places can link. Persistence via msync is not required
+ * for bringing up a single-process browser against example.com. */
+int msync(void *addr, size_t length, int flags) {
+  (void)addr;
+  (void)length;
+  (void)flags;
+  return 0;
+}
