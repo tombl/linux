@@ -147,8 +147,10 @@ wasmpkgs.overrideScope (
       libnsgif
       ;
 
-    # Firefox/SpiderMonkey experiment (meta.broken until mach configure works).
+    # SpiderMonkey js shell (installed as /bin/js in gui-rootfs).
     firefox = final.callPackage ./firefox/package.nix { };
+    # Full GTK3 browser (bin/firefox); WIP until mach browser configure links.
+    firefox-browser = final.callPackage ./firefox/browser.nix { };
 
     gui-rootfs = final.callPackage ./gui-rootfs/package.nix { };
     # Browser demo prefers initramfs (see gui-rootfs.passthru.initramfs).
