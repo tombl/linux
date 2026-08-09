@@ -174,8 +174,8 @@ ac_add_options --disable-updater
 ac_add_options --disable-dbus
 ac_add_options --disable-necko-wifi
 ac_add_options --disable-webrtc
-ac_add_options --disable-pulseaudio
-ac_add_options --disable-alsa
+# Default audio backend is pulseaudio on Linux; disable all cubeb backends.
+ac_add_options --disable-audio-backends
 ac_add_options --without-wasm-sandboxed-libraries
 ac_add_options --disable-release
 ac_add_options --disable-debug
