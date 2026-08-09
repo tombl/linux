@@ -135,6 +135,7 @@ stdenv.mkDerivation {
     ./patches/0019-wasm-zeitstempel-timespec.patch
     ./patches/0020-wasm-webrender-budgettype-count.patch
     ./patches/0021-wasm-neqo-bindgen-c-mode.patch
+    ./patches/0022-wasm-wgpu-types-no-web-sys-linux.patch
   ];
 
   postPatch = ''
@@ -158,7 +159,7 @@ package = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 (root / ".cargo-checksum.json").write_text(json.dumps({"files": files, "package": package}))
 print(f"wrote checksums for {len(files)} libc files")
 # Refresh vendored crate checksums after linux/wasm sys.rs patches.
-for crate in ("time-0.1.45", "chrono", "linux-raw-sys", "rustix", "zeitstempel"):
+for crate in ("time-0.1.45", "chrono", "linux-raw-sys", "rustix", "zeitstempel", "wgpu-types"):
     root = Path("third_party/rust") / crate
     checksum_path = root / ".cargo-checksum.json"
     if not checksum_path.is_file():
