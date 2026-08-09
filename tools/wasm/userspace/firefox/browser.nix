@@ -134,6 +134,7 @@ stdenv.mkDerivation {
     ./patches/0018-wasm-rustix-ioctl-consts.patch
     ./patches/0019-wasm-zeitstempel-timespec.patch
     ./patches/0020-wasm-webrender-budgettype-count.patch
+    ./patches/0021-wasm-neqo-bindgen-c-mode.patch
   ];
 
   postPatch = ''

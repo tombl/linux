@@ -1,0 +1,84 @@
+Parse neqo-crypto NSS/NSPR headers as C on wasm.
+
+BINDGEN_SYSTEM_FLAGS always passes -x c++, which on wasm32 leaves
+allowlisted SSL_/PK11_ functions missing from generated bindings while
+variables/enums still appear. Force C mode for .h bindings and require
+a smoke-check symbol so incomplete bindgen fails clearly.
+
+--- a/third_party/rust/neqo-crypto/build.rs
++++ b/third_party/rust/neqo-crypto/build.rs
+@@ -215,6 +215,35 @@
+ 
+     builder = builder.clang_arg("-v");
+ 
++    // Gecko BINDGEN_SYSTEM_FLAGS force -x c++. NSS/NSPR headers are C; under
++    // wasm32 that drops most allowlisted functions from the generated bindings.
++    let mut flags = flags.to_vec();
++    if gecko && !bindings.cplusplus {
++        let mut stripped = Vec::with_capacity(flags.len());
++        let mut i = 0;
++        while i < flags.len() {
++            if flags[i] == "-x" && i + 1 < flags.len() && flags[i + 1] == "c++" {
++                i += 2;
++                continue;
++            }
++            if flags[i] == "-std=c++14" || flags[i].starts_with("-std=c++") {
++                i += 1;
++                continue;
++            }
++            // mozilla-config.h is C++-oriented; skip when forcing C mode.
++            if flags[i] == "-include" && i + 1 < flags.len() && flags[i + 1].contains("mozilla-config.h") {
++                i += 2;
++                continue;
++            }
++            stripped.push(flags[i].clone());
++            i += 1;
++        }
++        flags = stripped;
++        builder = builder.clang_args(&["-x", "c"]);
++        builder = builder.clang_arg("-DLINUX");
++        builder = builder.clang_arg("-DNO_NSPR_10_SUPPORT");
++    }
++
+     if !gecko {
+         builder = builder.clang_arg("-DNO_NSPR_10_SUPPORT");
+         if env::consts::OS == "windows" {
+@@ -232,7 +261,7 @@
+         }
+     }
+ 
+-    builder = builder.clang_args(flags);
++    builder = builder.clang_args(&flags);
+ 
+     // Apply the configuration.
+     for v in &bindings.types {
+@@ -255,9 +284,26 @@
+     }
+ 
+     let bindings = builder.generate().expect("unable to generate bindings");
+-    bindings
+-        .write_to_file(out)
+-        .expect("couldn't write bindings");
++    let rendered = bindings.to_string();
++    if base == "nss_ssl" && !rendered.contains("SSL_ImportFD") {
++        panic!(
++            "neqo-crypto bindgen for {base} missing SSL_ImportFD (len={}); flags={flags:?}",
++            rendered.len()
++        );
++    }
++    if base == "nss_p11" && !rendered.contains("PK11SymKey") {
++        panic!(
++            "neqo-crypto bindgen for {base} missing PK11SymKey (len={}); flags={flags:?}",
++            rendered.len()
++        );
++    }
++    if base == "nss_init" && !rendered.contains("NSS_NoDB_Init") {
++        panic!(
++            "neqo-crypto bindgen for {base} missing NSS_NoDB_Init (len={}); flags={flags:?}",
++            rendered.len()
++        );
++    }
++    fs::write(&out, rendered).expect("couldn't write bindings");
+ }
+ 
+ fn pkg_config() -> Vec<String> {
