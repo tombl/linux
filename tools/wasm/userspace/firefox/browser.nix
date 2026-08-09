@@ -137,6 +137,7 @@ stdenv.mkDerivation {
     ./patches/0021-wasm-neqo-bindgen-c-mode.patch
     ./patches/0022-wasm-wgpu-types-no-web-sys-linux.patch
     ./patches/0023-wasm-wgpu-empty-backend.patch
+    ./patches/0024-wasm-bindgen-linkage-abi.patch
   ];
 
   postPatch = ''
@@ -160,7 +161,7 @@ package = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 (root / ".cargo-checksum.json").write_text(json.dumps({"files": files, "package": package}))
 print(f"wrote checksums for {len(files)} libc files")
 # Refresh vendored crate checksums after linux/wasm sys.rs patches.
-for crate in ("time-0.1.45", "chrono", "linux-raw-sys", "rustix", "zeitstempel", "wgpu-types", "wgpu-core"):
+for crate in ("time-0.1.45", "chrono", "linux-raw-sys", "rustix", "zeitstempel", "wgpu-types", "wgpu-core", "bindgen"):
     root = Path("third_party/rust") / crate
     checksum_path = root / ".cargo-checksum.json"
     if not checksum_path.is_file():
@@ -276,7 +277,9 @@ EOF
     _bindgen_sysroot="$(cat "$NIX_CC/nix-support/orig-libc")"
     _bindgen_libcxx="$(cat "$NIX_CC/nix-support/libcxx-cxxflags")"
     _bindgen_resource="$($CXX -print-resource-dir)"
-    export BINDGEN_CFLAGS="--target=wasm32-unknown-linux-musl --sysroot=''${_bindgen_sysroot} ''${_bindgen_libcxx} -resource-dir=''${_bindgen_resource}"
+    # -fvisibility=default: wasm builds use -fvisibility=hidden; libclang then
+    # reports Gecko_*/Servo_* decls as Hidden and bindgen drops them all.
+    export BINDGEN_CFLAGS="--target=wasm32-unknown-linux-musl --sysroot=''${_bindgen_sysroot} ''${_bindgen_libcxx} -resource-dir=''${_bindgen_resource} -fvisibility=default"
     echo "BINDGEN_CFLAGS=$BINDGEN_CFLAGS"
 
     SHIM="$TMPDIR/firefox-mmap-shim"

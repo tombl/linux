@@ -1,0 +1,28 @@
+bindgen: accept wasm32 Invalid linkage and Unexposed calling convention
+
+libclang on wasm32 reports CXLinkage_Invalid for many extern "C"
+declarations and CXCallingConv_Unexposed for their ABI. Without this,
+Stylo drops all Gecko_*/Servo_* functions and leaves opaque structs.
+
+--- a/third_party/rust/bindgen/ir/function.rs	2026-08-09 12:33:49.228093815 +0000
++++ b/third_party/rust/bindgen/ir/function.rs	2026-08-09 12:33:49.228093815 +0000
+@@ -304,6 +304,8 @@
+         CXCallingConv_AAPCS => ClangAbi::Known(Abi::Aapcs),
+         CXCallingConv_X86_64Win64 => ClangAbi::Known(Abi::Win64),
+         CXCallingConv_AArch64VectorCall => ClangAbi::Known(Abi::Vectorcall),
++        // Newer libclang reports Unexposed (200) for wasm32 C functions.
++        CXCallingConv_Unexposed => ClangAbi::Known(Abi::C),
+         other => ClangAbi::Unknown(other),
+     }
+ }
+@@ -745,6 +747,10 @@
+         let linkage = match linkage {
+             CXLinkage_External | CXLinkage_UniqueExternal => Linkage::External,
+             CXLinkage_Internal => Linkage::Internal,
++            // Clang/libclang often reports Invalid linkage for wasm32 function
++            // declarations that are not defined in the current TU. Treat them
++            // as external so Gecko_/Servo_ bindings are not dropped.
++            CXLinkage_Invalid => Linkage::External,
+             _ => return Err(ParseError::Continue),
+         };
+ 
