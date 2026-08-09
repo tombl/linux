@@ -1,0 +1,53 @@
+--- a/build/moz.configure/rust.configure
++++ b/build/moz.configure/rust.configure
+@@ -261,6 +261,29 @@
+ @imports(_from="__builtin__", _import="ValueError")
+ def rust_supported_targets(rustc):
+     out = check_cmd_output(rustc, "--print", "target-list").splitlines()
++    # Nightly rustc lists many sanitizer triples that make host detection
++    # ambiguous for x86_64-pc-linux-gnu. Keep the plain GNU/musl triples.
++    out = [
++        t
++        for t in out
++        if not (
++            t.endswith("asan")
++            or t.endswith("msan")
++            or t.endswith("tsan")
++            or t.endswith("hwasan")
++            or t.endswith("lsan")
++            or t.endswith("nsan")
++            or "-oe-" in t
++            or "-unikraft-" in t
++            or t.endswith("-none")
++            or t.endswith("-ohos")
++            or t.endswith("gnux32")
++        )
++    ]
++    # Custom JSON targets (RUST_TARGET_PATH) are usable with --target but are
++    # not always emitted by `rustc --print target-list`.
++    if "wasm32-unknown-linux-musl" not in out:
++        out.append("wasm32-unknown-linux-musl")
+     data = {}
+     for t in out:
+         try:
+@@ -409,6 +432,20 @@
+         if len(narrowed) == 1:
+             return narrowed[0].rust_target
+ 
++        # Autoconf hosts often use vendor "pc" while rustc uses "unknown".
++        if host_or_target.vendor == "pc":
++            narrowed = [c for c in candidates if c.target.vendor == "unknown"]
++            if len(narrowed) == 1:
++                return narrowed[0].rust_target
++            # Prefer the plain *-unknown-linux-gnu triple when still ambiguous.
++            plain = [
++                c
++                for c in narrowed
++                if c.rust_target.endswith("-unknown-linux-gnu")
++            ]
++            if len(plain) == 1:
++                return plain[0].rust_target
++
+         return None
+ 
+     rustc_target = find_candidate(candidates)
