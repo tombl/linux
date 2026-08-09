@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rewrite Cargo.lock/Cargo.toml after installing the WebAuthn stub."""
+"""Rewrite Cargo.lock authrs_bridge deps after installing the WebAuthn stub."""
 from pathlib import Path
 
 lock = Path("Cargo.lock")
@@ -30,6 +30,7 @@ new = (
     'name = "authrs_bridge"\n'
     'version = "0.1.0"\n'
     "dependencies = [\n"
+    ' "libudev-sys",\n'
     ' "nserror",\n'
     ' "nsstring",\n'
     ' "thin-vec",\n'
@@ -40,13 +41,3 @@ if old not in text:
     raise SystemExit("authrs_bridge stanza not found in Cargo.lock")
 lock.write_text(text.replace(old, new, 1))
 print("updated Cargo.lock authrs_bridge dependencies (WebAuthn stub)")
-
-# authenticator was the only consumer of the in-tree libudev-sys patch.
-# An unused [patch] entry makes cargo want to rewrite Cargo.lock under --frozen.
-cargo_toml = Path("Cargo.toml")
-toml_text = cargo_toml.read_text()
-patch_line = 'libudev-sys = { path = "dom/webauthn/libudev-sys" }\n'
-if patch_line not in toml_text:
-    raise SystemExit("libudev-sys patch line not found in Cargo.toml")
-cargo_toml.write_text(toml_text.replace(patch_line, "", 1))
-print("removed unused libudev-sys [patch.crates-io] entry")
