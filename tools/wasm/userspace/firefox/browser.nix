@@ -184,6 +184,7 @@ PY
     cp ${./shim/gecko_profiler_stub_Cargo.toml} tools/profiler/rust-api/Cargo.toml
     cp ${./shim/gecko_profiler_stub_build.rs} tools/profiler/rust-api/build.rs
     cp ${./shim/gecko_profiler_stub_lib.rs} tools/profiler/rust-api/src/lib.rs
+    ${python}/bin/python3 ${./shim/patch-gecko-profiler-lock.py}
   '';
 
   buildPhase = ''
@@ -210,6 +211,7 @@ ac_add_options --disable-updater
 ac_add_options --disable-dbus
 ac_add_options --disable-necko-wifi
 ac_add_options --disable-webrtc
+ac_add_options --disable-gecko-profiler
 # Default audio backend is pulseaudio on Linux; disable all cubeb backends.
 ac_add_options --disable-audio-backends
 ac_add_options --without-wasm-sandboxed-libraries
