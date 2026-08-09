@@ -124,6 +124,9 @@ ac_add_options --host=x86_64-pc-linux-gnu
 ac_add_options --disable-jemalloc
 ac_add_options --disable-tests
 ac_add_options --disable-bootstrap
+# Platform has no shared libraries / dlopen; link mozjs statically into js.
+ac_add_options --disable-shared-js
+ac_add_options --disable-export-js
 # --disable-release sets DEVELOPER_OPTIONS, which turns off Rust -Clto
 # (wasm sysroot rlibs have no .llvmbc for crate LTO).
 ac_add_options --disable-release
