@@ -46,7 +46,9 @@ wasmpkgs.overrideScope (
       inherit (final) zlib libpng;
     };
     pixman = final.callPackage ./pixman/package.nix { };
-    cairo = final.callPackage ./cairo/package.nix { };
+    cairo = final.callPackage ./cairo/package.nix {
+      inherit (final) glib;
+    };
     gdk-pixbuf = final.callPackage ./gdk-pixbuf/package.nix {
       inherit (final) glib libpng zlib;
     };
@@ -65,6 +67,44 @@ wasmpkgs.overrideScope (
         libX11
         libXext
         libXrender
+        libxcb
+        xorgproto
+        ;
+    };
+    atk = final.callPackage ./atk/package.nix {
+      inherit (final) glib;
+    };
+    libepoxy = final.callPackage ./libepoxy/package.nix {
+      inherit (final) libX11;
+    };
+    gtk3 = final.callPackage ./gtk3/package.nix {
+      inherit (final)
+        glib
+        atk
+        cairo
+        pango
+        gdk-pixbuf
+        libepoxy
+        expat
+        fribidi
+        libpng
+        zlib
+        pixman
+        freetype
+        fontconfig
+        harfbuzz
+        libX11
+        libXext
+        libXrender
+        libXfixes
+        libXdamage
+        libXcomposite
+        libXcursor
+        libXi
+        libXrandr
+        libXinerama
+        libICE
+        libSM
         libxcb
         xorgproto
         ;

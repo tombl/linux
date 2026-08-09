@@ -1,0 +1,15 @@
+--- a/tests/meson.build
++++ b/tests/meson.build
+@@ -6,6 +6,7 @@
+   'testvalue',
+ ]
+ 
++if not meson.is_cross_build()
+ foreach test_name: tests
+   test_src = test_name + '.c'
+   test_bin = executable(test_name, test_src,
+@@ -22,3 +23,4 @@
+     ],
+   )
+ endforeach
++endif

@@ -1,0 +1,13 @@
+--- a/gtk/meson.build
++++ b/gtk/meson.build
+@@ -902,7 +902,9 @@
+   gtk_res = import('windows').compile_resources(gtk_rc)
+   gtk_sources += gtk_res
+ else
+-  gtk_deps += [ atkbridge_dep, ]
++  if atkbridge_dep.found()
++    gtk_deps += [ atkbridge_dep, ]
++  endif
+ endif
+ 
+ if quartz_enabled

@@ -1,0 +1,10 @@
+--- a/meson.build
++++ b/meson.build
+@@ -995,6 +995,8 @@
+ 
+ subdir('po')
+ subdir('po-properties')
++if not meson.is_cross_build()
+ subdir('docs/tools')
+ subdir('docs/reference')
++endif

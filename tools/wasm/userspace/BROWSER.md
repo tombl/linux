@@ -44,17 +44,19 @@ Built static libraries:
 | harfbuzz | `/tmp/result-harfbuzz` → `…-harfbuzz-static-wasm32-unknown-linux-musl-13.2.1` |
 | pixman | `/tmp/result-pixman` → `…-pixman-static-wasm32-unknown-linux-musl-0.46.4` |
 | pcre2 | `/tmp/result-pcre2` → `…-pcre2-static-wasm32-unknown-linux-musl-10.46` |
-| **cairo** | `/tmp/result-cairo` → `…-cairo-static-wasm32-unknown-linux-musl-1.18.4` |
+| **cairo** | `/tmp/result-cairo` → `…-cairo-static-wasm32-unknown-linux-musl-1.18.4` (incl. cairo-gobject) |
 | **libffi** | `/tmp/result-libffi` → `…-libffi-static-wasm32-unknown-linux-musl-3.4.8` |
 | **glib** | `/tmp/result-glib` → `…-glib-static-wasm32-unknown-linux-musl-2.82.1` |
 | **gdk-pixbuf** | `/tmp/result-gdk-pixbuf` → `…-gdk-pixbuf-static-wasm32-unknown-linux-musl-2.42.12` |
 | **pango** | `/tmp/result-pango` → `…-pango-static-wasm32-unknown-linux-musl-1.54.0` |
+| **libepoxy** | `/tmp/result-libepoxy` → `…-libepoxy-static-wasm32-unknown-linux-musl-1.5.10` |
+| **atk** | `/tmp/result-atk` → `…-atk-static-wasm32-unknown-linux-musl-2.38.0` |
+| **gtk+3** | `/tmp/result-gtk3` → `…-gtk+3-static-wasm32-unknown-linux-musl-3.24.52` |
 
 Failed / blocked:
 
 | Package | Reason |
 |---------|--------|
-| atk, gtk3 | next after gdk-pixbuf + pango |
 | links | clang 22 ICE on `charsets-encode.c` after data-table split; `bfu.c` needs `-O0` |
 
 Build example: `cd /tmp/distro && nix build --impure --accept-flake-config --expr 'let flake=builtins.getFlake "path:/tmp/distro"; pkgs=import flake.inputs.nixpkgs {system="x86_64-linux";}; wasmpkgs=flake.legacyPackages.x86_64-linux; gui=import /workspace/tools/wasm/userspace {inherit pkgs wasmpkgs;}; in gui.PACKAGE' -L --out-link /tmp/result-PACKAGE`
@@ -120,3 +122,43 @@ configure. Patches:
 - `wasm-no-utils.patch` — skip `utils/` and `tools/` programs on cross builds.
 
 Delivers `libpango-1.0.a`, `libpangoft2-1.0.a`, `libpangocairo-1.0.a`, headers, and `.pc` files.
+
+## atk
+
+Static meson build (2.38.0). Patch `wasm-no-tests.patch` skips test executables on cross builds.
+Delivers `libatk-1.0.a`, headers, and `atk.pc`.
+
+## libepoxy
+
+Static meson build (1.5.10) with X11 + GLX dispatch tables (no libGL link). Required by GDK GL
+context code. Delivers `libepoxy.a`, `epoxy/gl.h`, `epoxy/glx.h`, and `epoxy.pc`.
+
+## gtk+3
+
+Static meson build (3.24.52), X11 backend only (`wayland_backend=false`, `broadway_backend=false`).
+`builtin_immodules=all` compiles input methods into `libgtk-3.a` (no dlopen). `print_backends=file`
+only; cups/colord/cloudproviders/tracker3 disabled; atk-bridge optional (no at-spi2-atk in overlay).
+
+Patches:
+
+- `wasm-no-atk-bridge.patch` / `wasm-atk-bridge-guard.patch` / `wasm-atk-bridge-meson.patch` —
+  make `atk-bridge-2.0` optional; skip `atk_bridge_adaptor_init` when absent.
+- `wasm-no-utils.patch` — skip gtk CLI tools on cross builds.
+- `wasm-no-print-modules.patch` — skip shared print-backend modules (no `.so` dlopen).
+- `wasm-no-docs.patch` — skip `docs/tools` and `docs/reference` on cross builds.
+- `glib-compat.h` — shim `g_variant_builder_init_static` for host gdbus-codegen vs glib 2.82 sysroot.
+
+`cairo` rebuilt with `-Dglib=enabled` for `cairo-gobject`. `env.NIX_CFLAGS_COMPILE=-DHAVE_XSYNC=1`
+works around meson cross-check missing XSync. Host `pkgs.glib` supplies gdbus-codegen / glib-mkenums.
+
+Delivers `libgtk-3.a` (~12 MB), `libgdk-3.a`, `libgailutil-3.a`, headers, and
+`gtk+-3.0.pc` / `gtk+-x11-3.0.pc` / `gdk-x11-3.0.pc`.
+
+### GTK stack remaining blockers (Firefox / full browser)
+
+- **at-spi2-atk** not packaged (accessibility bridge; GTK builds without it)
+- **Print backends** not loadable at runtime (file backend module not built; printing disabled)
+- **gsettings-desktop-schemas** not in overlay (theme/settings; may need stub schemas for some widgets)
+- **Host glib 2.88 gdbus-codegen** vs **wasm glib 2.82** — compat header covers current dbus glue;
+  upgrading wasm glib to ≥2.84 would be cleaner long-term
+- Firefox still blocked on fork/mmap/rust-toolchain (see above); gtk3 static libs are now available to link

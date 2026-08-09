@@ -7,6 +7,7 @@
   fontconfig,
   libpng,
   zlib,
+  glib,
   libX11,
   libXrender,
   libXext,
@@ -29,6 +30,7 @@ stdenv.mkDerivation {
     pkgs.ninja
     pkgs.pkg-config
     pkgs.python3
+    glib
   ];
 
   buildInputs = [
@@ -37,6 +39,7 @@ stdenv.mkDerivation {
     fontconfig
     libpng
     zlib
+    glib
     libX11
     libXrender
     libXext
@@ -48,11 +51,13 @@ stdenv.mkDerivation {
     (lib.mesonOption "tests" "disabled")
     (lib.mesonOption "xlib" "enabled")
     (lib.mesonOption "xcb" "disabled")
-    (lib.mesonOption "glib" "disabled")
+    (lib.mesonOption "glib" "enabled")
     (lib.mesonOption "lzo" "disabled")
     (lib.mesonOption "symbol-lookup" "disabled")
     (lib.mesonOption "spectre" "disabled")
   ];
+
+  propagatedBuildInputs = [ glib ];
 
   mesonBuildType = "release";
 

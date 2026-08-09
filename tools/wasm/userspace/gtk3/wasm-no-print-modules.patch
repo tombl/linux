@@ -1,0 +1,15 @@
+--- a/modules/printbackends/meson.build
++++ b/modules/printbackends/meson.build
+@@ -103,6 +103,7 @@
+   )
+ endif
+ 
++if not meson.is_cross_build()
+ if print_backends.contains('file')
+   shared_module('printbackend-file',
+                 'file/gtkprintbackendfile.c',
+@@ -145,3 +146,4 @@
+                 install_dir: printbackends_install_dir,
+                 install : true)
+ endif
++endif

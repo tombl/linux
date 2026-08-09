@@ -1,0 +1,18 @@
+--- a/gtk/meson.build
++++ b/gtk/meson.build
+@@ -1097,6 +1097,7 @@
+ ####### Utils ######
+ gtk_tools = []
+ 
++if not meson.is_cross_build()
+ gtk_query_settings = executable(
+   'gtk-query-settings',
+   'gtk-query-settings.c',
+@@ -1175,6 +1176,7 @@
+ )
+ gtk_tools += gtk_launch
+ 
++endif
+ foreach tool: gtk_tools
+   meson.override_find_program(tool.name(), tool)
+ endforeach
