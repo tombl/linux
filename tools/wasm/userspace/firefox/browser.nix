@@ -196,6 +196,29 @@ PY
     rm -f dom/webauthn/authrs_bridge/src/about_webauthn_controller.rs \
           dom/webauthn/authrs_bridge/src/test_token.rs
     ${python}/bin/python3 ${./shim/patch-authrs-bridge-lock.py}
+    # fog_control still depends on ohttp (NSS bindgen). Fail closed.
+    rm -rf third_party/rust/ohttp
+    mkdir -p third_party/rust/ohttp/src
+    cp ${./shim/ohttp_stub_Cargo.toml} third_party/rust/ohttp/Cargo.toml
+    cp ${./shim/ohttp_stub_lib.rs} third_party/rust/ohttp/src/lib.rs
+    ${python}/bin/python3 ${./shim/patch-ohttp-lock.py}
+    ${python}/bin/python3 - <<'PY'
+import hashlib, json
+from pathlib import Path
+root = Path("third_party/rust/ohttp")
+files = {}
+for path in sorted(root.rglob("*")):
+    if not path.is_file() or path.name == ".cargo-checksum.json":
+        continue
+    rel = path.relative_to(root).as_posix()
+    files[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
+(root / ".cargo-checksum.json").write_text(
+    json.dumps({"files": files, "package": "850ce328ec7e4dc1a9446c56aef700d21d914268c8529b96017a2bf10f74b70f"})
+)
+print(f"updated checksums for {len(files)} ohttp stub files")
+PY
+    # Stub Cargo.toml edits orphan lock entries; prune so --frozen stays happy.
+    ${python}/bin/python3 ${./shim/prune-cargo-lock.py}
   '';
 
   buildPhase = ''

@@ -1,0 +1,19 @@
+[package]
+edition = "2021"
+name = "ohttp"
+version = "0.3.1"
+authors = ["Martin Thomson <mt@lowentropy.net>"]
+description = "Oblivious HTTP (wasm stub — NSS bindgen disabled)"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+thiserror = "1"
+
+[features]
+default = []
+client = []
+server = []
+nss = []
+gecko = []
+rust-hpke = []
+stream = []
