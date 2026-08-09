@@ -48,11 +48,18 @@ stdenv.mkDerivation {
 
   dontConfigure = true;
 
+  postPatch = ''
+    # Sandbox has no /usr/bin/env; run mach via python3.
+    patchShebangs mach
+    substituteInPlace mach --replace-fail '/usr/bin/env python3' '${pkgs.python3}/bin/python3' || true
+  '';
+
   buildPhase = ''
     runHook preBuild
 
     export MOZBUILD_STATE_PATH=$TMPDIR/mozbuild
     mkdir -p "$MOZBUILD_STATE_PATH"
+    mach() { ${pkgs.python3}/bin/python3 ./mach "$@"; }
 
     # SpiderMonkey shell first — no GTK. Still needs Rust for this target.
     cat > .mozconfig <<EOF
@@ -77,8 +84,8 @@ EOF
     export RUSTC=${rust-toolchain.rustc}/bin/rustc
     export CARGO=${rust-toolchain.cargo}/bin/cargo
 
-    ./mach configure
-    ./mach build -j$NIX_BUILD_CORES
+    mach configure
+    mach build -j$NIX_BUILD_CORES
 
     runHook postBuild
   '';
