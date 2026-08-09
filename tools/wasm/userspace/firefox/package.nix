@@ -194,6 +194,12 @@ EOF
     runHook postInstall
   '';
 
+  # apk rejects alphabetic suffixes like "esr" in package versions.
+  passthru.apk = {
+    name = "firefox";
+    version = "128.14.0-r0";
+  };
+
   meta = {
     description = "Firefox / SpiderMonkey for wasm32-linux-musl (TinyX experiment)";
     license = lib.licenses.mpl20;
