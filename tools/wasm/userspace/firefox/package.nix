@@ -1,13 +1,11 @@
 # Firefox / Gecko for wasm32-unknown-linux-musl + TinyX.
 #
-# Full browser build is blocked on: GTK3 stack, multiprocess IPC without fork,
-# mmap-heavy allocators, and a custom Rust target. This derivation:
-#   1) Fetches Firefox 128 ESR sources
-#   2) Attempts `./mach configure` for --enable-project=js (SpiderMonkey shell)
-#      as the first Gecko milestone (no GTK)
-#   3) Stays `meta.broken` until configure succeeds end-to-end
+# Platform limits: no fork/vfork/mmap. Strategy:
+#   1) SpiderMonkey JS shell (--enable-project=js) to prove mach + Rust target
+#   2) Full browser with single-process + GTK stack (follow-on)
 #
-# Runnable networking is already available via busybox wget / curl in gui-rootfs.
+# Host mach must use Python <=3.13 (3.14 dropped ast.Constant.s). Nix sandbox
+# has no pip, so MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=none|system.
 {
   pkgs,
   stdenv,
@@ -22,13 +20,17 @@
   },
 }:
 
+let
+  # 3.14 breaks mach's AST walker; nixpkgs uses 3.13 for Firefox <143.
+  python = pkgs.python311;
+in
 stdenv.mkDerivation {
   pname = "firefox-js";
   version = "128.14.0esr";
   inherit src;
 
   nativeBuildInputs = [
-    pkgs.python3
+    python
     pkgs.perl
     pkgs.pkg-config
     pkgs.m4
@@ -36,6 +38,9 @@ stdenv.mkDerivation {
     pkgs.unzip
     pkgs.zip
     pkgs.llvmPackages.bintools
+    pkgs.autoconf
+    pkgs.nodejs
+    pkgs.rust-cbindgen
     rust-toolchain.rustc
     rust-toolchain.cargo
   ];
@@ -49,43 +54,45 @@ stdenv.mkDerivation {
   dontConfigure = true;
 
   postPatch = ''
-    # Sandbox has no /usr/bin/env; run mach via python3.
-    patchShebangs mach
-    substituteInPlace mach --replace-fail '/usr/bin/env python3' '${pkgs.python3}/bin/python3' || true
+    patchShebangs mach build
   '';
 
   buildPhase = ''
     runHook preBuild
 
-    export MOZBUILD_STATE_PATH=$TMPDIR/mozbuild
+    export MOZBUILD_STATE_PATH="$TMPDIR/mozbuild"
+    export MOZ_OBJDIR="$(pwd)/obj-wasm-js"
+    export MOZ_NOSPAM=1
+    # Optional pypi wheels (glean/psutil/zstd) cannot be fetched in the sandbox.
+    export MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=none
     mkdir -p "$MOZBUILD_STATE_PATH"
-    mach() { ${pkgs.python3}/bin/python3 ./mach "$@"; }
 
-    # SpiderMonkey shell first — no GTK. Still needs Rust for this target.
-    cat > .mozconfig <<EOF
+    cat > .mozconfig <<'EOF'
 ac_add_options --enable-project=js
 ac_add_options --target=wasm32-unknown-linux-musl
+ac_add_options --host=x86_64-pc-linux-gnu
 ac_add_options --disable-jemalloc
 ac_add_options --disable-tests
 ac_add_options --disable-bootstrap
-ac_add_options --without-wasm-sandboxed-libraries
 ac_add_options --enable-release
 ac_add_options --disable-debug
+ac_add_options --disable-jit
 mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-wasm-js
 EOF
 
     export HOST_CC=${pkgs.stdenv.cc}/bin/cc
     export HOST_CXX=${pkgs.stdenv.cc}/bin/c++
-    export CC=$CC
-    export CXX=$CXX
-    export AR=$AR
-    export RANLIB=$RANLIB
     export PATH="${rust-toolchain.rustc}/bin:${rust-toolchain.cargo}/bin:$PATH"
     export RUSTC=${rust-toolchain.rustc}/bin/rustc
     export CARGO=${rust-toolchain.cargo}/bin/cargo
+    export RUST_TARGET_PATH="${rust-toolchain.targetSpecDir}''${RUST_TARGET_PATH:+:$RUST_TARGET_PATH}"
 
-    mach configure
-    mach build -j$NIX_BUILD_CORES
+    echo "=== firefox mach configure (python ${python.pythonVersion}) ==="
+    ${python}/bin/python3 ./mach configure
+    echo "=== firefox mach build ==="
+    ${python}/bin/python3 ./mach build -j"$NIX_BUILD_CORES"
+    echo "=== firefox mach build done ==="
+    ls -la obj-wasm-js/dist/bin/ || true
 
     runHook postBuild
   '';
@@ -96,7 +103,8 @@ EOF
     if [ -x obj-wasm-js/dist/bin/js ]; then
       cp -a obj-wasm-js/dist/bin/js $out/bin/js
     else
-      echo "spidermonkey js shell missing" >&2
+      echo "spidermonkey js shell missing; obj tree:" >&2
+      find obj-wasm-js -maxdepth 3 -type f 2>/dev/null | head -80 >&2 || true
       exit 1
     fi
     runHook postInstall
@@ -105,7 +113,6 @@ EOF
   meta = {
     description = "SpiderMonkey JS shell from Firefox 128 ESR (wasm32-linux-musl experiment)";
     license = lib.licenses.mpl20;
-    # Clear once mach configure/build completes for the JS shell.
     broken = true;
   };
 }
