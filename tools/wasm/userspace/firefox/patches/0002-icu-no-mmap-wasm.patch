@@ -1,0 +1,22 @@
+--- a/intl/icu/source/common/umapfile.h
++++ b/intl/icu/source/common/umapfile.h
+@@ -41,7 +41,7 @@
+ 
+ #if UCONFIG_NO_FILE_IO
+ #   define MAP_IMPLEMENTATION MAP_NONE
+-#elif defined(__wasi__)
++#elif defined(__wasi__) || defined(__wasm__)
+ #   define MAP_IMPLEMENTATION MAP_STDIO
+ #elif U_PLATFORM_USES_ONLY_WIN32_API
+ #   define MAP_IMPLEMENTATION MAP_WIN32
+--- a/intl/icu/source/common/putilimp.h
++++ b/intl/icu/source/common/putilimp.h
+@@ -155,6 +155,8 @@
+     /* Use the predefined value. */
+ #elif U_PLATFORM_USES_ONLY_WIN32_API
+ #   define U_HAVE_MMAP 0
++#elif defined(__wasm__)
++#   define U_HAVE_MMAP 0
+ #else
+ #   define U_HAVE_MMAP 1
+ #endif

@@ -53,6 +53,11 @@ stdenv.mkDerivation {
 
   dontConfigure = true;
 
+  patches = [
+    ./patches/0001-rust-target-list-wasm-musl.patch
+    ./patches/0002-icu-no-mmap-wasm.patch
+  ];
+
   postPatch = ''
     patchShebangs mach build
   '';
