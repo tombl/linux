@@ -152,10 +152,13 @@ EOF
     mkdir -p "$SHIM/sys"
     cp ${./shim/sys/mman.h} "$SHIM/sys/mman.h"
     cp ${./shim/mmap-shim.c} "$SHIM/mmap-shim.c"
+    cp ${./shim/unwind-stubs.c} "$SHIM/unwind-stubs.c"
     $CC -c "$SHIM/mmap-shim.c" -I"$SHIM" -o "$SHIM/mmap-shim.o"
+    $CC -c "$SHIM/unwind-stubs.c" -o "$SHIM/unwind-stubs.o"
     export CFLAGS="-I$SHIM ''${CFLAGS:-}"
     export CXXFLAGS="-I$SHIM ''${CXXFLAGS:-}"
-    export LIBS="$SHIM/mmap-shim.o ''${LIBS:-}"
+    # libc++abi + Rust std name _Unwind_* ; platform has no real unwinder.
+    export LIBS="$SHIM/mmap-shim.o $SHIM/unwind-stubs.o ''${LIBS:-}"
     # Drop any ELF rpath flags that still leak into the wasm-ld command line.
     export NIX_LDFLAGS="$(printf %s "''${NIX_LDFLAGS-}" | sed -E 's/(^| )-rpath( |=)[^ ]+//g; s/(^| )-rpath-link( |=)[^ ]+//g')"
     export LDFLAGS="$(printf %s "''${LDFLAGS-}" | sed -E 's/-Wl,-rpath[^ ]*//g; s/-Wl,--rpath-link[^ ]*//g')"
