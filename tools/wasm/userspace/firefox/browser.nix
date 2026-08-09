@@ -185,6 +185,10 @@ PY
     cp ${./shim/gecko_profiler_stub_build.rs} tools/profiler/rust-api/build.rs
     cp ${./shim/gecko_profiler_stub_lib.rs} tools/profiler/rust-api/src/lib.rs
     ${python}/bin/python3 ${./shim/patch-gecko-profiler-lock.py}
+    # ohttp NSS bindgen is incomplete on wasm32; rust-hpke deps are not vendored.
+    cp ${./shim/oblivious_http_Cargo.toml} netwerk/protocol/http/oblivious_http/Cargo.toml
+    cp ${./shim/oblivious_http_stub.rs} netwerk/protocol/http/oblivious_http/src/lib.rs
+    ${python}/bin/python3 ${./shim/patch-oblivious-http-lock.py}
   '';
 
   buildPhase = ''
