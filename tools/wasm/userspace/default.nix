@@ -35,6 +35,9 @@ wasmpkgs.overrideScope (
 
     libffi = final.callPackage ./libffi/package.nix { };
     pcre2 = final.callPackage ./pcre2/package.nix { };
+    glib = final.callPackage ./glib/package.nix {
+      inherit (final) libffi pcre2 zlib;
+    };
     expat = final.callPackage ./expat/package.nix { };
     freetype = final.callPackage ./freetype/package.nix { };
     fontconfig = final.callPackage ./fontconfig/package.nix { };

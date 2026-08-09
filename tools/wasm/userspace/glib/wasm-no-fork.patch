@@ -1,0 +1,103 @@
+--- glib-2.82.1/glib/gspawn-posix.c	2024-09-19 20:56:26.000000000 +0000
++++ glib-patched/glib/gspawn-posix.c	2026-08-09 06:05:48.636605121 +0000
+@@ -79,6 +79,10 @@
+ #define INHERITS_OR_NULL_STDOUT (G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_CHILD_INHERITS_STDOUT)
+ #define INHERITS_OR_NULL_STDERR (G_SPAWN_STDERR_TO_DEV_NULL | G_SPAWN_CHILD_INHERITS_STDERR)
+ 
++#ifdef __wasm__
++#define GLIB_PLATFORM_NO_FORK 1
++#endif
++
+ #define IS_STD_FILENO(_fd) ((_fd >= STDIN_FILENO) && (_fd <= STDERR_FILENO))
+ #define IS_VALID_FILENO(_fd) (_fd >= 0)
+ 
+@@ -1009,7 +1013,9 @@
+                 gint        stderr_fd,
+                 const gint *source_fds,
+                 const gint *target_fds,
+-                gsize       n_fds)
++                gsize       n_fds,
++                const gchar *working_directory,
++                gboolean    close_descriptors)
+ {
+   pid_t pid;
+   gint *duped_source_fds = NULL;
+@@ -1064,6 +1070,19 @@
+   if (r != 0)
+     goto out_free_spawnattr;
+ 
++  if (working_directory != NULL)
++    {
++      r = posix_spawn_file_actions_addchdir_np (&file_actions, working_directory);
++      if (r != 0)
++        goto out_close_fds;
++    }
++
++  if (close_descriptors)
++    {
++      for (gint fd = 3; fd < 256; fd++)
++        posix_spawn_file_actions_addclose (&file_actions, fd);
++    }
++
+   /* Redirect pipes as required */
+ 
+   if (stdin_fd >= 0)
+@@ -1328,8 +1347,12 @@
+   child_close_fds[n_child_close_fds++] = -1;
+ 
+ #ifdef POSIX_SPAWN_AVAILABLE
++#ifdef GLIB_PLATFORM_NO_FORK
++  if (child_setup == NULL)
++#else
+   if (!intermediate_child && working_directory == NULL && !close_descriptors &&
+       !search_path_from_envp && child_setup == NULL)
++#endif
+     {
+       g_trace_mark (G_TRACE_CURRENT_TIME, 0,
+                     "GLib", "posix_spawn",
+@@ -1349,10 +1372,21 @@
+                                stderr_fd,
+                                source_fds,
+                                target_fds,
+-                               n_fds);
++                               n_fds,
++                               working_directory,
++                               close_descriptors);
+       if (status == 0)
+         goto success;
+ 
++#ifdef GLIB_PLATFORM_NO_FORK
++      g_set_error (error,
++                   G_SPAWN_ERROR,
++                   G_SPAWN_ERROR_FAILED,
++                   _("Failed to spawn child process “%s” (%s)"),
++                   argv[0],
++                   g_strerror (status));
++      goto cleanup_and_fail;
++#else
+       if (status != ENOEXEC)
+         {
+           g_set_error (error,
+@@ -1370,6 +1404,7 @@
+        * gspawn codepath so that script execution can be attempted,
+        * per standard gspawn behaviour. */
+       g_debug ("posix_spawn failed (ENOEXEC), fall back to regular gspawn");
++#endif
+     }
+   else
+     {
+@@ -1384,6 +1419,14 @@
+     }
+ #endif /* POSIX_SPAWN_AVAILABLE */
+ 
++#ifdef GLIB_PLATFORM_NO_FORK
++  g_set_error (error,
++               G_SPAWN_ERROR,
++               G_SPAWN_ERROR_FORK,
++               _("fork() is not available on this platform"));
++  goto cleanup_and_fail;
++#endif
++
+   /* Choose a search path. This has to be done before calling fork()
+    * as getenv() isn’t async-signal-safe (see `man 7 signal-safety`). */
+   chosen_search_path = NULL;

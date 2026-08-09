@@ -1,0 +1,64 @@
+glib: read files into heap on wasm instead of mmap().
+
+wasm32-unknown-linux-musl has no mmap(); use pread()+malloc for GMappedFile.
+
+diff --git a/glib/gmappedfile.c b/glib/gmappedfile.c
+--- a/glib/gmappedfile.c
++++ b/glib/gmappedfile.c
+@@ -97,9 +97,13 @@ g_mapped_file_destroy (GMappedFile *file)
+ {
+   if (file->length)
+     {
++#ifdef __wasm__
++      g_free (file->contents);
++#else
+ #ifdef HAVE_MMAP
+       munmap (file->contents, file->length);
+ #endif
++#endif
+ #ifdef G_OS_WIN32
+       UnmapViewOfFile (file->contents);
+       CloseHandle (file->mapping);
+@@ -155,6 +159,34 @@ mapped_file_new_from_fd (int           fd,
+ 
+   file->contents = MAP_FAILED;
+ 
++#ifdef __wasm__
++  if (sizeof (st.st_size) > sizeof (gsize) && st.st_size > (off_t) G_MAXSIZE)
++    {
++      errno = EINVAL;
++    }
++  else
++    {
++      file->length = (gsize) st.st_size;
++      file->contents = g_try_malloc (file->length > 0 ? file->length : 1);
++      if (file->contents != NULL && file->length > 0)
++        {
++          gsize got = 0;
++          while (got < file->length)
++            {
++              ssize_t n = pread (fd, file->contents + got, file->length - got, got);
++              if (n < 0)
++                {
++                  g_free (file->contents);
++                  file->contents = MAP_FAILED;
++                  break;
++                }
++              if (n == 0)
++                break;
++              got += (gsize) n;
++            }
++        }
++    }
++#else
+ #ifdef HAVE_MMAP
+   if (sizeof (st.st_size) > sizeof (gsize) && st.st_size > (off_t) G_MAXSIZE)
+     {
+@@ -168,6 +200,7 @@ mapped_file_new_from_fd (int           fd,
+ 				       writable ? PROT_READ|PROT_WRITE : PROT_READ,
+ 				       MAP_PRIVATE, fd, 0);
+     }
++#endif
+ #endif
+ #ifdef G_OS_WIN32
+   file->length = st.st_size;
