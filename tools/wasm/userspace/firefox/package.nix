@@ -119,6 +119,10 @@ ac_add_options --disable-bootstrap
 ac_add_options --enable-release
 ac_add_options --disable-debug
 ac_add_options --disable-jit
+ac_add_options --disable-lto
+# Release mode enables -Clto for top-level Rust crates; our wasm rust
+# sysroot rlibs lack .llvmbc. Developer options force -Clto=off.
+mk_add_options DEVELOPER_OPTIONS=1
 mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-wasm-js
 EOF
 
