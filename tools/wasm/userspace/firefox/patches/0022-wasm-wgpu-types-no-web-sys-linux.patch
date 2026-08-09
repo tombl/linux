@@ -1,0 +1,74 @@
+Exclude web_sys ExternalImage APIs on wasm32-linux.
+
+wgpu-types gates browser copy-external-image types on target_arch=wasm32,
+but wasm32-unknown-linux-musl is not a browser target and web-sys types
+are unavailable. Narrow the cfg to non-linux wasm32.
+
+--- a/third_party/rust/wgpu-types/src/lib.rs
++++ b/third_party/rust/wgpu-types/src/lib.rs
+@@ -6574,7 +6574,7 @@
+ ///
+ /// Corresponds to [WebGPU `GPUImageCopyExternalImage`](
+ /// https://gpuweb.github.io/gpuweb/#dictdef-gpuimagecopyexternalimage).
+-#[cfg(target_arch = "wasm32")]
++#[cfg(all(target_arch = "wasm32", not(target_os = "linux")))]
+ #[derive(Clone, Debug)]
+ pub struct ImageCopyExternalImage {
+     /// The texture to be copied from. The copy source data is captured at the moment
+@@ -6597,7 +6597,7 @@
+ ///
+ /// Corresponds to the [implicit union type on WebGPU `GPUImageCopyExternalImage.source`](
+ /// https://gpuweb.github.io/gpuweb/#dom-gpuimagecopyexternalimage-source).
+-#[cfg(target_arch = "wasm32")]
++#[cfg(all(target_arch = "wasm32", not(target_os = "linux")))]
+ #[derive(Clone, Debug)]
+ pub enum ExternalImageSource {
+     /// Copy from a previously-decoded image bitmap.
+@@ -6612,7 +6612,7 @@
+     OffscreenCanvas(web_sys::OffscreenCanvas),
+ }
+ 
+-#[cfg(target_arch = "wasm32")]
++#[cfg(all(target_arch = "wasm32", not(target_os = "linux")))]
+ impl ExternalImageSource {
+     /// Gets the pixel, not css, width of the source.
+     pub fn width(&self) -> u32 {
+@@ -6635,7 +6635,7 @@
+     }
+ }
+ 
+-#[cfg(target_arch = "wasm32")]
++#[cfg(all(target_arch = "wasm32", not(target_os = "linux")))]
+ impl std::ops::Deref for ExternalImageSource {
+     type Target = js_sys::Object;
+ 
+@@ -6651,12 +6651,14 @@
+ 
+ #[cfg(all(
+     target_arch = "wasm32",
++    not(target_os = "linux"),
+     feature = "fragile-send-sync-non-atomic-wasm",
+     not(target_feature = "atomics")
+ ))]
+ unsafe impl Send for ExternalImageSource {}
+ #[cfg(all(
+     target_arch = "wasm32",
++    not(target_os = "linux"),
+     feature = "fragile-send-sync-non-atomic-wasm",
+     not(target_feature = "atomics")
+ ))]
+--- a/third_party/rust/wgpu-types/Cargo.toml
++++ b/third_party/rust/wgpu-types/Cargo.toml
+@@ -55,10 +55,10 @@
+ fragile-send-sync-non-atomic-wasm = []
+ strict_asserts = []
+ 
+-[target."cfg(target_arch = \"wasm32\")".dependencies]
++[target."cfg(all(target_arch = \"wasm32\", not(target_os = \"linux\")))".dependencies]
+ js-sys = "0.3.69"
+ 
+-[target."cfg(target_arch = \"wasm32\")".dependencies.web-sys]
++[target."cfg(all(target_arch = \"wasm32\", not(target_os = \"linux\")))".dependencies.web-sys]
+ version = "0.3.69"
+ features = [
+     "ImageBitmap",
