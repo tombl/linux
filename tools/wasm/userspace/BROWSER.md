@@ -27,10 +27,35 @@ Package: `tools/wasm/userspace/firefox/package.nix` (Firefox **128.14.0esr**,
 
 Still blocked for a full browser:
 
-- no GTK3 / cairo / pango stack in wasmpkgs
+- GTK stack partially packaged (see below); cairo XRender header clash remains
+- libffi blocked (mmap in closure trampolines) — blocks GLib/GObject and above
 - Gecko multiprocess assumes `fork` (platform has posix_spawn only)
 - jemalloc / sandbox paths want `mmap`
 - need the distro `rust-toolchain` wired into mozbuild for this triple
+
+### GTK stack packaging (wasm32-unknown-linux-musl)
+
+Built static libraries:
+
+| Package | Out-link |
+|---------|----------|
+| expat | `/tmp/result-expat` → `…-expat-static-wasm32-unknown-linux-musl-2.8.2` |
+| freetype | `/tmp/result-freetype` → `…-freetype-static-wasm32-unknown-linux-musl-2.14.3` |
+| fontconfig | `/tmp/result-fontconfig` → `…-fontconfig-static-wasm32-unknown-linux-musl-2.18.1` |
+| fribidi | `/tmp/result-fribidi` → `…-fribidi-static-wasm32-unknown-linux-musl-1.0.16` |
+| harfbuzz | `/tmp/result-harfbuzz` → `…-harfbuzz-static-wasm32-unknown-linux-musl-13.2.1` |
+| pixman | `/tmp/result-pixman` → `…-pixman-static-wasm32-unknown-linux-musl-0.46.4` |
+| pcre2 | `/tmp/result-pcre2` → `…-pcre2-static-wasm32-unknown-linux-musl-10.46` |
+
+Failed / blocked:
+
+| Package | Reason |
+|---------|--------|
+| libffi | `closures.c` requires `mmap` for executable trampolines |
+| cairo | `cairo-xlib-xrender-private.h` typedef clash with xorgproto Render 0.11 |
+| glib, pango, gdk-pixbuf, atk, gtk3 | depend on libffi (GObject closures) |
+
+Build example: `cd /tmp/distro && nix build --impure --accept-flake-config --expr 'let flake=builtins.getFlake "path:/tmp/distro"; pkgs=import flake.inputs.nixpkgs {system="x86_64-linux";}; wasmpkgs=flake.legacyPackages.x86_64-linux; gui=import /workspace/tools/wasm/userspace {inherit pkgs wasmpkgs;}; in gui.PACKAGE' -L --out-link /tmp/result-PACKAGE`
 
 Next concrete steps:
 

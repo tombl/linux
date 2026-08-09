@@ -19,4 +19,6 @@ stdenv.mkDerivation {
     "--with-gcc-arch=generic"
   ]
   ++ lib.optional (stdenv.hostPlatform != stdenv.buildPlatform) "--disable-assembly";
+
+  meta.broken = true; # closures.c uses mmap for executable trampolines (unavailable on wasm musl)
 }

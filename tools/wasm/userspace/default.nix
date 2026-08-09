@@ -35,6 +35,15 @@ wasmpkgs.overrideScope (
 
     libffi = final.callPackage ./libffi/package.nix { };
     pcre2 = final.callPackage ./pcre2/package.nix { };
+    expat = final.callPackage ./expat/package.nix { };
+    freetype = final.callPackage ./freetype/package.nix { };
+    fontconfig = final.callPackage ./fontconfig/package.nix { };
+    fribidi = final.callPackage ./fribidi/package.nix { };
+    harfbuzz = final.callPackage ./harfbuzz/package.nix {
+      inherit (final) zlib libpng;
+    };
+    pixman = final.callPackage ./pixman/package.nix { };
+    cairo = final.callPackage ./cairo/package.nix { };
     libICE = final.callPackage ./libICE/package.nix { };
     libSM = final.callPackage ./libSM/package.nix { };
     libXt = final.callPackage ./libXt/package.nix { };
