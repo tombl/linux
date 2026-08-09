@@ -1,0 +1,129 @@
+--- a/mfbt/Assertions.h
++++ b/mfbt/Assertions.h
+@@ -10,7 +10,7 @@
+ #define mozilla_Assertions_h
+ 
+ #if (defined(MOZ_HAS_MOZGLUE) || defined(MOZILLA_INTERNAL_API)) && \
+-    !defined(__wasi__)
++    !defined(__wasi__) && !defined(__wasm__)
+ #  define MOZ_DUMP_ASSERTION_STACK
+ #endif
+ #if defined(XP_WIN) && (defined(DEBUG) || defined(FUZZING))
+--- a/js/src/vm/ArrayBufferObject.cpp
++++ b/js/src/vm/ArrayBufferObject.cpp
+@@ -18,7 +18,7 @@
+ #include <algorithm>  // std::max, std::min
+ #include <memory>     // std::uninitialized_copy_n
+ #include <string.h>
+-#if !defined(XP_WIN) && !defined(__wasi__)
++#if !defined(XP_WIN) && !defined(__wasi__) && !defined(__wasm__)
+ #  include <sys/mman.h>
+ #endif
+ #include <tuple>  // std::tuple
+@@ -203,7 +203,7 @@
+     VirtualFree(data, 0, MEM_RELEASE);
+     return nullptr;
+   }
+-#elif defined(__wasi__)
++#elif defined(__wasi__) || defined(__wasm__)
+   void* data = nullptr;
+   if (int err = posix_memalign(&data, gc::SystemPageSize(), mappedSize)) {
+     MOZ_ASSERT(err == ENOMEM);
+@@ -246,7 +246,7 @@
+   if (!VirtualAlloc(dataEnd, delta, MEM_COMMIT, PAGE_READWRITE)) {
+     return false;
+   }
+-#elif defined(__wasi__)
++#elif defined(__wasi__) || defined(__wasm__)
+   // posix_memalign'd memory is already committed
+   return true;
+ #else
+@@ -276,7 +276,7 @@
+     return false;
+   }
+   return true;
+-#elif defined(__wasi__)
++#elif defined(__wasi__) || defined(__wasm__)
+   return false;
+ #elif defined(XP_LINUX)
+   // Note this will not move memory (no MREMAP_MAYMOVE specified)
+@@ -296,7 +296,7 @@
+ 
+ #ifdef XP_WIN
+   VirtualFree(base, 0, MEM_RELEASE);
+-#elif defined(__wasi__)
++#elif defined(__wasi__) || defined(__wasm__)
+   free(base);
+ #else
+   munmap(base, mappedSize);
+@@ -1152,7 +1152,7 @@
+   if (!VirtualAlloc(addr, byteLen, MEM_COMMIT, PAGE_READWRITE)) {
+     MOZ_CRASH("wasm discard: decommitted memory but failed to recommit");
+   };
+-#elif defined(__wasi__)
++#elif defined(__wasi__) || defined(__wasm__)
+   memset(addr, 0, byteLen);
+ #else  // !XP_WIN
+   void* data = MozTaggedAnonymousMmap(addr, byteLen, PROT_READ | PROT_WRITE,
+--- a/mfbt/Poison.cpp
++++ b/mfbt/Poison.cpp
+@@ -16,7 +16,7 @@
+ #  include <windows.h>
+ #elif !defined(__OS2__)
+ #  include <unistd.h>
+-#  ifndef __wasi__
++#  if !defined(__wasi__) && !defined(__wasm__)
+ #    include <sys/mman.h>
+ #    ifndef MAP_ANON
+ #      ifdef MAP_ANONYMOUS
+@@ -86,7 +86,7 @@
+ 
+ #  define RESERVE_FAILED 0
+ 
+-#elif defined(__wasi__)
++#elif defined(__wasi__) || defined(__wasm__)
+ 
+ #  define RESERVE_FAILED 0
+ 
+--- a/mfbt/TaggedAnonymousMemory.h
++++ b/mfbt/TaggedAnonymousMemory.h
+@@ -33,7 +33,7 @@
+ 
+ #ifndef XP_WIN
+ 
+-#  ifdef __wasi__
++#  if defined(__wasi__) || defined(__wasm__)
+ #    include <stdlib.h>
+ #  else
+ #    include <sys/types.h>
+@@ -67,7 +67,7 @@
+ static inline void* MozTaggedAnonymousMmap(void* aAddr, size_t aLength,
+                                            int aProt, int aFlags, int aFd,
+                                            off_t aOffset, const char* aTag) {
+-#    ifdef __wasi__
++#    if defined(__wasi__) || defined(__wasm__)
+   MOZ_CRASH("We don't use this memory for WASI right now.");
+   return nullptr;
+ #    else
+--- a/mozglue/misc/MmapFaultHandler.h
++++ b/mozglue/misc/MmapFaultHandler.h
+@@ -33,7 +33,7 @@
+ #  define MMAP_FAULT_HANDLER_BEGIN_BUFFER(buf, bufLen) {
+ #  define MMAP_FAULT_HANDLER_CATCH(retval) }
+ 
+-#elif defined(__wasi__)
++#elif defined(__wasi__) || defined(__wasm__)
+ 
+ #  define MMAP_FAULT_HANDLER_BEGIN_HANDLE(fd) {
+ #  define MMAP_FAULT_HANDLER_BEGIN_BUFFER(buf, bufLen) {
+--- a/mozglue/misc/MmapFaultHandler.cpp
++++ b/mozglue/misc/MmapFaultHandler.cpp
+@@ -6,7 +6,7 @@
+ 
+ #include "MmapFaultHandler.h"
+ 
+-#if defined(XP_UNIX) && !defined(XP_DARWIN) && !defined(__wasi__)
++#if defined(XP_UNIX) && !defined(XP_DARWIN) && !defined(__wasi__) && !defined(__wasm__)
+ 
+ #  include "mozilla/Assertions.h"
+ #  include "mozilla/Atomics.h"
