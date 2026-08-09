@@ -46,12 +46,13 @@ Built static libraries:
 | pcre2 | `/tmp/result-pcre2` → `…-pcre2-static-wasm32-unknown-linux-musl-10.46` |
 | **cairo** | `/tmp/result-cairo` → `…-cairo-static-wasm32-unknown-linux-musl-1.18.4` |
 | **libffi** | `/tmp/result-libffi` → `…-libffi-static-wasm32-unknown-linux-musl-3.4.8` |
+| **glib** | `/tmp/result-glib` → `…-glib-static-wasm32-unknown-linux-musl-2.82.1` |
 
 Failed / blocked:
 
 | Package | Reason |
 |---------|--------|
-| glib, pango, gdk-pixbuf, atk, gtk3 | depend on libffi (GObject closures); libffi builds, GTK stack not packaged yet |
+| pango, gdk-pixbuf, atk, gtk3 | next after glib (pango needs glib+freetype+harfbuzz; gdk-pixbuf needs glib+zlib+libpng) |
 | links | clang 22 ICE on `charsets-encode.c` after data-table split; `bfu.c` needs `-O0` |
 
 Build example: `cd /tmp/distro && nix build --impure --accept-flake-config --expr 'let flake=builtins.getFlake "path:/tmp/distro"; pkgs=import flake.inputs.nixpkgs {system="x86_64-linux";}; wasmpkgs=flake.legacyPackages.x86_64-linux; gui=import /workspace/tools/wasm/userspace {inherit pkgs wasmpkgs;}; in gui.PACKAGE' -L --out-link /tmp/result-PACKAGE`
