@@ -17,8 +17,12 @@ stdenv.mkDerivation {
     "--disable-shared"
     "--enable-static"
     "--with-gcc-arch=generic"
+    "--disable-exec-static-tramp"
   ]
   ++ lib.optional (stdenv.hostPlatform != stdenv.buildPlatform) "--disable-assembly";
 
-  meta.broken = true; # closures.c uses mmap for executable trampolines (unavailable on wasm musl)
+  # closures.c forces FFI_MMAP_EXEC_WRIT on __linux__; use malloc trampolines instead.
+  env.NIX_CFLAGS_COMPILE = "-DFFI_MMAP_EXEC_WRIT=0";
+
+  meta.broken = true; # closures.c still hits mmap via dlmalloc even with FFI_MMAP_EXEC_WRIT=0
 }

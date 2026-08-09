@@ -56,11 +56,15 @@ stdenv.mkDerivation {
   env.NIX_CFLAGS_COMPILE = "-fcommon -g0";
   env.CFLAGS = "-O2 -g0";
 
+  # clang 22 ICEs at -O2 on charsets.c / bfu.c for wasm32-unknown-linux-musl.
+  postConfigure = ''
+    echo 'charsets.o: CFLAGS += -O0 -fno-strict-aliasing' >> Makefile
+    echo 'bfu.o: CFLAGS += -O0 -fno-strict-aliasing' >> Makefile
+  '';
+
   meta = {
     description = "Twibright Links text/graphics web browser";
     homepage = "http://links.twibright.com/";
     license = lib.licenses.gpl2Only;
-    # clang 22 ICEs on charsets.c / bfu.c for wasm32-unknown-linux-musl.
-    broken = true;
   };
 }

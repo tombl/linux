@@ -56,6 +56,8 @@ stdenv.mkDerivation {
 
   mesonBuildType = "release";
 
+  patches = [ ./patches/xrender-0.11-typedef-guards.patch ];
+
   postPatch = ''
     substituteInPlace version.py \
       --replace '#!/usr/bin/env python3' '#!${pkgs.python3}/bin/python3'
@@ -63,6 +65,5 @@ stdenv.mkDerivation {
 
   meta = {
     description = "Cairo 2D graphics library (Xlib backend)";
-    broken = true; # cairo-xlib-xrender-private.h conflicts with xorgproto Render 0.11 types
   };
 }
