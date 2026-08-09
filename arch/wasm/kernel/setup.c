@@ -26,10 +26,41 @@ static void do_start_kernel(void *unused)
 	start_kernel();
 }
 
+static void *__init load_devicetree(size_t *size)
+{
+	phys_addr_t bootstrap_size;
+	void *devicetree;
+	size_t copied;
+
+	*size = wasm_boot_get_devicetree(NULL, 0);
+	BUG_ON(!*size || *size > INT_MAX);
+
+	/*
+	 * memblock has no memory ranges until it reads /memory from the FDT.
+	 * Temporarily describe the materialized linear memory plus enough space
+	 * for this exact blob, then remove that description before the FDT scan
+	 * installs the authoritative range.
+	 */
+	bootstrap_size = PFN_PHYS(__builtin_wasm_memory_size(0));
+	BUG_ON(bootstrap_size > PHYS_ADDR_MAX - PAGE_SIZE);
+	BUG_ON(*size > PHYS_ADDR_MAX - bootstrap_size - PAGE_SIZE);
+	bootstrap_size = PAGE_ALIGN(bootstrap_size + *size);
+	BUG_ON(memblock_add(0, bootstrap_size));
+
+	devicetree = memblock_alloc_or_panic(
+		*size, roundup_pow_of_two(FDT_V17_SIZE));
+	copied = wasm_boot_get_devicetree(devicetree, *size);
+	BUG_ON(copied != *size || fdt_check_header(devicetree) ||
+	       fdt_totalsize(devicetree) > *size);
+	BUG_ON(memblock_remove(0, bootstrap_size));
+	return devicetree;
+}
+
 __attribute__((export_name("boot"))) void __init _start(void)
 {
-	static char devicetree[2048];
 	static char initramfs[512];
+	void *devicetree;
+	size_t devicetree_size;
 	int node;
 
 	memblock_set_bottom_up(true);
@@ -41,8 +72,9 @@ __attribute__((export_name("boot"))) void __init _start(void)
 	__initramfs_start = initramfs;
 	__initramfs_size = wasm_boot_get_initramfs(initramfs, ARRAY_SIZE(initramfs));
 
-	wasm_boot_get_devicetree(devicetree, ARRAY_SIZE(devicetree));
+	devicetree = load_devicetree(&devicetree_size);
 	BUG_ON(!early_init_dt_scan(devicetree, __pa(devicetree)));
+	BUG_ON(!memblock_is_region_memory(__pa(devicetree), devicetree_size));
 	early_init_fdt_scan_reserved_mem();
 
 	node = fdt_path_offset(devicetree, "/chosen/sections");
