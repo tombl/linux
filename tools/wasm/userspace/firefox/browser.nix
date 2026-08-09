@@ -178,46 +178,7 @@ PY
     # HTTPS continues via HTTP/1.1 and HTTP/2.
     cp ${./shim/neqo_glue_Cargo.toml} netwerk/socket/neqo_glue/Cargo.toml
     cp ${./shim/neqo_glue_stub.rs} netwerk/socket/neqo_glue/src/lib.rs
-    ${python}/bin/python3 - <<'PY'
-from pathlib import Path
-lock = Path("Cargo.lock")
-text = lock.read_text()
-old = '''[[package]]
-name = "neqo_glue"
-version = "0.1.0"
-dependencies = [
- "libc",
- "log",
- "neqo-common",
- "neqo-crypto",
- "neqo-http3",
- "neqo-qpack",
- "neqo-transport",
- "nserror",
- "nsstring",
- "qlog",
- "static_prefs",
- "thin-vec",
- "uuid",
- "winapi",
- "xpcom",
-]
-'''
-new = '''[[package]]
-name = "neqo_glue"
-version = "0.1.0"
-dependencies = [
- "nserror",
- "nsstring",
- "thin-vec",
- "xpcom",
-]
-'''
-if old not in text:
-    raise SystemExit("neqo_glue stanza not found in Cargo.lock")
-lock.write_text(text.replace(old, new, 1))
-print("updated Cargo.lock neqo_glue dependencies (HTTP/3 stub)")
-PY
+    ${python}/bin/python3 ${./shim/patch-neqo-glue-lock.py}
   '';
 
   buildPhase = ''
