@@ -209,7 +209,6 @@ DESKTOP
   meta = {
     description = "Firefox / SpiderMonkey for wasm32-linux-musl (TinyX experiment)";
     license = lib.licenses.mpl20;
-    # Cleared once `bin/js` or `bin/firefox` installs cleanly.
-    broken = true;
+    mainProgram = "js";
   };
 }
