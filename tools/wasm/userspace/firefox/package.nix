@@ -77,6 +77,21 @@ stdenv.mkDerivation {
     cp -a ${libc-src} third_party/rust/libc
     chmod -R u+w third_party/rust/libc
     sed -i 's/^version = "0\.2\.[0-9]*"/version = "0.2.153"/' third_party/rust/libc/Cargo.toml
+    ${python}/bin/python3 - <<'PY'
+import hashlib, json
+from pathlib import Path
+root = Path("third_party/rust/libc")
+files = {}
+for path in sorted(root.rglob("*")):
+    if not path.is_file():
+        continue
+    if path.name == ".cargo-checksum.json":
+        continue
+    rel = path.relative_to(root).as_posix()
+    files[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
+(root / ".cargo-checksum.json").write_text(json.dumps({"files": files, "package": None}))
+print(f"wrote checksums for {len(files)} libc files")
+PY
   '';
 
   buildPhase = ''
