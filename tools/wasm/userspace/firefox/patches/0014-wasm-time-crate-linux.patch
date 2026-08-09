@@ -1,0 +1,13 @@
+Prefer unix time impl on wasm32-linux (avoid duplicate mod inner).
+
+--- a/third_party/rust/time-0.1.45/src/sys.rs
++++ b/third_party/rust/time-0.1.45/src/sys.rs
+@@ -69,7 +69,7 @@
+     }
+ }
+ 
+-#[cfg(all(target_arch = "wasm32", not(any(target_os = "emscripten", target_os = "wasi"))))]
++#[cfg(all(target_arch = "wasm32", not(any(target_os = "emscripten", target_os = "wasi", target_os = "linux"))))]
+ mod inner {
+     use std::ops::{Add, Sub};
+     use Tm;
