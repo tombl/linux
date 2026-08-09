@@ -1,0 +1,66 @@
+Alias linux-raw-sys wasm32 bindings to x86 (ILP32).
+
+rustix still pulls linux-raw-sys on unsupported linux arches for
+general/ioctl types; wasm32-linux is ILP32 like x86.
+
+--- a/third_party/rust/linux-raw-sys/src/lib.rs
++++ b/third_party/rust/linux-raw-sys/src/lib.rs
+@@ -851,47 +851,47 @@
+ #[path = "sparc64/xdp.rs"]
+ pub mod xdp;
+ #[cfg(feature = "errno")]
+-#[cfg(target_arch = "x86")]
++#[cfg(any(target_arch = "x86", target_arch = "wasm32"))]
+ #[path = "x86/errno.rs"]
+ pub mod errno;
+ #[cfg(feature = "general")]
+-#[cfg(target_arch = "x86")]
++#[cfg(any(target_arch = "x86", target_arch = "wasm32"))]
+ #[path = "x86/general.rs"]
+ pub mod general;
+ #[cfg(feature = "if_ether")]
+-#[cfg(target_arch = "x86")]
++#[cfg(any(target_arch = "x86", target_arch = "wasm32"))]
+ #[path = "x86/if_ether.rs"]
+ pub mod if_ether;
+ #[cfg(feature = "io_uring")]
+-#[cfg(target_arch = "x86")]
++#[cfg(any(target_arch = "x86", target_arch = "wasm32"))]
+ #[path = "x86/io_uring.rs"]
+ pub mod io_uring;
+ #[cfg(feature = "ioctl")]
+-#[cfg(target_arch = "x86")]
++#[cfg(any(target_arch = "x86", target_arch = "wasm32"))]
+ #[path = "x86/ioctl.rs"]
+ pub mod ioctl;
+ #[cfg(feature = "mempolicy")]
+-#[cfg(target_arch = "x86")]
++#[cfg(any(target_arch = "x86", target_arch = "wasm32"))]
+ #[path = "x86/mempolicy.rs"]
+ pub mod mempolicy;
+ #[cfg(feature = "net")]
+-#[cfg(target_arch = "x86")]
++#[cfg(any(target_arch = "x86", target_arch = "wasm32"))]
+ #[path = "x86/net.rs"]
+ pub mod net;
+ #[cfg(feature = "netlink")]
+-#[cfg(target_arch = "x86")]
++#[cfg(any(target_arch = "x86", target_arch = "wasm32"))]
+ #[path = "x86/netlink.rs"]
+ pub mod netlink;
+ #[cfg(feature = "prctl")]
+-#[cfg(target_arch = "x86")]
++#[cfg(any(target_arch = "x86", target_arch = "wasm32"))]
+ #[path = "x86/prctl.rs"]
+ pub mod prctl;
+ #[cfg(feature = "system")]
+-#[cfg(target_arch = "x86")]
++#[cfg(any(target_arch = "x86", target_arch = "wasm32"))]
+ #[path = "x86/system.rs"]
+ pub mod system;
+ #[cfg(feature = "xdp")]
+-#[cfg(target_arch = "x86")]
++#[cfg(any(target_arch = "x86", target_arch = "wasm32"))]
+ #[path = "x86/xdp.rs"]
+ pub mod xdp;
+ #[cfg(feature = "errno")]

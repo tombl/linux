@@ -80,6 +80,8 @@ stdenv.mkDerivation {
     ./patches/0013-wasm-nspr-linux-cpu.patch
     ./patches/0014-wasm-time-crate-linux.patch
     ./patches/0015-wasm-chrono-linux.patch
+    ./patches/0016-wasm-linux-raw-sys-x86.patch
+    ./patches/0017-wasm-nspr-no-fork.patch
   ];
 
   postPatch = ''
@@ -113,7 +115,7 @@ package = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 )
 print(f"wrote checksums for {len(files)} libc files")
 # Refresh vendored crate checksums after linux/wasm sys.rs patches.
-for crate in ("time-0.1.45", "chrono"):
+for crate in ("time-0.1.45", "chrono", "linux-raw-sys"):
     root = Path("third_party/rust") / crate
     checksum_path = root / ".cargo-checksum.json"
     if not checksum_path.is_file():

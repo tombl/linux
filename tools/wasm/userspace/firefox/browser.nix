@@ -129,6 +129,8 @@ stdenv.mkDerivation {
     ./patches/0013-wasm-nspr-linux-cpu.patch
     ./patches/0014-wasm-time-crate-linux.patch
     ./patches/0015-wasm-chrono-linux.patch
+    ./patches/0016-wasm-linux-raw-sys-x86.patch
+    ./patches/0017-wasm-nspr-no-fork.patch
   ];
 
   postPatch = ''
@@ -152,7 +154,7 @@ package = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 (root / ".cargo-checksum.json").write_text(json.dumps({"files": files, "package": package}))
 print(f"wrote checksums for {len(files)} libc files")
 # Refresh vendored crate checksums after linux/wasm sys.rs patches.
-for crate in ("time-0.1.45", "chrono"):
+for crate in ("time-0.1.45", "chrono", "linux-raw-sys"):
     root = Path("third_party/rust") / crate
     checksum_path = root / ".cargo-checksum.json"
     if not checksum_path.is_file():
@@ -211,6 +213,8 @@ EOF
     export RUSTC=${rust-toolchain.rustc}/bin/rustc
     export CARGO=${rust-toolchain.cargo}/bin/cargo
     export RUST_TARGET_PATH="${rust-toolchain.targetSpecDir}''${RUST_TARGET_PATH:+:$RUST_TARGET_PATH}"
+    # Prefer rustix libc backend on wasm32-linux (no linux_raw inline asm).
+    export RUSTFLAGS="--cfg rustix_use_libc ''${RUSTFLAGS:-}"
 
     SHIM="$TMPDIR/firefox-mmap-shim"
     mkdir -p "$SHIM/sys"

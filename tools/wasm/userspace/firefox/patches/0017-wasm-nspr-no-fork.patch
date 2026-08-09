@@ -1,0 +1,19 @@
+Stub NSPR PR_CreateProcess on wasm (no fork).
+
+--- a/nsprpub/pr/src/md/unix/uxproces.c
++++ b/nsprpub/pr/src/md/unix/uxproces.c
+@@ -237,6 +237,14 @@
+             close(fd_map[2]);
+         }
+     }
++#elif defined(__wasm__)
++    /* tombl wasm32-linux has no fork(); single-process browser only. */
++    PR_DELETE(process);
++    if (newEnvp) {
++        PR_DELETE(newEnvp);
++    }
++    PR_SetError(PR_NOT_IMPLEMENTED_ERROR, 0);
++    return NULL;
+ #else
+     process->md.pid = fork();
+ #endif
