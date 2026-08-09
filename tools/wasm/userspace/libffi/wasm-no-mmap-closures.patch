@@ -1,0 +1,20 @@
+--- a/src/closures.c
++++ b/src/closures.c
+@@ -31,7 +31,7 @@
+ #define _GNU_SOURCE 1
+ #endif
+ 
+-#ifndef __EMSCRIPTEN__
++#if !defined(__EMSCRIPTEN__) && !defined(FFI_WASM_LINUX_PORT)
+ 
+ #include <fficonfig.h>
+ #include <ffi.h>
+@@ -124,7 +124,7 @@ ffi_tramp_is_present (__attribute__((unused)) void *ptr)
+ #else /* !NetBSD with PROT_MPROTECT */
+ 
+ #if !FFI_MMAP_EXEC_WRIT && !FFI_EXEC_TRAMPOLINE_TABLE
+-# if __linux__ && !defined(__ANDROID__)
++# if __linux__ && !defined(__ANDROID__) && !defined(__wasm__)
+ /* This macro indicates it may be forbidden to map anonymous memory
+    with both write and execute permission.  Code compiled when this
+    option is defined will attempt to map such pages once, but if it

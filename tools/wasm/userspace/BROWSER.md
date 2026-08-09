@@ -27,7 +27,6 @@ Package: `tools/wasm/userspace/firefox/package.nix` (Firefox **128.14.0esr**,
 
 Still blocked for a full browser:
 
-- libffi blocked (mmap in closure trampolines) — blocks GLib/GObject and above
 - Gecko multiprocess assumes `fork` (platform has posix_spawn only)
 - jemalloc / sandbox paths want `mmap`
 - need the distro `rust-toolchain` wired into mozbuild for this triple
@@ -46,13 +45,13 @@ Built static libraries:
 | pixman | `/tmp/result-pixman` → `…-pixman-static-wasm32-unknown-linux-musl-0.46.4` |
 | pcre2 | `/tmp/result-pcre2` → `…-pcre2-static-wasm32-unknown-linux-musl-10.46` |
 | **cairo** | `/tmp/result-cairo` → `…-cairo-static-wasm32-unknown-linux-musl-1.18.4` |
+| **libffi** | `/tmp/result-libffi` → `…-libffi-static-wasm32-unknown-linux-musl-3.4.8` |
 
 Failed / blocked:
 
 | Package | Reason |
 |---------|--------|
-| libffi | `closures.c` forces `FFI_MMAP_EXEC_WRIT` on `__linux__`; mmap unavailable on wasm musl |
-| glib, pango, gdk-pixbuf, atk, gtk3 | depend on libffi (GObject closures) |
+| glib, pango, gdk-pixbuf, atk, gtk3 | depend on libffi (GObject closures); libffi builds, GTK stack not packaged yet |
 | links | clang 22 ICE on `charsets-encode.c` after data-table split; `bfu.c` needs `-O0` |
 
 Build example: `cd /tmp/distro && nix build --impure --accept-flake-config --expr 'let flake=builtins.getFlake "path:/tmp/distro"; pkgs=import flake.inputs.nixpkgs {system="x86_64-linux";}; wasmpkgs=flake.legacyPackages.x86_64-linux; gui=import /workspace/tools/wasm/userspace {inherit pkgs wasmpkgs;}; in gui.PACKAGE' -L --out-link /tmp/result-PACKAGE`
@@ -71,6 +70,14 @@ Still `meta.broken` until encode/entity/extra TUs compile and link.
 
 ## libffi
 
-`--disable-exec-static-tramp` and `FFI_MMAP_EXEC_WRIT=0` are insufficient: `closures.c`
-redefines `FFI_MMAP_EXEC_WRIT=1` for `__linux__` and calls `mmap` in `dlmmap`. Needs a
-wasm-specific patch stubbing trampolines with malloc (mprotect may be no-op).
+Built with a wasm-linux backend (`src/wasm-linux/`) instead of upstream's Emscripten-only
+`wasm32/ffi.c`. Patches:
+
+- `wasm-no-mmap-closures.patch` — skip `FFI_MMAP_EXEC_WRIT` on `__wasm__`; skip generic
+  `closures.c` (port provides `ffi_closure_alloc` via malloc).
+- `wasm-linux-port.patch` — route `wasm32-*-linux*` to `wasm-linux` in `configure.host`.
+
+`ffi_call` covers GObject's `g_cclosure_marshal_generic` (arity ≤ 8, integer/pointer/float
+args). Indirect closure trampolines via `__indirect_function_table` are still stubbed; GObject's
+plain `GCClosure` path uses `ffi_call` against C callbacks and does not need executable closure
+pages.
