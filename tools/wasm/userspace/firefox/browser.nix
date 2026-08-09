@@ -126,6 +126,8 @@ stdenv.mkDerivation {
     ./patches/0010-wasm-no-fix-link-paths.patch
     ./patches/0011-wasm-linux-target-cpu.patch
     ./patches/0012-wasm-no-midir-alsa.patch
+    ./patches/0013-wasm-nspr-linux-cpu.patch
+    ./patches/0014-wasm-time-crate-linux.patch
   ];
 
   postPatch = ''
@@ -148,6 +150,20 @@ for path in sorted(root.rglob("*")):
 package = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 (root / ".cargo-checksum.json").write_text(json.dumps({"files": files, "package": package}))
 print(f"wrote checksums for {len(files)} libc files")
+# Refresh vendored time-0.1.45 checksum after 0014 patch.
+time_root = Path("third_party/rust/time-0.1.45")
+checksum_path = time_root / ".cargo-checksum.json"
+if checksum_path.is_file():
+    data = json.loads(checksum_path.read_text())
+    files = {}
+    for path in sorted(time_root.rglob("*")):
+        if not path.is_file() or path.name == ".cargo-checksum.json":
+            continue
+        rel = path.relative_to(time_root).as_posix()
+        files[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
+    data["files"] = files
+    checksum_path.write_text(json.dumps(data))
+    print(f"updated checksums for {len(files)} time-0.1.45 files")
 PY
   '';
 
