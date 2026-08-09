@@ -242,6 +242,9 @@ EOF
     export RUST_TARGET_PATH="${rust-toolchain.targetSpecDir}''${RUST_TARGET_PATH:+:$RUST_TARGET_PATH}"
     # Prefer rustix libc backend on wasm32-linux (no linux_raw inline asm).
     export RUSTFLAGS="--cfg rustix_use_libc ''${RUSTFLAGS:-}"
+    # Host build-scripts (webrender/glslopt) link libstdc++ but the sandbox has
+    # no /lib/x86_64-linux-gnu; put nix's libstdc++ on the loader path.
+    export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
     SHIM="$TMPDIR/firefox-mmap-shim"
     mkdir -p "$SHIM/sys"
