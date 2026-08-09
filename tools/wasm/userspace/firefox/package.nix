@@ -74,6 +74,9 @@ stdenv.mkDerivation {
   postPatch = ''
     patchShebangs mach build
 
+    # Prefer existing WASI memalign paths over Linux mmap in GC / typed arrays.
+    ${python}/bin/python3 ${./expand-wasi-guards.py} .
+
     # Swap in the wasm32-unknown-linux-musl libc bindings (ILP32 musl).
     rm -rf third_party/rust/libc
     cp -a ${libc-src} third_party/rust/libc
