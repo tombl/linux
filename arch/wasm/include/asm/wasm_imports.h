@@ -7,7 +7,7 @@
 	__attribute__((import_module(#ns), import_name(#name))) \
 	wasm_##ns##_##name
 
-void wasm_import(boot, get_devicetree)(char *buf, size_t size);
+size_t wasm_import(boot, get_devicetree)(char *buf, size_t size);
 int wasm_import(boot, get_initramfs)(char *buf, size_t size);
 
 void wasm_import(kernel, breakpoint)(void);

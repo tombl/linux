@@ -129,7 +129,7 @@ export type MachineTerminationReason =
 export interface Imports {
   env: { memory: WebAssembly.Memory };
   boot: {
-    get_devicetree(buf: number, size: number): void;
+    get_devicetree(buf: number, size: number): number;
     get_initramfs(buf: number, size: number): number;
   };
   kernel: {
