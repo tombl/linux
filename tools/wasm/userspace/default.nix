@@ -23,6 +23,18 @@ wasmpkgs.overrideScope (
 
     libX11 = final.callPackage ./libX11/package.nix { };
     libXext = final.callPackage ./libXext/package.nix { };
+    libXrender = final.callPackage ./libXrender/package.nix { };
+    libXfixes = final.callPackage ./libXfixes/package.nix { };
+    libXdamage = final.callPackage ./libXdamage/package.nix { };
+    libXcomposite = final.callPackage ./libXcomposite/package.nix { };
+    libXcursor = final.callPackage ./libXcursor/package.nix { };
+    libXi = final.callPackage ./libXi/package.nix { };
+    libXrandr = final.callPackage ./libXrandr/package.nix { };
+    libXinerama = final.callPackage ./libXinerama/package.nix { };
+    libXtst = final.callPackage ./libXtst/package.nix { };
+
+    libffi = final.callPackage ./libffi/package.nix { };
+    pcre2 = final.callPackage ./pcre2/package.nix { };
     libICE = final.callPackage ./libICE/package.nix { };
     libSM = final.callPackage ./libSM/package.nix { };
     libXt = final.callPackage ./libXt/package.nix { };
