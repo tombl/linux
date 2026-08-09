@@ -22,14 +22,27 @@ Demo wires this automatically (`tools/wasm/demo/main.js`). Override the proxy wi
 
 ## Firefox / Gecko
 
-Package: `tools/wasm/userspace/firefox/package.nix` (Firefox **128.14.0esr**,
-`--enable-project=js` SpiderMonkey shell first).
+### Why Firefox did not start under the WM
 
-Still blocked for a full browser:
+aurora-wm only launches Browser if it finds a WebBrowser `.desktop` / command.
+The guest image previously shipped **no** Firefox package, so `/bin/firefox`
+was missing from PATH.
 
-- Gecko multiprocess assumes `fork` (platform has posix_spawn only)
-- jemalloc / sandbox paths want `mmap`
-- need the distro `rust-toolchain` wired into mozbuild for this triple
+### What is installed now
+
+| Binary | Package | Status |
+|--------|---------|--------|
+| `/bin/js` | `gui.firefox` (SpiderMonkey) | **in gui-rootfs** |
+| `/bin/firefox` | `gui.firefox-browser` (GTK3) | WIP (`meta.broken`) |
+
+`/init` autostarts `/bin/firefox https://example.com` when that binary exists
+(`MOZ_FORCE_DISABLE_E10S=1`).
+
+Packages: `firefox/package.nix` (js shell, builds), `firefox/browser.nix`
+(`--enable-application=browser`, cairo-gtk3-x11-only).
+
+Still blocked for full browser: single-process / no-fork, no-mmap, static
+`libxul` (no dlopen), browser mach configure/link WIP.
 
 ### GTK stack packaging (wasm32-unknown-linux-musl)
 
