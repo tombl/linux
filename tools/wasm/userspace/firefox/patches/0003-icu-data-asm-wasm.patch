@@ -1,0 +1,19 @@
+--- a/config/external/icu/data/icu_data.S
++++ b/config/external/icu/data/icu_data.S
+@@ -16,7 +16,7 @@
+ #if defined(__APPLE__)
+ .data
+ .const
+-#elif defined(__wasi__)
++#elif defined(__wasi__) || defined(__wasm__)
+ .section .rodata,"",@
+ #else
+ .section .rodata
+@@ -24,6 +24,6 @@
+ .balign 16
+ ICU_DATA_SYMBOL:
+ .incbin ICU_DATA_FILE
+-#ifdef __wasi__
++#if defined(__wasi__) || defined(__wasm__)
+ .size ICU_DATA_SYMBOL, . - ICU_DATA_SYMBOL
+ #endif

@@ -6,6 +6,10 @@
 #
 # Host mach must use Python <=3.13 (3.14 dropped ast.Constant.s). Nix sandbox
 # has no pip, so MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=none|system.
+#
+# Vendored crates.io libc 0.2.153 has no ILP32 wasm32+musl module; replace it
+# with the tombl/libc fork (same ABI as wasmpkgs rust std) and spoof the
+# package version so Cargo.lock stays satisfied.
 {
   pkgs,
   stdenv,
@@ -17,6 +21,12 @@
   src ? pkgs.fetchurl {
     url = "https://archive.mozilla.org/pub/firefox/releases/128.14.0esr/source/firefox-128.14.0esr.source.tar.xz";
     hash = "sha256-k7nvYin0HLIv8Qm5W79hp4OVoP5LhwGS7soilHywmlM=";
+  },
+  libc-src ? pkgs.fetchFromGitHub {
+    owner = "tombl";
+    repo = "libc";
+    rev = "fc8cc62b93f1c374e944d7880e71aa16434b7c6e";
+    hash = "sha256-s2qZCiyVgLGZh6x5E4pmVT3mnoEF8q4M3bWdXVqGclQ=";
   },
 }:
 
@@ -56,10 +66,17 @@ stdenv.mkDerivation {
   patches = [
     ./patches/0001-rust-target-list-wasm-musl.patch
     ./patches/0002-icu-no-mmap-wasm.patch
+    ./patches/0003-icu-data-asm-wasm.patch
   ];
 
   postPatch = ''
     patchShebangs mach build
+
+    # Swap in the wasm32-unknown-linux-musl libc bindings (ILP32 musl).
+    rm -rf third_party/rust/libc
+    cp -a ${libc-src} third_party/rust/libc
+    chmod -R u+w third_party/rust/libc
+    sed -i 's/^version = "0\.2\.[0-9]*"/version = "0.2.153"/' third_party/rust/libc/Cargo.toml
   '';
 
   buildPhase = ''
