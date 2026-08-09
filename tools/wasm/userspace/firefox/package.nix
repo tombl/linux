@@ -67,6 +67,8 @@ stdenv.mkDerivation {
     ./patches/0001-rust-target-list-wasm-musl.patch
     ./patches/0002-icu-no-mmap-wasm.patch
     ./patches/0003-icu-data-asm-wasm.patch
+    ./patches/0004-wasm-no-mmap-like-wasi.patch
+    ./patches/0005-wasm-execmem-and-ilp32.patch
   ];
 
   postPatch = ''
@@ -116,13 +118,12 @@ ac_add_options --host=x86_64-pc-linux-gnu
 ac_add_options --disable-jemalloc
 ac_add_options --disable-tests
 ac_add_options --disable-bootstrap
-ac_add_options --enable-release
+# --disable-release sets DEVELOPER_OPTIONS, which turns off Rust -Clto
+# (wasm sysroot rlibs have no .llvmbc for crate LTO).
+ac_add_options --disable-release
 ac_add_options --disable-debug
 ac_add_options --disable-jit
 ac_add_options --disable-lto
-# Release mode enables -Clto for top-level Rust crates; our wasm rust
-# sysroot rlibs lack .llvmbc. Developer options force -Clto=off.
-mk_add_options DEVELOPER_OPTIONS=1
 mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-wasm-js
 EOF
 
