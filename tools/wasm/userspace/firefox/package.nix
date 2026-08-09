@@ -70,6 +70,7 @@ stdenv.mkDerivation {
     ./patches/0004-wasm-no-mmap-like-wasi.patch
     ./patches/0005-wasm-execmem-and-ilp32.patch
     ./patches/0006-wasm-ilp32-nofork.patch
+    ./patches/0007-wasm-sharedarray-shell.patch
   ];
 
   postPatch = ''

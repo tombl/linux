@@ -15,6 +15,8 @@ FILES = [
     "js/src/gc/Memory.cpp",
     "js/src/vm/TypedArrayObject.cpp",
     "js/src/util/NativeStack.cpp",
+    # SharedArray discard uses MozTaggedAnonymousMmap; WASI uses memset.
+    "js/src/vm/SharedArrayObject.cpp",
 ]
 
 

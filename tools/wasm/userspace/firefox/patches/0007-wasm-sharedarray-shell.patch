@@ -1,0 +1,24 @@
+--- a/js/src/vm/SharedArrayObject.cpp
++++ b/js/src/vm/SharedArrayObject.cpp
+@@ -241,7 +241,7 @@
+     MOZ_ASSERT(!result);  // this always "fails" when unlocking unlocked
+                           // memory...which is the only case we care about
+   }
+-#elif defined(__wasi__)
++#elif defined(__wasi__) || defined(__wasm__)
+   AtomicOperations::memsetSafeWhenRacy(addr, 0, byteLen);
+ #else  // !XP_WIN
+   void* data = MozTaggedAnonymousMmap(
+--- a/js/src/shell/js.cpp
++++ b/js/src/shell/js.cpp
+@@ -12019,8 +12019,8 @@
+   JS::SetProcessLargeAllocationFailureCallback(my_LargeAllocFailCallback);
+ 
+   if (op.getBoolOption("wasm-compile-and-serialize")) {
+-#ifdef __wasi__
+-    MOZ_CRASH("WASI doesn't support wasm");
++#if defined(__wasi__) || defined(__wasm__)
++    MOZ_CRASH("WASI/wasm doesn't support wasm-compile-and-serialize");
+ #else
+     if (!WasmCompileAndSerialize(cx)) {
+       // Errors have been printed directly to stderr.
