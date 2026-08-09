@@ -176,32 +176,20 @@ EOF
   installPhase = ''
     runHook preInstall
     mkdir -p $out/bin $out/share/applications
+    if [ -x obj-wasm-browser/dist/bin/firefox ]; then
+      cp -a obj-wasm-browser/dist/bin/firefox $out/bin/firefox
+    fi
     if [ -x obj-wasm-js/dist/bin/js ]; then
       cp -a obj-wasm-js/dist/bin/js $out/bin/js
-    elif [ -x obj-wasm-browser/dist/bin/firefox ]; then
-      cp -a obj-wasm-browser/dist/bin/firefox $out/bin/firefox
-    else
+    fi
+    if [ ! -x $out/bin/firefox ] && [ ! -x $out/bin/js ]; then
       echo "firefox/js binary missing; obj tree:" >&2
       find obj-wasm-* -maxdepth 3 -type f 2>/dev/null | head -80 >&2 || true
       exit 1
     fi
-    # Prefer a real firefox binary on PATH for aurora-wm Browser discovery.
+    # aurora-wm discovers Browser via /usr/share/applications/*.desktop
     if [ -x $out/bin/firefox ]; then
-      :
-    elif [ -x obj-wasm-browser/dist/bin/firefox ]; then
-      cp -a obj-wasm-browser/dist/bin/firefox $out/bin/firefox
-    fi
-    if [ -x $out/bin/firefox ]; then
-      cat > $out/share/applications/firefox.desktop <<'DESKTOP'
-[Desktop Entry]
-Name=Firefox
-Comment=Web Browser
-Exec=firefox %u
-Terminal=false
-Type=Application
-Categories=Network;WebBrowser;
-MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
-DESKTOP
+      cp ${./firefox.desktop} $out/share/applications/firefox.desktop
     fi
     runHook postInstall
   '';
