@@ -18,8 +18,6 @@
             let
               pkgs = nixpkgs.legacyPackages.${system};
               llvm = pkgs.llvmPackages_19;
-              sourceRev = self.rev or self.dirtyRev or "unknown";
-              npmVersion = "0.0.0-${builtins.substring 0 8 sourceRev}";
             in
             {
               default = pkgs.stdenvNoCC.mkDerivation {
@@ -42,7 +40,6 @@
                   llvm.libllvm
 
                   wabt
-                  typescript
                 ];
 
                 HOSTCC = "${llvm.clang}/bin/clang";
@@ -50,8 +47,8 @@
 
                 enableParallelBuilding = true;
                 configurePhase = "make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES defconfig";
-                buildPhase = "make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES -C tools/wasm PACKAGE_VERSION=${npmVersion} pack";
-                installPhase = "cp tools/wasm/linux.tgz $out";
+                buildPhase = "make HOSTCC=$HOSTCC -j$NIX_BUILD_CORES vmlinux.wasm";
+                installPhase = "cp vmlinux.wasm $out";
               };
             }
           );

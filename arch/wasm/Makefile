@@ -31,9 +31,9 @@ quiet_cmd_wasm_objcopy = OBJCOPY $@
 		--add-section=.linux.initramfs=usr/initramfs_inc_data \
 		$< $@
 
-tools/wasm/vmlinux.wasm: vmlinux.o arch/wasm/sections.json FORCE
+vmlinux.wasm: vmlinux.o arch/wasm/sections.json FORCE
 	$(call if_changed,wasm_objcopy)
 
 define archhelp
-  echo  '* tools/wasm       - WebAssembly host library'
+  echo  '* vmlinux.wasm     - WebAssembly kernel image'
 endef
