@@ -1394,7 +1394,10 @@ archprepare: outputmakefile archheaders archscripts scripts include/config/kerne
 	include/generated/rustc_cfg remove-stale-files
 
 prepare0: archprepare
+# The WebAssembly image does not use ELF modpost.
+ifneq ($(CONFIG_LD_IS_WASMLD),y)
 	$(Q)$(MAKE) $(build)=scripts/mod
+endif
 	$(Q)$(MAKE) $(build)=. prepare
 
 # All the preparing..
