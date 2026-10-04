@@ -22,6 +22,7 @@ SYSCALL_DEFINE6(clone, void *__user, fn, void *__user, fn_arg, unsigned long,
 {
 	struct kernel_clone_args kargs;
 	struct clone_fn *clone_fn;
+	long ret;
 
 	/*
 	 * Copying WebAssembly memory is synchronous, but there is no way to
@@ -50,5 +51,9 @@ SYSCALL_DEFINE6(clone, void *__user, fn, void *__user, fn_arg, unsigned long,
 	kargs.fn = wasm_call_clone_fn;
 	kargs.fn_arg = clone_fn;
 
-	return kernel_clone(&kargs);
+	ret = kernel_clone(&kargs);
+	if (ret < 0)
+		kfree(clone_fn);
+
+	return ret;
 }
