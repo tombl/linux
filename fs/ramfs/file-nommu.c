@@ -18,6 +18,8 @@
 #include <linux/mman.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
+#include <linux/falloc.h>
+#include <linux/overflow.h>
 
 #include <linux/uaccess.h>
 #include "internal.h"
@@ -29,6 +31,8 @@ static unsigned long ramfs_nommu_get_unmapped_area(struct file *file,
 						   unsigned long pgoff,
 						   unsigned long flags);
 static int ramfs_nommu_mmap_prepare(struct vm_area_desc *desc);
+static long ramfs_nommu_fallocate(struct file *file, int mode, loff_t offset,
+				  loff_t len);
 
 static unsigned ramfs_mmap_capabilities(struct file *file)
 {
@@ -46,6 +50,7 @@ const struct file_operations ramfs_file_operations = {
 	.splice_read		= filemap_splice_read,
 	.splice_write		= iter_file_splice_write,
 	.llseek			= generic_file_llseek,
+	.fallocate		= ramfs_nommu_fallocate,
 };
 
 const struct inode_operations ramfs_file_inode_operations = {
@@ -84,13 +89,13 @@ int ramfs_nommu_expand_for_mapping(struct inode *inode, size_t newsize)
 	if (ret)
 		return ret;
 
-	i_size_write(inode, newsize);
-
 	/* allocate enough contiguous pages to be able to satisfy the
 	 * request */
 	pages = alloc_pages(gfp, order);
 	if (!pages)
 		return -ENOMEM;
+
+	i_size_write(inode, newsize);
 
 	/* split the high-order page into an array of single pages */
 	xpages = 1UL << order;
@@ -158,6 +163,56 @@ static int ramfs_nommu_resize(struct inode *inode, loff_t newsize, loff_t size)
 
 	truncate_setsize(inode, newsize);
 	return 0;
+}
+
+/*
+ * Without an MMU, tmpfs is ramfs, so provide the subset of tmpfs's fallocate
+ * that callers reserving space before writing or mapping a file rely on
+ * (systemd-journald's seqnum file, for example). Mode 0 grows the file to the
+ * end of the range, and pages are allocated as they are written, as ramfs
+ * always does. FALLOC_FL_KEEP_SIZE is a no-op. Punching holes and the other
+ * modes are not supported.
+ */
+static long ramfs_nommu_fallocate(struct file *file, int mode, loff_t offset,
+				  loff_t len)
+{
+	struct inode *inode = file_inode(file);
+	loff_t end;
+	int ret = 0;
+
+	if (mode & ~FALLOC_FL_KEEP_SIZE)
+		return -EOPNOTSUPP;
+	if (check_add_overflow(offset, len, &end))
+		return -EFBIG;
+	if (mode & FALLOC_FL_KEEP_SIZE)
+		return 0;
+
+	inode_lock(inode);
+	if (end <= inode->i_size)
+		goto out;
+
+	ret = inode_newsize_ok(inode, end);
+	if (ret)
+		goto out;
+
+	ret = ramfs_nommu_resize(inode, end, inode->i_size);
+	/*
+	 * Growing an empty file allocates its pages contiguously, in case it
+	 * is about to be mapped shared, and that fails beyond MAX_PAGE_ORDER
+	 * or under fragmentation. Set the size alone in that case and let
+	 * pages be allocated as the file is written. Such a file cannot be
+	 * mapped shared, which a file this large rarely is (InnoDB's 12 MiB
+	 * ibdata1, for example).
+	 */
+	if (ret == -EFBIG || ret == -ENOMEM) {
+		truncate_setsize(inode, end);
+		ret = 0;
+	}
+	if (!ret)
+		inode_set_mtime_to_ts(inode, inode_set_ctime_current(inode));
+out:
+	inode_unlock(inode);
+	return ret;
 }
 
 /*****************************************************************************/
