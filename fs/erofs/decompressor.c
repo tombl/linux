@@ -14,6 +14,7 @@ static int z_erofs_load_lz4_config(struct super_block *sb,
 {
 	struct erofs_sb_info *sbi = EROFS_SB(sb);
 	struct z_erofs_lz4_cfgs *lz4 = data;
+	unsigned int pclusterpages;
 	u16 distance;
 
 	if (lz4) {
@@ -27,7 +28,7 @@ static int z_erofs_load_lz4_config(struct super_block *sb,
 		if (!sbi->lz4.max_pclusterblks) {
 			sbi->lz4.max_pclusterblks = 1;	/* reserved case */
 		} else if (sbi->lz4.max_pclusterblks >
-			   erofs_blknr(sb, Z_EROFS_PCLUSTER_MAX_SIZE)) {
+			   Z_EROFS_PCLUSTER_MAX_SIZE >> sbi->blkszbits) {
 			erofs_err(sb, "too large lz4 pclusterblks %u",
 				  sbi->lz4.max_pclusterblks);
 			return -EINVAL;
@@ -43,7 +44,9 @@ static int z_erofs_load_lz4_config(struct super_block *sb,
 	sbi->lz4.max_distance_pages = distance ?
 					DIV_ROUND_UP(distance, PAGE_SIZE) + 1 :
 					LZ4_MAX_DISTANCE_PAGES;
-	return z_erofs_gbuf_growsize(sbi->lz4.max_pclusterblks);
+	pclusterpages = DIV_ROUND_UP(sbi->lz4.max_pclusterblks <<
+				     sbi->blkszbits, PAGE_SIZE);
+	return z_erofs_gbuf_growsize(pclusterpages);
 }
 
 /*
