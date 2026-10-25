@@ -70,7 +70,22 @@ int wasm_import(user, compile_end)(u32 maximum_memory_pages);
 void wasm_import(user, compile_abort)(void);
 /* Lets the exec successor run, then ends this worker. */
 void wasm_import(user, exec_handoff)(void) __attribute__((noreturn));
-void wasm_import(user, call)(void);
+/*
+ * Exec in place, for a worker that hosts borrowed user memory: allocate the
+ * memory of the image from the last successful compile_end in this worker
+ * and instantiate it, while exec can still fail (-ENOMEM, or -ENOEXEC if
+ * instantiation fails; compile_abort() drops it). Past the point of no
+ * return, exec_instantiate() installs it, which cannot fail.
+ */
+int wasm_import(user, exec_prepare)(void);
+void wasm_import(user, exec_instantiate)(void);
+/*
+ * Abandons the user stack and returns from call() with true, so the kernel
+ * can enter the image that exec_instantiate() installed.
+ */
+void wasm_import(user, unwind)(void) __attribute__((noreturn));
+/* Returns true if an exec in place replaced the image, see unwind(). */
+bool wasm_import(user, call)(void);
 void wasm_import(user, switch_entry)(uintptr_t fn, uintptr_t arg);
 /*
  * A signal handler escapes when it leaves through a wasm exception, such as
