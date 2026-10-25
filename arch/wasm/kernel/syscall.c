@@ -71,6 +71,8 @@ static noinline long wasm_do_syscall(long nr, unsigned long arg0,
 	}
 }
 
+void wasm_finish_handler_escape(void);
+
 /*
  * Userspace imports this export as linux.syscall, and the host links it
  * directly, so a syscall is a wasm-to-wasm call with no JS frame. The number,
@@ -87,6 +89,10 @@ static noinline long wasm_do_syscall(long nr, unsigned long arg0,
  * delivered the signal, and their shadow stack space is not reclaimed. Running
  * the new image in a fresh worker would retire that stack along with the old
  * instance.
+ *
+ * A signal handler that escaped through an exception, such as siglongjmp(),
+ * left the kernel frames beneath it to finish normally. Its exception is
+ * rethrown here, after they have returned, for the same reason.
  */
 __attribute__((export_name("syscall"))) long
 wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
@@ -100,6 +106,11 @@ wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
 	ret = wasm_do_syscall(nr, arg0, arg1, arg2, arg3, arg4, arg5);
 	if (unlikely(READ_ONCE(ti->exec_count) != exec_count))
 		wasm_user_unwind();
+	if (unlikely(ti->handler_escaped)) {
+		ti->handler_escaped = 0;
+		wasm_finish_handler_escape();
+		wasm_user_rethrow();
+	}
 	return ret;
 }
 

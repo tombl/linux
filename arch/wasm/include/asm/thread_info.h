@@ -32,6 +32,8 @@ struct thread_info {
 	const struct kernel_siginfo *active_siginfo;
 	/* Counts execs that replaced this task's user instance. */
 	unsigned int exec_count;
+	/* A signal handler escaped; rethrow on the way out of the syscall. */
+	unsigned int handler_escaped;
 };
 
 #ifndef current_thread_info

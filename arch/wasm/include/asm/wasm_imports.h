@@ -55,9 +55,23 @@ void wasm_import(user, compile_abort)(void);
 void wasm_import(user, instantiate)(bool fresh_memory);
 void wasm_import(user, call)(void);
 void wasm_import(user, switch_entry)(uintptr_t fn, uintptr_t arg);
-void wasm_import(user, call_signal_handler)(uintptr_t fn, u32 sig);
+/*
+ * A signal handler escapes when it leaves through a wasm exception, such as
+ * siglongjmp() or a C++ throw, instead of returning. The host holds the
+ * exception and user.rethrow throws it once the delivering syscall has
+ * returned through the kernel. A siginfo handler otherwise reports the
+ * result of its siginfo copy, which is negative if it failed.
+ */
+enum wasm_handler_result {
+	WASM_HANDLER_RETURNED = 0,
+	WASM_HANDLER_ESCAPED = 1,
+};
+
+int wasm_import(user, call_signal_handler)(uintptr_t fn, u32 sig);
 int wasm_import(user, call_siginfo_handler)(uintptr_t trampoline, uintptr_t fn,
 					    u32 sig);
+/* Throws the exception a handler escaped with. Never returns. */
+void __noreturn wasm_import(user, rethrow)(void);
 void wasm_import(user, halt_signal_handler)(void);
 /* Abandons the user stack and enters the current instance. Never returns. */
 void __noreturn wasm_import(user, unwind)(void);

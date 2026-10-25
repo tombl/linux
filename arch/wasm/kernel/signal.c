@@ -4,6 +4,7 @@
 #include <linux/errno.h>
 #include <linux/signal.h>
 #include <linux/syscalls.h>
+#include <linux/task_work.h>
 
 static void syscall_restart(struct pt_regs *regs, bool handler,
 			    const struct k_sigaction *ka)
@@ -46,7 +47,7 @@ static void call_signal_handler(struct ksignal *ksig, struct pt_regs *regs)
 	 * the temporary mask of an interrupted sigsuspend, ppoll or pselect.
 	 */
 	sigset_t saved_mask = *sigmask_to_save();
-	int failed = 0;
+	int result;
 
 	/*
 	 * wasm invokes the userspace handler synchronously. Mirror the mask setup
@@ -69,13 +70,13 @@ static void call_signal_handler(struct ksignal *ksig, struct pt_regs *regs)
 		const kernel_siginfo_t *previous = ti->active_siginfo;
 
 		ti->active_siginfo = &ksig->info;
-		failed = wasm_user_call_siginfo_handler(
+		result = wasm_user_call_siginfo_handler(
 			(uintptr_t)sa->sa_restorer, (uintptr_t)sa->sa_handler,
 			ksig->sig);
 		ti->active_siginfo = previous;
 	} else {
-		wasm_user_call_signal_handler((uintptr_t)sa->sa_handler,
-					      ksig->sig);
+		result = wasm_user_call_signal_handler(
+			(uintptr_t)sa->sa_handler, ksig->sig);
 	}
 
 	local_irq_disable();
@@ -88,9 +89,34 @@ static void call_signal_handler(struct ksignal *ksig, struct pt_regs *regs)
 	 * restart decision across those calls.
 	 */
 	*regs = saved_regs;
+
+	if (result == WASM_HANDLER_ESCAPED) {
+		/*
+		 * The handler left through an exception, such as siglongjmp(),
+		 * the way a handler leaves a signal frame it never returns to:
+		 * the mask it ran with stays, and the interrupted syscall is
+		 * abandoned. Finish the syscall without restarting it, so that
+		 * its kernel frames unwind, and rethrow at the syscall export.
+		 */
+		regs->syscall_return = -EINTR;
+		regs->restart_syscall_nr = -1;
+		ti->handler_escaped = 1;
+		return;
+	}
+
 	set_current_blocked(&saved_mask);
-	if (failed)
+	if (result < 0)
 		force_sigsegv(ksig->sig);
+}
+
+/*
+ * Called by the syscall export just before it rethrows a handler's escape.
+ * Signals that arrived meanwhile are delivered at the next syscall.
+ */
+void wasm_finish_handler_escape(void)
+{
+	/* Unlike recalc_sigpending(), this also keeps a pending freeze. */
+	calculate_sigpending();
 }
 
 __attribute__((export_name("copy_siginfo"))) int
@@ -110,6 +136,22 @@ wasm_clear_active_siginfo(void)
 void arch_do_signal_or_restart(struct pt_regs *regs)
 {
 	struct ksignal ksig;
+
+	/*
+	 * Once a handler has escaped, run nothing more on this exit, not even
+	 * a ptrace stop: a further handler would run beneath the pending
+	 * exception, and the export would rethrow that into its first
+	 * syscall. Leave signals queued and drop the pending flag until the
+	 * export has rethrown; wasm_finish_handler_escape() recomputes it.
+	 * Run task work as get_signal() would, so the exit loop can finish.
+	 */
+	if (current_thread_info()->handler_escaped) {
+		clear_notify_signal();
+		if (unlikely(task_work_pending(current)))
+			task_work_run();
+		clear_thread_flag(TIF_SIGPENDING);
+		return;
+	}
 
 	if (get_signal(&ksig)) {
 		syscall_restart(regs, true, &ksig.ka);
