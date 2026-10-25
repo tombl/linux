@@ -14,6 +14,7 @@ static int z_erofs_load_lz4_config(struct super_block *sb,
 {
 	struct erofs_sb_info *sbi = EROFS_SB(sb);
 	struct z_erofs_lz4_cfgs *lz4 = data;
+	unsigned int pclusterpages;
 	u16 distance;
 
 	if (lz4) {
@@ -43,7 +44,11 @@ static int z_erofs_load_lz4_config(struct super_block *sb,
 	sbi->lz4.max_distance_pages = distance ?
 					DIV_ROUND_UP(distance, PAGE_SIZE) + 1 :
 					LZ4_MAX_DISTANCE_PAGES;
-	return z_erofs_gbuf_growsize(sbi->lz4.max_pclusterblks);
+	/* the largest pcluster can start at any block of its first page */
+	pclusterpages = DIV_ROUND_UP(PAGE_SIZE - sb->s_blocksize +
+			(sbi->lz4.max_pclusterblks << sb->s_blocksize_bits),
+			PAGE_SIZE);
+	return z_erofs_gbuf_growsize(pclusterpages);
 }
 
 /*
