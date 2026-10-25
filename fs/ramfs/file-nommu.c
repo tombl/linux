@@ -134,8 +134,10 @@ static int ramfs_nommu_resize(struct inode *inode, loff_t newsize, loff_t size)
 	int ret;
 
 	/* assume a truncate from zero size is going to be for the purposes of
-	 * shared mmap */
-	if (size == 0) {
+	 * shared mmap, except on wasm, which has no mmap system call and no
+	 * kernel path that maps a ramfs file (exec reads executables with
+	 * kernel_read()), so it grows sparsely, as ramfs files do with an MMU */
+	if (size == 0 && !IS_ENABLED(CONFIG_WASM)) {
 		if (unlikely(newsize >> 32))
 			return -EFBIG;
 
