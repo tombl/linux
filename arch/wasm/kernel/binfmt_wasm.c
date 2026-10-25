@@ -1,5 +1,6 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <asm/spawn.h>
 #include <linux/auxvec.h>
 #include <linux/binfmts.h>
 #include <linux/cred.h>
@@ -329,8 +330,8 @@ static int spawn_exec_successor(struct linux_binprm *bprm)
 	name_len = scnprintf(name, sizeof(name), "%.*s (%d)", TASK_COMM_LEN - 1,
 			     kbasename(bprm->filename), task_pid_nr(current));
 
-	return wasm_kernel_spawn_worker(wasm_exec_entry, current, name,
-					name_len, WASM_USER_MEMORY_EXEC);
+	return wasm_spawn_worker_wait(wasm_exec_entry, current, name, name_len,
+				      WASM_USER_MEMORY_EXEC);
 }
 
 static int load_wasm_binary(struct linux_binprm *bprm)

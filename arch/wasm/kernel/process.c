@@ -1,9 +1,11 @@
 #include <asm/delay.h>
 #include <asm/globals.h>
 #include <asm/remote_vm.h>
+#include <asm/spawn.h>
 #include <asm/sysmem.h>
 #include <asm/wasm_imports.h>
 #include <linux/entry-common.h>
+#include <linux/interrupt.h>
 #include <linux/sched.h>
 #include <linux/sched/task_stack.h>
 #include <linux/sched/task.h>
@@ -224,6 +226,86 @@ void wasm_exec_entry(void *arg)
 	exec_entry_inner(task);
 }
 
+/*
+ * A spawn's result comes from the new worker, which may not start until
+ * another worker exits: Firefox queues workers past its per-site limit. The
+ * spawning task therefore sleeps on a completion and gives up its cpu, so the
+ * tasks that would free a worker can run. The new worker stores its result
+ * and raises spawn_irq; the handler completes every wait that has a result.
+ */
+static LIST_HEAD(spawn_waits);
+static DEFINE_SPINLOCK(spawn_waits_lock);
+static int spawn_irq = -1;
+
+static irqreturn_t spawn_interrupt(int irq, void *dev_id)
+{
+	struct wasm_spawn_wait *wait, *next;
+	unsigned long flags;
+
+	spin_lock_irqsave(&spawn_waits_lock, flags);
+	list_for_each_entry_safe(wait, next, &spawn_waits, node) {
+		if (!READ_ONCE(wait->status))
+			continue;
+		list_del_init(&wait->node);
+		complete(&wait->done);
+	}
+	spin_unlock_irqrestore(&spawn_waits_lock, flags);
+
+	return IRQ_HANDLED;
+}
+
+static int __init spawn_wait_init(void)
+{
+	int irq = wasm_alloc_irq();
+	int ret;
+
+	if (irq < 0)
+		return irq;
+	ret = request_irq(irq, spawn_interrupt, 0, "wasm-spawn", NULL);
+	if (ret) {
+		wasm_free_irq(irq);
+		return ret;
+	}
+	spawn_irq = irq;
+	return 0;
+}
+core_initcall(spawn_wait_init);
+
+int wasm_spawn_worker_wait(void (*fn)(void *), void *arg, char *name,
+			   size_t name_len, enum wasm_user_memory user_memory)
+{
+	struct wasm_spawn_wait wait = { .status = 0 };
+	unsigned long flags;
+	int ret;
+
+	if (WARN_ON_ONCE(spawn_irq < 0))
+		return -ENODEV;
+	wait.irq = spawn_irq;
+	init_completion(&wait.done);
+
+	spin_lock_irqsave(&spawn_waits_lock, flags);
+	list_add_tail(&wait.node, &spawn_waits);
+	spin_unlock_irqrestore(&spawn_waits_lock, flags);
+
+	ret = wasm_kernel_spawn_worker(fn, arg, name, name_len, user_memory,
+				       &wait);
+	if (!ret) {
+		/*
+		 * The new worker reads the parent's memory, so this cannot
+		 * be interrupted: a COPY source must stay stable until then.
+		 */
+		wait_for_completion(&wait.done);
+		ret = READ_ONCE(wait.status);
+		ret = ret == 1 ? 0 : ret;
+	}
+
+	spin_lock_irqsave(&spawn_waits_lock, flags);
+	list_del(&wait.node);
+	spin_unlock_irqrestore(&spawn_waits_lock, flags);
+
+	return ret;
+}
+
 int wasm_call_clone_fn(void *arg);
 
 int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
@@ -269,12 +351,13 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	 */
 	if (user_memory == WASM_USER_MEMORY_COPY) {
 		mutex_lock(&current->mm->context.remote.mutex);
-		ret = wasm_kernel_spawn_worker(&task_entry, bootstrap_args, name,
-					       name_len, user_memory);
+		ret = wasm_spawn_worker_wait(&task_entry, bootstrap_args, name,
+					     name_len, user_memory);
 		mutex_unlock(&current->mm->context.remote.mutex);
 	} else {
 		ret = wasm_kernel_spawn_worker(&task_entry, bootstrap_args,
-					       name, name_len, user_memory);
+					       name, name_len, user_memory,
+					       NULL);
 	}
 	if (ret) {
 		kfree(bootstrap_args);
