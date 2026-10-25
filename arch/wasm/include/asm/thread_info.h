@@ -30,10 +30,10 @@ struct thread_info {
 	struct mm_struct *context_mm;
 	unsigned long tp_value;
 	const struct kernel_siginfo *active_siginfo;
-	/* Counts execs that replaced this task's user instance. */
-	unsigned int exec_count;
 	/* A signal handler escaped; rethrow on the way out of the syscall. */
 	unsigned int handler_escaped;
+	/* A successful exec has to move the task to its successor worker. */
+	bool exec_handoff;
 };
 
 #ifndef current_thread_info
@@ -50,6 +50,7 @@ struct thread_info {
 		.context_mm = NULL,                  \
 		.tp_value = U32_MAX,                 \
 		.active_siginfo = NULL,              \
+		.exec_handoff = false,               \
 	}
 
 #include <asm-generic/thread_info_tif.h>

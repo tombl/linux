@@ -21,6 +21,7 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 	task_thread_info(dst)->context_mm = NULL;
 	task_thread_info(dst)->active_siginfo = NULL;
 	task_thread_info(dst)->handler_escaped = 0;
+	task_thread_info(dst)->exec_handoff = false;
 	return 0;
 }
 
@@ -160,6 +161,9 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 	// callback returns when the kernel thread execs a process
 	fn_ret = fn(fn_arg);
 
+	if (current_thread_info()->exec_handoff)
+		wasm_user_exec_handoff();
+
 	wasm_user_call();
 
 	// if we're here, either the thread returned from its entrypoint without exiting,
@@ -175,6 +179,49 @@ static void task_entry(void *args)
 	set_stack_pointer(
 		task_pt_regs(((struct task_bootstrap_args *)args)->task) - 1);
 	task_entry_inner(args);
+}
+
+/*
+ * Exec runs the new image in a successor worker: each worker hosts one user
+ * memory for its whole life, and ending the worker is the only way to release
+ * that memory in every browser. The successor is spawned while exec can still
+ * fail, and waits outside the kernel. Once the exec has succeeded, the old
+ * worker hands over the task, still running on its logical CPU, and leaves
+ * without touching the kernel stack again. The successor then completes the
+ * return to userspace in the new image.
+ */
+static void noinline_for_stack exec_entry_inner(struct task_struct *task)
+{
+	struct thread_info *info = task_thread_info(task);
+	struct pt_regs *regs = task_pt_regs(task);
+	int cpu = atomic_read(&info->running_cpu);
+
+	BUG_ON(cpu < 0 || cpu >= nr_cpu_ids || cpu != info->cpu);
+	set_current_cpu(cpu);
+	set_current_task(task);
+
+	info->exec_handoff = false;
+	/* A signal handler that called execve was abandoned with the old image. */
+	info->active_siginfo = NULL;
+	/* Remote access can reach the new image through this worker now. */
+	WRITE_ONCE(info->context_mm, task->mm);
+	wasm_service_remote_request(task);
+
+	syscall_exit_to_user_mode(regs);
+	regs->user_mode = 1;
+	wasm_user_call();
+
+	// see task_entry_inner
+	local_irq_enable();
+	do_exit(SIGSEGV);
+}
+
+void wasm_exec_entry(void *arg)
+{
+	struct task_struct *task = arg;
+
+	set_stack_pointer(task_pt_regs(task) - 1);
+	exec_entry_inner(task);
 }
 
 int wasm_call_clone_fn(void *arg);

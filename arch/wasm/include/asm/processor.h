@@ -11,6 +11,9 @@ struct task_struct;
 
 void cpu_relax(void);
 
+/* The worker entry point of an exec successor, see process.c. */
+void wasm_exec_entry(void *task);
+
 #define current_text_addr() wasm_kernel_return_address(-1)
 
 static inline unsigned long thread_saved_pc(struct task_struct *tsk)
