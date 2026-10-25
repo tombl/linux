@@ -1,5 +1,6 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <asm/remote_vm.h>
 #include <asm/spawn.h>
 #include <linux/auxvec.h>
 #include <linux/binfmts.h>
@@ -334,6 +335,20 @@ static int spawn_exec_successor(struct linux_binprm *bprm)
 				      WASM_USER_MEMORY_EXEC);
 }
 
+/*
+ * A CLONE_VM child, such as a vfork, runs on its parent's user memory, so its
+ * worker has no memory of its own to release by ending. Run the new image in
+ * the same worker instead of paying for a successor. Once the child has
+ * exec'd, the worker owns its memory and later execs hand off as usual. If
+ * the parent has already gone, the child is the last user, and handing off
+ * releases the memory.
+ */
+static bool exec_in_place(void)
+{
+	return current_thread_info()->borrowed_user_memory &&
+	       atomic_read(&current->mm->mm_users) > 1;
+}
+
 static int load_wasm_binary(struct linux_binprm *bprm)
 {
 	loff_t offset = 0;
@@ -341,6 +356,7 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 	int ret;
 	loff_t filesize;
 	bool compiling = false;
+	bool in_place = false;
 	u32 chunk_size;
 
 	if (strncmp(bprm->buf, "\0asm\1\0\0\0", 8))
@@ -388,11 +404,22 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 	kfree(chunk);
 	chunk = NULL;
 
-	ret = spawn_exec_successor(bprm);
+	/* Fail on bad arguments before allocating the image's memory. */
+	ret = copy_args(bprm);
 	if (ret)
 		goto err;
 
-	ret = copy_args(bprm);
+	in_place = exec_in_place();
+	if (in_place) {
+		/*
+		 * Instantiating runs the image's start function, while this
+		 * worker still hosts the parent's memory and exec can fail.
+		 */
+		current_thread_info()->exec_preparing = true;
+		ret = wasm_user_exec_prepare();
+		current_thread_info()->exec_preparing = false;
+	} else
+		ret = spawn_exec_successor(bprm);
 	if (ret)
 		goto err;
 
@@ -402,10 +429,12 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 	// point of no return starts here
 
 	/*
-	 * This worker keeps the old image until it leaves; only the successor
-	 * can service remote access to the new mm, once it publishes it.
+	 * This worker keeps the old image until it leaves or instantiates the
+	 * new one; until then, nothing can service remote access to the new mm.
 	 */
 	WRITE_ONCE(current_thread_info()->context_mm, NULL);
+	/* Either way, the task now owns the memory of its image. */
+	current_thread_info()->borrowed_user_memory = false;
 
 	set_personality(PER_LINUX_32BIT);
 	setup_new_exec(bprm);
@@ -414,14 +443,29 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 
 	finalize_exec(bprm);
 
-	/* Hand the task to the successor on the way back to userspace. */
-	current_thread_info()->exec_handoff = true;
+	if (in_place) {
+		wasm_user_exec_instantiate();
+		WRITE_ONCE(current_thread_info()->context_mm, current->mm);
+		/* Serve remote access queued while there was no context. */
+		wasm_service_remote_request(current);
+		/* Enter the new image on the way back to userspace. */
+		current_thread_info()->exec_restart = true;
+	} else {
+		/* Hand the task to the successor on the way back to userspace. */
+		current_thread_info()->exec_handoff = true;
+	}
 
 	return 0;
 err:
-	/* This also ends the successor, if it was spawned. */
+	/* This also frees the in-place memory or ends the successor. */
 	if (compiling)
 		wasm_user_compile_abort();
+	/*
+	 * Dropping the memory of a failed image need not release it, as
+	 * ending a worker does, so fail in place at most once per worker.
+	 */
+	if (in_place)
+		current_thread_info()->borrowed_user_memory = false;
 	kfree(chunk);
 	return ret;
 }

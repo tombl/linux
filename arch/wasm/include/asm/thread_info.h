@@ -34,6 +34,15 @@ struct thread_info {
 	unsigned int handler_escaped;
 	/* A successful exec has to move the task to its successor worker. */
 	bool exec_handoff;
+	/* An exec replaced the user image in place; restart it on the way out. */
+	bool exec_restart;
+	/*
+	 * This worker hosts another process's user memory: the task is a
+	 * CLONE_VM child that has not exec'd yet. See load_wasm_binary().
+	 */
+	bool borrowed_user_memory;
+	/* exec_prepare() is instantiating the new image; see wasm_syscall(). */
+	bool exec_preparing;
 };
 
 #ifndef current_thread_info
@@ -51,6 +60,9 @@ struct thread_info {
 		.tp_value = U32_MAX,                 \
 		.active_siginfo = NULL,              \
 		.exec_handoff = false,               \
+		.exec_restart = false,               \
+		.borrowed_user_memory = false,       \
+		.exec_preparing = false,             \
 	}
 
 #include <asm-generic/thread_info_tif.h>

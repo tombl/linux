@@ -28,6 +28,14 @@ static noinline long wasm_do_syscall(long nr, unsigned long arg0,
 {
 	struct pt_regs *regs = current_pt_regs();
 
+	/*
+	 * A start function, run by an exec in place before the exec commits,
+	 * gets no syscalls: they would act for the old image, nested in exec.
+	 * wasm_copy_active_siginfo() refuses it too.
+	 */
+	if (unlikely(current_thread_info()->exec_preparing))
+		return -ENOSYS;
+
 	regs->syscall_args[0] = arg0;
 	regs->syscall_args[1] = arg1;
 	regs->syscall_args[2] = arg2;
@@ -72,6 +80,13 @@ static noinline long wasm_do_syscall(long nr, unsigned long arg0,
 		syscall_exit_to_user_mode(regs);
 		regs->user_mode = 1;
 
+		if (unlikely(current_thread_info()->exec_restart)) {
+			current_thread_info()->exec_restart = false;
+			/* The handler that called execve, if any, is gone. */
+			current_thread_info()->active_siginfo = NULL;
+			wasm_user_unwind();
+		}
+
 		if (regs->restart_syscall_nr < 0)
 			return regs->syscall_return;
 		nr = regs->restart_syscall_nr;
@@ -91,7 +106,8 @@ void wasm_finish_handler_escape(void);
  * the task to its successor, which finishes the return in the new image on
  * a fresh kernel stack. The old worker's stack is retired with it, including
  * the frames of a syscall that delivered a signal whose handler called
- * execve.
+ * execve. An exec in place unwinds to run_user() instead, which enters the
+ * new image with that stack reclaimed.
  *
  * A signal handler that escaped through an exception, such as siglongjmp(),
  * left the kernel frames beneath it to finish normally. Its exception is

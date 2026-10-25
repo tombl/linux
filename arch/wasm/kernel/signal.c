@@ -124,6 +124,9 @@ wasm_copy_active_siginfo(siginfo_t __user *to)
 {
 	const kernel_siginfo_t *info = current_thread_info()->active_siginfo;
 
+	/* As for syscalls, see wasm_syscall(). */
+	if (unlikely(current_thread_info()->exec_preparing))
+		return -ENOSYS;
 	return info ? copy_siginfo_to_user(to, info) : -EINVAL;
 }
 
