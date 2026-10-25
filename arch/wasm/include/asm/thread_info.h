@@ -31,6 +31,8 @@ struct thread_info {
 	struct mm_struct *context_mm;
 	unsigned long tp_value;
 	const struct kernel_siginfo *active_siginfo;
+	/* Counts execs that replaced this task's user instance. */
+	unsigned int exec_count;
 };
 
 #ifndef current_thread_info

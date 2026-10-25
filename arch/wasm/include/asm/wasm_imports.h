@@ -59,6 +59,8 @@ void wasm_import(user, call_signal_handler)(uintptr_t fn, u32 sig);
 int wasm_import(user, call_siginfo_handler)(uintptr_t trampoline, uintptr_t fn,
 					    u32 sig);
 void wasm_import(user, halt_signal_handler)(void);
+/* Abandons the user stack and enters the current instance. Never returns. */
+void __noreturn wasm_import(user, unwind)(void);
 
 int wasm_import(user, read)(void *to, const void __user *from, unsigned long n);
 int wasm_import(user, write)(void __user *to, const void *from, unsigned long n);

@@ -387,6 +387,8 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 	finalize_exec(bprm);
 
 	wasm_user_instantiate(true);
+	/* The syscall export unwinds the replaced instance on its way out. */
+	current_thread_info()->exec_count++;
 	/*
 	 * begin_new_exec() installs current->mm before the JS worker swaps its
 	 * local user memory. Publish readiness only after instantiate returns,
