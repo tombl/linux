@@ -163,7 +163,7 @@ static void *z_erofs_lz4_handle_overlap(const struct z_erofs_decompress_req *rq,
 	 * If in-place decompression can't be applied, copy compressed data that
 	 * may potentially overlap during decompression to a per-CPU buffer.
 	 */
-	src = z_erofs_get_gbuf(rq->inpages);
+	src = z_erofs_get_gbuf(DIV_ROUND_UP(rq->inputsize, PAGE_SIZE));
 	if (!src) {
 		DBG_BUGON(1);
 		kunmap_local(inpage);
