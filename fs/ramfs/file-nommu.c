@@ -84,8 +84,6 @@ int ramfs_nommu_expand_for_mapping(struct inode *inode, size_t newsize)
 	if (ret)
 		return ret;
 
-	i_size_write(inode, newsize);
-
 	/* allocate enough contiguous pages to be able to satisfy the
 	 * request */
 	pages = alloc_pages(gfp, order);
@@ -103,9 +101,8 @@ int ramfs_nommu_expand_for_mapping(struct inode *inode, size_t newsize)
 		__free_page(pages + loop);
 
 	/* clear the memory we allocated */
-	newsize = PAGE_SIZE * npages;
 	data = page_address(pages);
-	memset(data, 0, newsize);
+	memset(data, 0, PAGE_SIZE * npages);
 
 	/* attach all the pages to the inode's address space */
 	for (loop = 0; loop < npages; loop++) {
@@ -124,11 +121,15 @@ int ramfs_nommu_expand_for_mapping(struct inode *inode, size_t newsize)
 		put_page(page);
 	}
 
+	/* publish the size only once every page is attached */
+	i_size_write(inode, newsize);
 	return 0;
 
 add_error:
 	while (loop < npages)
 		__free_page(pages + loop++);
+	/* the file was empty, so drop the pages already attached */
+	truncate_inode_pages(inode->i_mapping, 0);
 	return ret;
 }
 
