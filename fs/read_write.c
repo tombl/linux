@@ -845,6 +845,17 @@ static ssize_t do_loop_readv_writev(struct file *filp, struct iov_iter *iter,
 	while (iov_iter_count(iter)) {
 		ssize_t nr;
 
+		/*
+		 * Skip empty segments rather than calling ->read or ->write
+		 * with a length of zero, which some handlers reject. musl's
+		 * stdio writes its (often empty) buffer and the data as two
+		 * segments, and /proc/<pid>/oom_score_adj fails a zero-length
+		 * write with EINVAL.
+		 */
+		if (!iter_iov_len(iter)) {
+			iov_iter_advance(iter, 0);
+			continue;
+		}
 		if (type == READ) {
 			nr = filp->f_op->read(filp, iter_iov_addr(iter),
 						iter_iov_len(iter), ppos);
