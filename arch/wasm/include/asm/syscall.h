@@ -25,6 +25,10 @@ static inline bool arch_syscall_is_vdso_sigreturn(struct pt_regs *regs)
 	return false;
 }
 
+/*
+ * Reports the raw slots. As on other 32-bit architectures, a 64-bit argument
+ * on wasm32 spans two of them; see asm/syscall_wrapper.h.
+ */
 static inline void syscall_get_arguments(struct task_struct *task,
 					 struct pt_regs *regs,
 					 unsigned long *args)
