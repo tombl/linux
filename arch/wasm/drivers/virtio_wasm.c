@@ -2,6 +2,7 @@
 #define pr_fmt(fmt) "virtio-wasm: " fmt
 
 #include <asm/wasm_imports.h>
+#include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
@@ -28,6 +29,9 @@ struct virtio_wasm_device {
 
 	u8 *config;
 	u32 config_len;
+
+	/* set by the host once a reset has finished with guest memory */
+	u32 reset_done;
 };
 
 /* per-virtqueue state, stored in vq->priv */
@@ -113,19 +117,28 @@ static void vw_set_status(struct virtio_device *vdev, u8 status)
 	}
 }
 
-/* The callback may run after vw_reset() returns, so pass the host id by value. */
 static void _reset(void *arg)
 {
-	wasm_virtio_reset((uintptr_t)arg);
+	struct virtio_wasm_device *vw_dev = arg;
+
+	wasm_virtio_reset(vw_dev->host_id, &vw_dev->reset_done);
 }
 
 static void vw_reset(struct virtio_device *vdev)
 {
 	struct virtio_wasm_device *vw_dev = to_virtio_wasm_device(vdev);
-	u32 host_id = vw_dev->host_id;
 
 	vw_set_status(vdev, 0);
-	wasm_kernel_run_on_main(_reset, (void *)(uintptr_t)host_id);
+	WRITE_ONCE(vw_dev->reset_done, 0);
+	wasm_kernel_run_on_main(_reset, vw_dev);
+
+	/*
+	 * The host may still be completing requests whose buffers it reads or
+	 * writes in place. The driver frees those buffers once reset returns, so
+	 * wait until the host says it has finished with them.
+	 */
+	while (!smp_load_acquire(&vw_dev->reset_done))
+		msleep(1);
 }
 
 /*
