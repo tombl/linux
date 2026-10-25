@@ -131,12 +131,16 @@ static void *z_erofs_lz4_handle_overlap(const struct z_erofs_decompress_req *rq,
 			*maptype = 0;
 			return inpage;
 		}
-		kunmap_local(inpage);
-		src = erofs_vm_map_ram(rq->in, rq->inpages);
-		if (!src)
-			return ERR_PTR(-ENOMEM);
-		*maptype = 1;
-		return src;
+		if (IS_ENABLED(CONFIG_MMU)) {
+			kunmap_local(inpage);
+			src = erofs_vm_map_ram(rq->in, rq->inpages);
+			if (!src)
+				return ERR_PTR(-ENOMEM);
+			*maptype = 1;
+			return src;
+		}
+		/* without an MMU, copy to the per-CPU buffer below instead */
+		may_inplace = false;
 	}
 	/*
 	 * Then, deal with in-place I/Os. The reasons why in-place I/O is useful
@@ -204,9 +208,8 @@ const char *z_erofs_fixup_insize(struct z_erofs_decompress_req *rq,
 }
 
 static const char *__z_erofs_lz4_decompress(struct z_erofs_decompress_req *rq,
-					    u8 *dst)
+					    u8 *dst, bool may_inplace)
 {
-	bool may_inplace = false;
 	unsigned int inputmargin;
 	u8 *out, *headpage, *src;
 	const char *reason;
@@ -220,8 +223,8 @@ static const char *__z_erofs_lz4_decompress(struct z_erofs_decompress_req *rq,
 		kunmap_local(headpage);
 		return reason;
 	}
-	may_inplace = !((rq->pageofs_in + rq->inputsize) &
-			(rq->sb->s_blocksize - 1));
+	may_inplace = may_inplace && !((rq->pageofs_in + rq->inputsize) &
+				       (rq->sb->s_blocksize - 1));
 
 	inputmargin = rq->pageofs_in;
 	src = z_erofs_lz4_handle_overlap(rq, headpage, dst, &inputmargin,
@@ -256,6 +259,19 @@ static const char *__z_erofs_lz4_decompress(struct z_erofs_decompress_req *rq,
 	return reason;
 }
 
+/* copy the decompressed data from a bounce buffer to the output pages */
+static void z_erofs_lz4_copy_bounced(const struct z_erofs_decompress_req *rq,
+				     const u8 *bounce)
+{
+	unsigned int cur = rq->pageofs_out, end = cur + rq->outputsize, cnt;
+
+	for (; cur < end; cur += cnt) {
+		cnt = min(end - cur, PAGE_SIZE - offset_in_page(cur));
+		memcpy_to_page(rq->out[cur >> PAGE_SHIFT], offset_in_page(cur),
+			       bounce + cur, cnt);
+	}
+}
+
 static const char *z_erofs_lz4_decompress(struct z_erofs_decompress_req *rq,
 					  struct page **pagepool)
 {
@@ -277,18 +293,33 @@ static const char *z_erofs_lz4_decompress(struct z_erofs_decompress_req *rq,
 		if (ret > 0) {
 			dst = page_address(*rq->out);
 			dst_maptype = 1;
-		} else {
+		} else if (IS_ENABLED(CONFIG_MMU)) {
 			dst = erofs_vm_map_ram(rq->out, rq->outpages);
 			if (!dst)
 				return ERR_PTR(-ENOMEM);
 			dst_maptype = 2;
+		} else {
+			/*
+			 * Scattered pages can't be mapped contiguously without
+			 * an MMU, so decompress into a bounce buffer instead.
+			 */
+			dst = kmalloc(rq->pageofs_out + rq->outputsize, rq->gfp);
+			if (!dst)
+				return ERR_PTR(-ENOMEM);
+			dst_maptype = 3;
 		}
 	}
-	reason = __z_erofs_lz4_decompress(rq, dst);
-	if (!dst_maptype)
+	/* in-place decompression needs the compressed data within `dst` */
+	reason = __z_erofs_lz4_decompress(rq, dst, dst_maptype != 3);
+	if (!dst_maptype) {
 		kunmap_local(dst);
-	else if (dst_maptype == 2)
+	} else if (dst_maptype == 2) {
 		vm_unmap_ram(dst, rq->outpages);
+	} else if (dst_maptype == 3) {
+		if (!reason)
+			z_erofs_lz4_copy_bounced(rq, dst);
+		kfree(dst);
+	}
 	return reason;
 }
 
