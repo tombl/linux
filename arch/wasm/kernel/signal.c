@@ -108,6 +108,8 @@ void arch_do_signal_or_restart(struct pt_regs *regs)
 	struct ksignal ksig;
 
 	if (get_signal(&ksig)) {
+		if (ksig.ka.sa.sa_flags & SA_WASM_CANCEL)
+			current_thread_info()->cancel_signals++;
 		syscall_restart(regs, true, &ksig.ka);
 		call_signal_handler(&ksig, regs);
 		return;

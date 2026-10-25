@@ -26,6 +26,15 @@ wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
 	     unsigned long arg5)
 {
 	struct pt_regs *regs = current_pt_regs();
+	struct thread_info *ti = current_thread_info();
+	bool cancellation_point = nr & __WASM_SYSCALL_CP;
+	/*
+	 * A snapshot rather than a flag cleared here, because a handler that
+	 * runs during this syscall can make a nested cancellation point.
+	 */
+	unsigned int cancel_signals = ti->cancel_signals;
+
+	nr &= ~__WASM_SYSCALL_CP;
 
 	regs->syscall_args[0] = arg0;
 	regs->syscall_args[1] = arg1;
@@ -66,6 +75,17 @@ wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
 
 		if (regs->restart_syscall_nr < 0)
 			return regs->syscall_return;
+
+		/*
+		 * Native libc leaves a cancelled cancellation point by rewriting
+		 * the interrupted PC. Here, refuse the restart instead, so the
+		 * caller sees -EINTR and acts on its cancel flag. Checking after
+		 * the whole signal-exit loop also catches a cancel signal that a
+		 * nested handler's own syscall consumed.
+		 */
+		if (cancellation_point && ti->cancel_signals != cancel_signals)
+			return -EINTR;
+
 		nr = regs->restart_syscall_nr;
 	}
 }

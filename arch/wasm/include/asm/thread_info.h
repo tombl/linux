@@ -31,6 +31,8 @@ struct thread_info {
 	struct mm_struct *context_mm;
 	unsigned long tp_value;
 	const struct kernel_siginfo *active_siginfo;
+	/* Counts SA_WASM_CANCEL handlers run, for wasm_syscall(). */
+	unsigned int cancel_signals;
 };
 
 #ifndef current_thread_info

@@ -12,6 +12,9 @@
 
 #include <asm-generic/unistd.h>
 
+/* Marks the syscall as a cancellation point; see SA_WASM_CANCEL. */
+#define __WASM_SYSCALL_CP 0x40000000
+
 #define __NR_set_thread_area (__NR_arch_specific_syscall + 0)
 __SYSCALL(__NR_set_thread_area, sys_set_thread_area)
 
