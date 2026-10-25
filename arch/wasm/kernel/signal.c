@@ -41,7 +41,11 @@ static void call_signal_handler(struct ksignal *ksig, struct pt_regs *regs)
 	const struct sigaction *sa = &ksig->ka.sa;
 	struct thread_info *ti = current_thread_info();
 	struct pt_regs saved_regs = *regs;
-	sigset_t saved_mask = current->blocked;
+	/*
+	 * The mask a signal frame would save: the caller's own one, rather than
+	 * the temporary mask of an interrupted sigsuspend, ppoll or pselect.
+	 */
+	sigset_t saved_mask = *sigmask_to_save();
 	int failed = 0;
 
 	/*
