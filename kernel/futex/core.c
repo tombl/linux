@@ -619,9 +619,11 @@ int get_futex_key(u32 __user *uaddr, unsigned int flags, union futex_key *key,
 		 * On no-MMU, shared futexes are treated as private, therefore
 		 * we must not include the current process in the key. Since
 		 * there is only one address space, the address is a unique key
-		 * on its own.
+		 * on its own. Unless each mm has its own address space: then
+		 * equal addresses in two processes are different futexes.
 		 */
-		if (IS_ENABLED(CONFIG_MMU))
+		if (IS_ENABLED(CONFIG_MMU) ||
+		    IS_ENABLED(CONFIG_ARCH_NOMMU_PER_MM_ADDRESS_SPACE))
 			key->private.mm = mm;
 		else
 			key->private.mm = NULL;
