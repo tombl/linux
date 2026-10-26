@@ -215,8 +215,20 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	if (user_memory != WASM_USER_MEMORY_NONE)
 		task_thread_info(p)->context_mm = p->mm;
 
-	ret = wasm_kernel_spawn_worker(&task_entry, bootstrap_args, name,
-				       name_len, user_memory);
+	/*
+	 * A copy must not race a foreign write, such as a ptrace poke, into the
+	 * memory being snapshotted. Holding the mm's remote-access mutex keeps
+	 * any request from being published until the copy is complete.
+	 */
+	if (user_memory == WASM_USER_MEMORY_COPY) {
+		mutex_lock(&current->mm->context.remote.mutex);
+		ret = wasm_kernel_spawn_worker(&task_entry, bootstrap_args, name,
+					       name_len, user_memory);
+		mutex_unlock(&current->mm->context.remote.mutex);
+	} else {
+		ret = wasm_kernel_spawn_worker(&task_entry, bootstrap_args,
+					       name, name_len, user_memory);
+	}
 	if (ret) {
 		kfree(bootstrap_args);
 		return ret;
