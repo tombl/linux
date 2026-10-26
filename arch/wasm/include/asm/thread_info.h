@@ -19,7 +19,6 @@ struct mm_struct;
  * and a task_struct should be *way* less than a page big. */
 #define THREAD_SIZE_ORDER 1
 #define THREAD_SIZE (PAGE_SIZE << THREAD_SIZE_ORDER)
-#define THREAD_SHIFT (PAGE_SHIFT << THREAD_SIZE_ORDER)
 
 struct thread_info {
 	unsigned long flags;
