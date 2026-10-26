@@ -18,6 +18,9 @@
 #include <linux/mman.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
+#include <linux/falloc.h>
+#include <linux/overflow.h>
+#include <linux/sched/signal.h>
 
 #include <linux/uaccess.h>
 #include "internal.h"
@@ -29,6 +32,8 @@ static unsigned long ramfs_nommu_get_unmapped_area(struct file *file,
 						   unsigned long pgoff,
 						   unsigned long flags);
 static int ramfs_nommu_mmap_prepare(struct vm_area_desc *desc);
+static long ramfs_nommu_fallocate(struct file *file, int mode, loff_t offset,
+				  loff_t len);
 
 static unsigned ramfs_mmap_capabilities(struct file *file)
 {
@@ -46,6 +51,7 @@ const struct file_operations ramfs_file_operations = {
 	.splice_read		= filemap_splice_read,
 	.splice_write		= iter_file_splice_write,
 	.llseek			= generic_file_llseek,
+	.fallocate		= ramfs_nommu_fallocate,
 };
 
 const struct inode_operations ramfs_file_inode_operations = {
@@ -134,8 +140,10 @@ static int ramfs_nommu_resize(struct inode *inode, loff_t newsize, loff_t size)
 	int ret;
 
 	/* assume a truncate from zero size is going to be for the purposes of
-	 * shared mmap */
-	if (size == 0) {
+	 * shared mmap, except on wasm, which has no mmap system call and no
+	 * kernel path that maps a ramfs file (exec reads executables with
+	 * kernel_read()), so it grows sparsely, as ramfs files do with an MMU */
+	if (size == 0 && !IS_ENABLED(CONFIG_WASM)) {
 		if (unlikely(newsize >> 32))
 			return -EFBIG;
 
@@ -151,6 +159,88 @@ static int ramfs_nommu_resize(struct inode *inode, loff_t newsize, loff_t size)
 
 	truncate_setsize(inode, newsize);
 	return 0;
+}
+
+/*
+ * Without an MMU, tmpfs is ramfs, so provide the part of tmpfs's fallocate
+ * that callers reserving space before they write a file rely on
+ * (systemd-journald's seqnum file and InnoDB's data files, for example).
+ * Every page in the range is allocated, and mode 0 then grows the file to the
+ * end of the range.
+ *
+ * The pages are allocated one at a time, not contiguously as when an empty
+ * file is expanded for a shared mapping, so a file grown this way is not
+ * guaranteed to be mappable shared. FALLOC_FL_KEEP_SIZE is supported only within the file's
+ * size: pages beyond it would be in the way of that expansion. Punching
+ * holes and the other modes are not supported.
+ */
+static long ramfs_nommu_fallocate(struct file *file, int mode, loff_t offset,
+				  loff_t len)
+{
+	struct inode *inode = file_inode(file);
+	struct address_space *mapping = inode->i_mapping;
+	pgoff_t index, last;
+	loff_t end, size;
+	int ret;
+
+	if (mode & ~FALLOC_FL_KEEP_SIZE)
+		return -EOPNOTSUPP;
+	if (check_add_overflow(offset, len, &end))
+		return -EFBIG;
+
+	inode_lock(inode);
+	size = i_size_read(inode);
+	if (end > size) {
+		ret = -EOPNOTSUPP;
+		if (mode & FALLOC_FL_KEEP_SIZE)
+			goto out;
+		ret = inode_newsize_ok(inode, end);
+		if (ret)
+			goto out;
+	}
+
+	ret = file_modified(file);
+	if (ret)
+		goto out;
+
+	last = (end - 1) >> PAGE_SHIFT;
+	for (index = offset >> PAGE_SHIFT; index <= last; index++) {
+		struct folio *folio;
+
+		if (fatal_signal_pending(current)) {
+			ret = -EINTR;
+			break;
+		}
+
+		folio = __filemap_get_folio(mapping, index, FGP_LOCK | FGP_CREAT,
+					    mapping_gfp_mask(mapping));
+		if (IS_ERR(folio)) {
+			ret = PTR_ERR(folio);
+			break;
+		}
+		if (!folio_test_uptodate(folio)) {
+			folio_zero_range(folio, 0, folio_size(folio));
+			folio_mark_uptodate(folio);
+		}
+		/* prevent the page from being discarded on memory pressure */
+		folio_mark_dirty(folio);
+		folio_unlock(folio);
+		folio_put(folio);
+		cond_resched();
+	}
+
+	if (ret) {
+		/* drop the pages allocated beyond the file's size */
+		if (end > size)
+			truncate_pagecache(inode, size);
+		goto out;
+	}
+
+	if (end > size)
+		i_size_write(inode, end);
+out:
+	inode_unlock(inode);
+	return ret;
 }
 
 /*****************************************************************************/
