@@ -62,13 +62,48 @@ void z_erofs_put_gbuf(void *ptr) __releases(gbuf->lock)
 	migrate_enable();
 }
 
+/* reuse the pages of the old buffer, add new pages and vmap them all */
+static void *z_erofs_gbuf_vmap(struct z_erofs_gbuf *gbuf, struct page **pages,
+			       unsigned int nrpages)
+{
+	unsigned int last, i;
+
+	for (i = 0; i < gbuf->nrpages; ++i)
+		pages[i] = gbuf->pages[i];
+	do {
+		last = i;
+		i = alloc_pages_bulk(GFP_KERNEL, nrpages, pages);
+		if (last == i)
+			return NULL;
+	} while (i != nrpages);
+	return vmap(pages, nrpages, VM_MAP, PAGE_KERNEL);
+}
+
+/*
+ * vmap() is unavailable without an MMU, so allocate physically contiguous
+ * buffers instead.  alloc_pages_exact() splits them into order-0 pages, which
+ * can be released one by one like the pages of a vmapped buffer.
+ */
+static void *z_erofs_gbuf_alloc_contig(struct page **pages,
+				       unsigned int nrpages)
+{
+	void *ptr = alloc_pages_exact(nrpages << PAGE_SHIFT, GFP_KERNEL);
+	unsigned int i;
+
+	if (ptr)
+		for (i = 0; i < nrpages; ++i)
+			pages[i] = virt_to_page(ptr + (i << PAGE_SHIFT));
+	return ptr;
+}
+
 int z_erofs_gbuf_growsize(unsigned int nrpages)
 {
 	static DEFINE_MUTEX(gbuf_resize_mutex);
-	struct page **tmp_pages = NULL;
+	struct page **tmp_pages = NULL, **old_pages;
+	unsigned int old_nrpages;
 	struct z_erofs_gbuf *gbuf;
 	void *ptr, *old_ptr;
-	int last, i, j;
+	int i, j;
 
 	mutex_lock(&gbuf_resize_mutex);
 	/* avoid shrinking gbufs, since no idea how many fses rely on */
@@ -83,29 +118,29 @@ int z_erofs_gbuf_growsize(unsigned int nrpages)
 		if (!tmp_pages)
 			goto out;
 
-		for (j = 0; j < gbuf->nrpages; ++j)
-			tmp_pages[j] = gbuf->pages[j];
-		do {
-			last = j;
-			j = alloc_pages_bulk(GFP_KERNEL, nrpages,
-					     tmp_pages);
-			if (last == j)
-				goto out;
-		} while (j != nrpages);
-
-		ptr = vmap(tmp_pages, nrpages, VM_MAP, PAGE_KERNEL);
+		if (IS_ENABLED(CONFIG_MMU))
+			ptr = z_erofs_gbuf_vmap(gbuf, tmp_pages, nrpages);
+		else
+			ptr = z_erofs_gbuf_alloc_contig(tmp_pages, nrpages);
 		if (!ptr)
 			goto out;
 
 		spin_lock(&gbuf->lock);
-		kfree(gbuf->pages);
+		old_pages = gbuf->pages;
+		old_nrpages = gbuf->nrpages;
 		gbuf->pages = tmp_pages;
 		old_ptr = gbuf->ptr;
 		gbuf->ptr = ptr;
 		gbuf->nrpages = nrpages;
 		spin_unlock(&gbuf->lock);
-		if (old_ptr)
-			vunmap(old_ptr);
+		if (old_ptr) {
+			if (IS_ENABLED(CONFIG_MMU))
+				vunmap(old_ptr);
+			else
+				free_pages_exact(old_ptr,
+						 old_nrpages << PAGE_SHIFT);
+		}
+		kfree(old_pages);
 	}
 	z_erofs_gbuf_nrpages = nrpages;
 out:
@@ -157,7 +192,9 @@ void z_erofs_gbuf_exit(void)
 		struct z_erofs_gbuf *gbuf = &z_erofs_gbufpool[i];
 
 		if (gbuf->ptr) {
-			vunmap(gbuf->ptr);
+			/* !MMU buffers are freed along with their pages below */
+			if (IS_ENABLED(CONFIG_MMU))
+				vunmap(gbuf->ptr);
 			gbuf->ptr = NULL;
 		}
 
