@@ -73,8 +73,6 @@ struct ipi_data_struct {
 };
 static DEFINE_PER_CPU(struct ipi_data_struct, ipi_data);
 
-void trigger_irq_for_cpu(unsigned int cpu, unsigned int irq);
-
 static void send_ipi_message(const struct cpumask *to_whom,
 			     enum ipi_message_type operation)
 {

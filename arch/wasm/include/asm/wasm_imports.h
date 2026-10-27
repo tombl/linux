@@ -19,14 +19,32 @@ size_t wasm_import(boot, get_initrd)(char *buf, size_t size);
 void wasm_import(kernel, breakpoint)(void);
 void wasm_import(kernel, halt_worker)(void);
 
-/* Whole-machine lifecycle event. Values are part of the guest/host ABI. */
+/*
+ * Whole-machine lifecycle event. CLEAN is a power-off or halt, and REBOOT
+ * asks the host to boot the machine again. Values are part of the
+ * guest/host ABI.
+ */
 enum wasm_machine_termination_reason {
 	WASM_MACHINE_TERMINATION_CLEAN = 0,
 	WASM_MACHINE_TERMINATION_PANIC = 1,
+	WASM_MACHINE_TERMINATION_REBOOT = 2,
 };
 
 void wasm_import(kernel, terminate_machine)(
 	enum wasm_machine_termination_reason reason);
+
+/*
+ * The host presses the machine's power button with the power_button export.
+ * It returns 0 for the first press of a boot, -EINVAL for an unknown action,
+ * -EAGAIN early in boot, before the button exists, or -EBUSY after an earlier
+ * press or once a shutdown is under way. Values are part of the guest/host ABI.
+ */
+enum wasm_power_action {
+	WASM_POWER_OFF = 1,
+	WASM_POWER_REBOOT = 2,
+};
+
+int power_button(enum wasm_power_action action);
 
 void wasm_import(kernel, boot_console_write)(const char *msg, size_t len);
 void wasm_import(kernel, boot_console_close)(void);
