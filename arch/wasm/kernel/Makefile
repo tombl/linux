@@ -8,6 +8,7 @@ obj-y += \
 	globals.o \
 	idle.o \
 	irq.o \
+	power.o \
 	process.o \
 	ptrace.o \
 	remote_vm.o \
