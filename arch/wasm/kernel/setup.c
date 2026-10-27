@@ -177,7 +177,7 @@ void machine_restart(char *cmd)
 	pr_info("restart %s\n", cmd);
 	terminate_machine(panic_in_progress() ?
 		WASM_MACHINE_TERMINATION_PANIC :
-		WASM_MACHINE_TERMINATION_CLEAN);
+		WASM_MACHINE_TERMINATION_REBOOT);
 }
 
 void machine_halt(void)
