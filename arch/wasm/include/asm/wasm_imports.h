@@ -7,8 +7,14 @@
 	__attribute__((import_module(#ns), import_name(#name))) \
 	wasm_##ns##_##name
 
+/*
+ * Boot blobs are pulled from the host. Each call copies the blob into buf and
+ * returns its size; called with (NULL, 0), it returns the size alone, which is
+ * 0 when the host has no such blob.
+ */
 size_t wasm_import(boot, get_devicetree)(char *buf, size_t size);
-int wasm_import(boot, get_initramfs)(char *buf, size_t size);
+size_t wasm_import(boot, get_initramfs)(char *buf, size_t size);
+size_t wasm_import(boot, get_initrd)(char *buf, size_t size);
 
 void wasm_import(kernel, breakpoint)(void);
 void wasm_import(kernel, halt_worker)(void);
