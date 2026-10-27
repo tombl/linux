@@ -23,6 +23,7 @@ void wasm_import(kernel, halt_worker)(void);
 enum wasm_machine_termination_reason {
 	WASM_MACHINE_TERMINATION_CLEAN = 0,
 	WASM_MACHINE_TERMINATION_PANIC = 1,
+	WASM_MACHINE_TERMINATION_REBOOT = 2,
 };
 
 void wasm_import(kernel, terminate_machine)(
