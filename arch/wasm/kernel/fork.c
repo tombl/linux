@@ -1,5 +1,7 @@
 #include <asm/wasm_imports.h>
 #include <linux/mm_types.h>
+#include <linux/rcupdate.h>
+#include <linux/sched/signal.h>
 #include <linux/syscalls.h>
 
 struct clone_fn {
@@ -16,6 +18,41 @@ int wasm_call_clone_fn(void *arg)
 	return 0;
 }
 
+/*
+ * Whether a task other than current runs in @mm. mm_users alone cannot tell:
+ * it also counts short-lived references, such as the one a /proc reader
+ * takes, which run no code in the memory. Only a task already in @mm can add
+ * another, so once current is alone it stays alone for this clone.
+ */
+static bool wasm_mm_shared(struct mm_struct *mm)
+{
+	struct task_struct *group, *task;
+	bool shared = false;
+
+	if (atomic_read(&mm->mm_users) == 1)
+		return false;
+
+	rcu_read_lock();
+	for_each_process_thread(group, task) {
+		struct mm_struct *task_mm = READ_ONCE(task->mm);
+
+		if (task != current && task_mm == mm) {
+			shared = true;
+			break;
+		}
+		/*
+		 * As in current_is_single_threaded(): a task that has left
+		 * its mm may have cloned into ours first. Make sure the rest
+		 * of the walk sees that child.
+		 */
+		if (!task_mm)
+			smp_rmb();
+	}
+	rcu_read_unlock();
+
+	return shared;
+}
+
 SYSCALL_DEFINE6(clone, void *__user, fn, void *__user, fn_arg, unsigned long,
 		clone_flags, int __user *, parent_tidptr, int __user *,
 		child_tidptr, unsigned long, tls)
@@ -29,8 +66,7 @@ SYSCALL_DEFINE6(clone, void *__user, fn, void *__user, fn_arg, unsigned long,
 	 * stop other workers while taking the snapshot.  Refuse to produce an
 	 * incoherent address space when another task shares this one.
 	 */
-	if (!(clone_flags & CLONE_VM) &&
-	    atomic_read(&current->mm->mm_users) > 1)
+	if (!(clone_flags & CLONE_VM) && wasm_mm_shared(current->mm))
 		return -EOPNOTSUPP;
 
 	kargs = (struct kernel_clone_args) {
