@@ -1,5 +1,6 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <asm/spawn.h>
 #include <linux/auxvec.h>
 #include <linux/binfmts.h>
 #include <linux/cred.h>
@@ -316,6 +317,23 @@ restore:
 	return ret;
 }
 
+/*
+ * Spawn the worker that will run the compiled image, while exec can still
+ * fail: the successor allocates the image's memory, so -ENOMEM reaches the
+ * caller. See wasm_exec_entry().
+ */
+static int spawn_exec_successor(struct linux_binprm *bprm)
+{
+	char name[TASK_COMM_LEN + 16];
+	int name_len;
+
+	name_len = scnprintf(name, sizeof(name), "%.*s (%d)", TASK_COMM_LEN - 1,
+			     kbasename(bprm->filename), task_pid_nr(current));
+
+	return wasm_spawn_worker_wait(wasm_exec_entry, current, name, name_len,
+				      WASM_USER_MEMORY_EXEC);
+}
+
 static int load_wasm_binary(struct linux_binprm *bprm)
 {
 	loff_t offset = 0;
@@ -370,6 +388,10 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 	kfree(chunk);
 	chunk = NULL;
 
+	ret = spawn_exec_successor(bprm);
+	if (ret)
+		goto err;
+
 	ret = copy_args(bprm);
 	if (ret)
 		goto err;
@@ -379,6 +401,12 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 		goto err;
 	// point of no return starts here
 
+	/*
+	 * This worker keeps the old image until it leaves; only the successor
+	 * can service remote access to the new mm, once it publishes it.
+	 */
+	WRITE_ONCE(current_thread_info()->context_mm, NULL);
+
 	set_personality(PER_LINUX_32BIT);
 	setup_new_exec(bprm);
 
@@ -386,18 +414,12 @@ static int load_wasm_binary(struct linux_binprm *bprm)
 
 	finalize_exec(bprm);
 
-	wasm_user_instantiate(true);
-	/* The syscall export unwinds the replaced instance on its way out. */
-	current_thread_info()->exec_count++;
-	/*
-	 * begin_new_exec() installs current->mm before the JS worker swaps its
-	 * local user memory. Publish readiness only after instantiate returns,
-	 * so remote access cannot copy through the old memory during exec.
-	 */
-	WRITE_ONCE(current_thread_info()->context_mm, current->mm);
+	/* Hand the task to the successor on the way back to userspace. */
+	current_thread_info()->exec_handoff = true;
 
 	return 0;
 err:
+	/* This also ends the successor, if it was spawned. */
 	if (compiling)
 		wasm_user_compile_abort();
 	kfree(chunk);

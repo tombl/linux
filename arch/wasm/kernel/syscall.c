@@ -62,6 +62,13 @@ static noinline long wasm_do_syscall(long nr, unsigned long arg0,
 		else
 			regs->syscall_return = syscall_table[nr](regs);
 
+		/*
+		 * A successful exec continues in its successor worker, which
+		 * completes this return to userspace in the new image.
+		 */
+		if (unlikely(current_thread_info()->exec_handoff))
+			wasm_user_exec_handoff();
+
 		syscall_exit_to_user_mode(regs);
 		regs->user_mode = 1;
 
@@ -80,19 +87,16 @@ void wasm_finish_handler_escape(void);
  * (i32, i32 x 6) -> i32 on wasm32. See asm/syscall_wrapper.h for how a 64-bit
  * argument spans two slots.
  *
- * A successful execve replaces the calling user instance, so the old
- * instance's frames beneath this call must not resume. This compares the
- * task's exec count across the syscall and asks the host to unwind the user
- * stack. That happens after the inner call has returned, so this frame keeps
- * nothing on the shadow stack. An execve from a signal handler is the
- * exception: the unwind also abandons the frames of the syscall that
- * delivered the signal, and their shadow stack space is not reclaimed. Running
- * the new image in a fresh worker would retire that stack along with the old
- * instance.
+ * A successful execve never returns here: the old instance's worker hands
+ * the task to its successor, which finishes the return in the new image on
+ * a fresh kernel stack. The old worker's stack is retired with it, including
+ * the frames of a syscall that delivered a signal whose handler called
+ * execve.
  *
  * A signal handler that escaped through an exception, such as siglongjmp(),
  * left the kernel frames beneath it to finish normally. Its exception is
- * rethrown here, after they have returned, for the same reason.
+ * rethrown here, after the inner call has returned, so this frame keeps
+ * nothing on the shadow stack.
  */
 __attribute__((export_name("syscall"))) long
 wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
@@ -100,12 +104,9 @@ wasm_syscall(long nr, unsigned long arg0, unsigned long arg1,
 	     unsigned long arg5)
 {
 	struct thread_info *ti = current_thread_info();
-	unsigned int exec_count = READ_ONCE(ti->exec_count);
 	long ret;
 
 	ret = wasm_do_syscall(nr, arg0, arg1, arg2, arg3, arg4, arg5);
-	if (unlikely(READ_ONCE(ti->exec_count) != exec_count))
-		wasm_user_unwind();
 	if (unlikely(ti->handler_escaped)) {
 		ti->handler_escaped = 0;
 		wasm_finish_handler_escape();

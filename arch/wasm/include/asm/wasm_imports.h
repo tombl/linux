@@ -36,15 +36,31 @@ enum wasm_user_memory {
 	WASM_USER_MEMORY_NONE = 0,
 	WASM_USER_MEMORY_SHARE = 1,
 	WASM_USER_MEMORY_COPY = 2,
+	WASM_USER_MEMORY_EXEC = 3,
 };
 
+/* See asm/spawn.h. */
+struct wasm_spawn_wait;
+
 /*
- * WASM_USER_MEMORY_COPY is synchronous: success means the destination worker
- * has completed its private snapshot; allocation failure returns -ENOMEM.
+ * spawn_worker never blocks: the new worker may not start until another one
+ * exits, so the kernel sleeps for the result instead, see
+ * wasm_spawn_worker_wait(). WASM_USER_MEMORY_COPY and WASM_USER_MEMORY_EXEC
+ * take a wait, and the others pass NULL.
+ *
+ * For WASM_USER_MEMORY_COPY, success means the destination worker has
+ * completed its private snapshot; allocation failure is -ENOMEM.
+ *
+ * WASM_USER_MEMORY_EXEC spawns the successor of the calling worker, which
+ * hosts the image from the last successful compile_end. Success means the
+ * successor has allocated the image's memory and instantiated it, and is
+ * waiting for user_exec_handoff() before it calls fn(arg). compile_abort()
+ * ends a successor that never received the handoff.
  */
 int wasm_import(kernel, spawn_worker)(void (*fn)(void *), void *arg,
 				      char *name, size_t name_len,
-				      enum wasm_user_memory user_memory);
+				      enum wasm_user_memory user_memory,
+				      struct wasm_spawn_wait *wait);
 
 void wasm_import(kernel, run_on_main)(void (*fn)(void *), void *arg);
 
@@ -52,7 +68,8 @@ int wasm_import(user, compile_begin)(u32 len);
 int wasm_import(user, compile_write)(u8 *bytes, u32 offset, u32 len);
 int wasm_import(user, compile_end)(u32 maximum_memory_pages);
 void wasm_import(user, compile_abort)(void);
-void wasm_import(user, instantiate)(bool fresh_memory);
+/* Lets the exec successor run, then ends this worker. */
+void wasm_import(user, exec_handoff)(void) __attribute__((noreturn));
 void wasm_import(user, call)(void);
 void wasm_import(user, switch_entry)(uintptr_t fn, uintptr_t arg);
 /*
@@ -73,8 +90,6 @@ int wasm_import(user, call_siginfo_handler)(uintptr_t trampoline, uintptr_t fn,
 /* Throws the exception a handler escaped with. Never returns. */
 void __noreturn wasm_import(user, rethrow)(void);
 void wasm_import(user, halt_signal_handler)(void);
-/* Abandons the user stack and enters the current instance. Never returns. */
-void __noreturn wasm_import(user, unwind)(void);
 
 int wasm_import(user, read)(void *to, const void __user *from, unsigned long n);
 int wasm_import(user, write)(void __user *to, const void *from, unsigned long n);

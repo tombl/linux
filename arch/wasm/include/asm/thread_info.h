@@ -6,6 +6,7 @@
 
 struct kernel_siginfo;
 struct mm_struct;
+struct task_bootstrap_args;
 
 /*
  * A remote wake changes the value parked workers wait on, so publishing a
@@ -13,6 +14,8 @@ struct mm_struct;
  */
 #define WASM_CPU_PARKED		(-1)
 #define WASM_CPU_REMOTE_WAKE	(-2)
+/* The task's fork failed before it ever ran; its worker must leave. */
+#define WASM_CPU_CANCELLED	(-3)
 
 /* THREAD_SIZE is the size of the task_struct + kernel stack
  * This is asserted in setup, but the stack should be 1 page,
@@ -30,10 +33,12 @@ struct thread_info {
 	struct mm_struct *context_mm;
 	unsigned long tp_value;
 	const struct kernel_siginfo *active_siginfo;
-	/* Counts execs that replaced this task's user instance. */
-	unsigned int exec_count;
 	/* A signal handler escaped; rethrow on the way out of the syscall. */
 	unsigned int handler_escaped;
+	/* A successful exec has to move the task to its successor worker. */
+	bool exec_handoff;
+	/* Set from copy_thread() until the task's worker first runs it. */
+	struct task_bootstrap_args *bootstrap;
 };
 
 #ifndef current_thread_info
@@ -50,6 +55,7 @@ struct thread_info {
 		.context_mm = NULL,                  \
 		.tp_value = U32_MAX,                 \
 		.active_siginfo = NULL,              \
+		.exec_handoff = false,               \
 	}
 
 #include <asm-generic/thread_info_tif.h>

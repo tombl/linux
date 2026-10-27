@@ -1,18 +1,107 @@
 #include <asm/delay.h>
 #include <asm/globals.h>
 #include <asm/remote_vm.h>
+#include <asm/spawn.h>
 #include <asm/sysmem.h>
 #include <asm/wasm_imports.h>
 #include <linux/entry-common.h>
+#include <linux/interrupt.h>
 #include <linux/sched.h>
 #include <linux/sched/task_stack.h>
 #include <linux/sched/task.h>
+
+/*
+ * A new task's worker may start long after copy_thread(), and copy_process()
+ * can still fail after copy_thread(), for example when a fatal signal arrives
+ * while a COPY clone sleeps for its snapshot. The failed task and its stack
+ * are freed, so the worker must not wait on them, or it later runs whichever
+ * task reuses that memory alongside that task's own worker. The worker and
+ * exit_thread() agree on its fate through state, which lives here because
+ * these arguments outlive the task:
+ *
+ *   PENDING -> STARTED -> RELEASED	the worker waits on the task, and is
+ *					stopped by exit_thread()
+ *   PENDING -> CANCELLED -> RELEASED	the fork failed before the worker
+ *					started, and it never touches the task
+ *
+ * The worker frees these arguments once it runs the task. If it was STARTED,
+ * exit_thread() waits for RELEASED and frees them. If CANCELLED, they wait
+ * on bootstrap_orphans until a later copy_thread() finds them RELEASED.
+ */
+enum {
+	BOOTSTRAP_PENDING,
+	BOOTSTRAP_STARTED,
+	BOOTSTRAP_CANCELLED,
+	BOOTSTRAP_RELEASED,
+};
 
 struct task_bootstrap_args {
 	struct task_struct *task;
 	int (*fn)(void *);
 	void *fn_arg;
+	atomic_t state;
+	/* On bootstrap_orphans while CANCELLED. */
+	struct list_head orphan;
 };
+
+/*
+ * A worker that has not started yet may never start, so a failed fork leaves
+ * its arguments here, and later forks free those whose workers have left.
+ */
+static LIST_HEAD(bootstrap_orphans);
+static DEFINE_SPINLOCK(bootstrap_orphans_lock);
+
+static void free_released_orphans(void)
+{
+	struct task_bootstrap_args *args, *next;
+	LIST_HEAD(released);
+
+	spin_lock(&bootstrap_orphans_lock);
+	list_for_each_entry_safe(args, next, &bootstrap_orphans, orphan) {
+		if (atomic_read_acquire(&args->state) == BOOTSTRAP_RELEASED)
+			list_move(&args->orphan, &released);
+	}
+	spin_unlock(&bootstrap_orphans_lock);
+
+	list_for_each_entry_safe(args, next, &released, orphan)
+		kfree(args);
+}
+
+static __always_inline void release_bootstrap(struct task_bootstrap_args *args)
+{
+	atomic_set_release(&args->state, BOOTSTRAP_RELEASED);
+	__builtin_wasm_memory_atomic_notify(&args->state.counter, 1);
+}
+
+/* Undoes copy_thread() for a task that never ran: its fork failed. */
+void exit_thread(struct task_struct *tsk)
+{
+	struct thread_info *info = task_thread_info(tsk);
+	struct task_bootstrap_args *args = info->bootstrap;
+
+	if (!args)
+		return;
+	info->bootstrap = NULL;
+
+	if (atomic_cmpxchg(&args->state, BOOTSTRAP_PENDING,
+			   BOOTSTRAP_CANCELLED) == BOOTSTRAP_PENDING) {
+		spin_lock(&bootstrap_orphans_lock);
+		list_add_tail(&args->orphan, &bootstrap_orphans);
+		spin_unlock(&bootstrap_orphans_lock);
+		return;
+	}
+
+	/*
+	 * The worker waits on the task for a cpu. It needs none to leave, so
+	 * wait here until it is off the task's stack, which the caller frees.
+	 */
+	atomic_set(&info->running_cpu, WASM_CPU_CANCELLED);
+	__builtin_wasm_memory_atomic_notify(&info->running_cpu.counter, 1);
+	while (atomic_read_acquire(&args->state) != BOOTSTRAP_RELEASED)
+		__builtin_wasm_memory_atomic_wait32(&args->state.counter,
+						    BOOTSTRAP_STARTED, -1);
+	kfree(args);
+}
 
 int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 {
@@ -21,6 +110,8 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 	task_thread_info(dst)->context_mm = NULL;
 	task_thread_info(dst)->active_siginfo = NULL;
 	task_thread_info(dst)->handler_escaped = 0;
+	task_thread_info(dst)->exec_handoff = false;
+	task_thread_info(dst)->bootstrap = NULL;
 	return 0;
 }
 
@@ -103,6 +194,7 @@ struct task_struct *__switch_to(struct task_struct *from,
 	return prev;
 }
 
+/* Returns only if the task's fork failed, see exit_thread(). */
 static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args)
 {
 	struct task_struct *task = args->task;
@@ -121,6 +213,8 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 		cpu = atomic_read(&info->running_cpu);
 		if (cpu >= 0)
 			break;
+		if (cpu == WASM_CPU_CANCELLED)
+			return;
 		if (cpu == WASM_CPU_REMOTE_WAKE) {
 			if (atomic_cmpxchg(&info->running_cpu,
 					   WASM_CPU_REMOTE_WAKE,
@@ -147,6 +241,7 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 	set_current_task(task);
 	wasm_service_remote_request(task);
 
+	info->bootstrap = NULL;
 	kfree(args);
 
 	// early_printk(
@@ -160,6 +255,9 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 	// callback returns when the kernel thread execs a process
 	fn_ret = fn(fn_arg);
 
+	if (current_thread_info()->exec_handoff)
+		wasm_user_exec_handoff();
+
 	wasm_user_call();
 
 	// if we're here, either the thread returned from its entrypoint without exiting,
@@ -170,11 +268,150 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 	do_exit(SIGSEGV);
 }
 
-static void task_entry(void *args)
+/*
+ * Until the task is known to be live, this runs on no stack at all: a new
+ * worker's stack pointer is shared by every worker that is starting.
+ */
+static void task_entry(void *arg)
 {
-	set_stack_pointer(
-		task_pt_regs(((struct task_bootstrap_args *)args)->task) - 1);
+	struct task_bootstrap_args *args = arg;
+
+	if (atomic_cmpxchg(&args->state, BOOTSTRAP_PENDING,
+			   BOOTSTRAP_STARTED) != BOOTSTRAP_PENDING) {
+		release_bootstrap(args);
+		wasm_kernel_halt_worker();
+		return;
+	}
+
+	set_stack_pointer(task_pt_regs(args->task) - 1);
 	task_entry_inner(args);
+
+	/* The fork failed: leave without touching the task's stack again. */
+	release_bootstrap(args);
+	wasm_kernel_halt_worker();
+}
+
+/*
+ * Exec runs the new image in a successor worker: each worker hosts one user
+ * memory for its whole life, and ending the worker is the only way to release
+ * that memory in every browser. The successor is spawned while exec can still
+ * fail, and waits outside the kernel. Once the exec has succeeded, the old
+ * worker hands over the task, still running on its logical CPU, and leaves
+ * without touching the kernel stack again. The successor then completes the
+ * return to userspace in the new image.
+ */
+static void noinline_for_stack exec_entry_inner(struct task_struct *task)
+{
+	struct thread_info *info = task_thread_info(task);
+	struct pt_regs *regs = task_pt_regs(task);
+	int cpu = atomic_read(&info->running_cpu);
+
+	BUG_ON(cpu < 0 || cpu >= nr_cpu_ids || cpu != info->cpu);
+	set_current_cpu(cpu);
+	set_current_task(task);
+
+	info->exec_handoff = false;
+	/* A signal handler that called execve was abandoned with the old image. */
+	info->active_siginfo = NULL;
+	/* Remote access can reach the new image through this worker now. */
+	WRITE_ONCE(info->context_mm, task->mm);
+	wasm_service_remote_request(task);
+
+	syscall_exit_to_user_mode(regs);
+	regs->user_mode = 1;
+	wasm_user_call();
+
+	// see task_entry_inner
+	local_irq_enable();
+	do_exit(SIGSEGV);
+}
+
+void wasm_exec_entry(void *arg)
+{
+	struct task_struct *task = arg;
+
+	set_stack_pointer(task_pt_regs(task) - 1);
+	exec_entry_inner(task);
+}
+
+/*
+ * A spawn's result comes from the new worker, which may not start until
+ * another worker exits: Firefox queues workers past its per-site limit. The
+ * spawning task therefore sleeps on a completion and gives up its cpu, so the
+ * tasks that would free a worker can run. The new worker stores its result
+ * and raises spawn_irq; the handler completes every wait that has a result.
+ */
+static LIST_HEAD(spawn_waits);
+static DEFINE_SPINLOCK(spawn_waits_lock);
+static int spawn_irq = -1;
+
+static irqreturn_t spawn_interrupt(int irq, void *dev_id)
+{
+	struct wasm_spawn_wait *wait, *next;
+	unsigned long flags;
+
+	spin_lock_irqsave(&spawn_waits_lock, flags);
+	list_for_each_entry_safe(wait, next, &spawn_waits, node) {
+		if (!READ_ONCE(wait->status))
+			continue;
+		list_del_init(&wait->node);
+		complete(&wait->done);
+	}
+	spin_unlock_irqrestore(&spawn_waits_lock, flags);
+
+	return IRQ_HANDLED;
+}
+
+static int __init spawn_wait_init(void)
+{
+	int irq = wasm_alloc_irq();
+	int ret;
+
+	if (irq < 0)
+		return irq;
+	ret = request_irq(irq, spawn_interrupt, 0, "wasm-spawn", NULL);
+	if (ret) {
+		wasm_free_irq(irq);
+		return ret;
+	}
+	spawn_irq = irq;
+	return 0;
+}
+core_initcall(spawn_wait_init);
+
+int wasm_spawn_worker_wait(void (*fn)(void *), void *arg, char *name,
+			   size_t name_len, enum wasm_user_memory user_memory)
+{
+	struct wasm_spawn_wait wait = { .status = 0 };
+	unsigned long flags;
+	int ret;
+
+	if (WARN_ON_ONCE(spawn_irq < 0))
+		return -ENODEV;
+	wait.irq = spawn_irq;
+	init_completion(&wait.done);
+
+	spin_lock_irqsave(&spawn_waits_lock, flags);
+	list_add_tail(&wait.node, &spawn_waits);
+	spin_unlock_irqrestore(&spawn_waits_lock, flags);
+
+	ret = wasm_kernel_spawn_worker(fn, arg, name, name_len, user_memory,
+				       &wait);
+	if (!ret) {
+		/*
+		 * The new worker reads the parent's memory, so this cannot
+		 * be interrupted: a COPY source must stay stable until then.
+		 */
+		wait_for_completion(&wait.done);
+		ret = READ_ONCE(wait.status);
+		ret = ret == 1 ? 0 : ret;
+	}
+
+	spin_lock_irqsave(&spawn_waits_lock, flags);
+	list_del(&wait.node);
+	spin_unlock_irqrestore(&spawn_waits_lock, flags);
+
+	return ret;
 }
 
 int wasm_call_clone_fn(void *arg);
@@ -206,6 +443,8 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	bootstrap_args->fn = args->fn;
 	bootstrap_args->fn_arg = args->fn_arg;
 	bootstrap_args->task = p;
+	atomic_set(&bootstrap_args->state, BOOTSTRAP_PENDING);
+	free_released_orphans();
 
 	name_len = snprintf(name, ARRAY_SIZE(name), "%s (%d)", p->comm, p->pid);
 
@@ -222,17 +461,19 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	 */
 	if (user_memory == WASM_USER_MEMORY_COPY) {
 		mutex_lock(&current->mm->context.remote.mutex);
-		ret = wasm_kernel_spawn_worker(&task_entry, bootstrap_args, name,
-					       name_len, user_memory);
+		ret = wasm_spawn_worker_wait(&task_entry, bootstrap_args, name,
+					     name_len, user_memory);
 		mutex_unlock(&current->mm->context.remote.mutex);
 	} else {
 		ret = wasm_kernel_spawn_worker(&task_entry, bootstrap_args,
-					       name, name_len, user_memory);
+					       name, name_len, user_memory,
+					       NULL);
 	}
 	if (ret) {
 		kfree(bootstrap_args);
 		return ret;
 	}
 
+	task_thread_info(p)->bootstrap = bootstrap_args;
 	return 0;
 }

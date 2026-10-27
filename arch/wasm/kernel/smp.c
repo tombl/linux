@@ -55,7 +55,7 @@ int arch_cpuhp_kick_ap_alive(unsigned int cpu, struct task_struct *idle)
 	int name_len = snprintf(name, ARRAY_SIZE(name), "entry%d", cpu);
 	task_thread_info(idle)->cpu = cpu;
 	return wasm_kernel_spawn_worker(secondary_entry, idle, name, name_len,
-					 WASM_USER_MEMORY_NONE);
+					 WASM_USER_MEMORY_NONE, NULL);
 }
 
 enum ipi_message_type {
