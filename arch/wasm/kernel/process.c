@@ -20,6 +20,7 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 	atomic_set(&task_thread_info(dst)->running_cpu, WASM_CPU_PARKED);
 	task_thread_info(dst)->context_mm = NULL;
 	task_thread_info(dst)->active_siginfo = NULL;
+	task_thread_info(dst)->handler_escaped = 0;
 	return 0;
 }
 
