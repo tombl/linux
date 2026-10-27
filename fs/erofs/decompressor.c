@@ -14,6 +14,7 @@ static int z_erofs_load_lz4_config(struct super_block *sb,
 {
 	struct erofs_sb_info *sbi = EROFS_SB(sb);
 	struct z_erofs_lz4_cfgs *lz4 = data;
+	unsigned int pclusterpages;
 	u16 distance;
 
 	if (lz4) {
@@ -27,7 +28,7 @@ static int z_erofs_load_lz4_config(struct super_block *sb,
 		if (!sbi->lz4.max_pclusterblks) {
 			sbi->lz4.max_pclusterblks = 1;	/* reserved case */
 		} else if (sbi->lz4.max_pclusterblks >
-			   erofs_blknr(sb, Z_EROFS_PCLUSTER_MAX_SIZE)) {
+			   Z_EROFS_PCLUSTER_MAX_SIZE >> sbi->blkszbits) {
 			erofs_err(sb, "too large lz4 pclusterblks %u",
 				  sbi->lz4.max_pclusterblks);
 			return -EINVAL;
@@ -43,7 +44,9 @@ static int z_erofs_load_lz4_config(struct super_block *sb,
 	sbi->lz4.max_distance_pages = distance ?
 					DIV_ROUND_UP(distance, PAGE_SIZE) + 1 :
 					LZ4_MAX_DISTANCE_PAGES;
-	return z_erofs_gbuf_growsize(sbi->lz4.max_pclusterblks);
+	pclusterpages = DIV_ROUND_UP(sbi->lz4.max_pclusterblks <<
+				     sbi->blkszbits, PAGE_SIZE);
+	return z_erofs_gbuf_growsize(pclusterpages);
 }
 
 /*
@@ -126,12 +129,16 @@ static void *z_erofs_lz4_handle_overlap(const struct z_erofs_decompress_req *rq,
 			*maptype = 0;
 			return inpage;
 		}
-		kunmap_local(inpage);
-		src = erofs_vm_map_ram(rq->in, rq->inpages);
-		if (!src)
-			return ERR_PTR(-ENOMEM);
-		*maptype = 1;
-		return src;
+		if (IS_ENABLED(CONFIG_MMU)) {
+			kunmap_local(inpage);
+			src = erofs_vm_map_ram(rq->in, rq->inpages);
+			if (!src)
+				return ERR_PTR(-ENOMEM);
+			*maptype = 1;
+			return src;
+		}
+		/* without an MMU, copy to the per-CPU buffer below instead */
+		may_inplace = false;
 	}
 	/*
 	 * Then, deal with in-place I/Os. The reasons why in-place I/O is useful
@@ -160,7 +167,7 @@ static void *z_erofs_lz4_handle_overlap(const struct z_erofs_decompress_req *rq,
 	 * If in-place decompression can't be applied, copy compressed data that
 	 * may potentially overlap during decompression to a per-CPU buffer.
 	 */
-	src = z_erofs_get_gbuf(rq->inpages);
+	src = z_erofs_get_gbuf(DIV_ROUND_UP(rq->inputsize, PAGE_SIZE));
 	if (!src) {
 		DBG_BUGON(1);
 		kunmap_local(inpage);
@@ -199,9 +206,8 @@ const char *z_erofs_fixup_insize(struct z_erofs_decompress_req *rq,
 }
 
 static const char *__z_erofs_lz4_decompress(struct z_erofs_decompress_req *rq,
-					    u8 *dst)
+					    u8 *dst, bool may_inplace)
 {
-	bool may_inplace = false;
 	unsigned int inputmargin;
 	u8 *out, *headpage, *src;
 	const char *reason;
@@ -215,8 +221,8 @@ static const char *__z_erofs_lz4_decompress(struct z_erofs_decompress_req *rq,
 		kunmap_local(headpage);
 		return reason;
 	}
-	may_inplace = !((rq->pageofs_in + rq->inputsize) &
-			(rq->sb->s_blocksize - 1));
+	may_inplace = may_inplace && !((rq->pageofs_in + rq->inputsize) &
+				       (rq->sb->s_blocksize - 1));
 
 	inputmargin = rq->pageofs_in;
 	src = z_erofs_lz4_handle_overlap(rq, headpage, dst, &inputmargin,
@@ -251,6 +257,19 @@ static const char *__z_erofs_lz4_decompress(struct z_erofs_decompress_req *rq,
 	return reason;
 }
 
+/* copy the decompressed data from a bounce buffer to the output pages */
+static void z_erofs_lz4_copy_bounced(const struct z_erofs_decompress_req *rq,
+				     const u8 *bounce)
+{
+	unsigned int cur = rq->pageofs_out, end = cur + rq->outputsize, cnt;
+
+	for (; cur < end; cur += cnt) {
+		cnt = min(end - cur, PAGE_SIZE - offset_in_page(cur));
+		memcpy_to_page(rq->out[cur >> PAGE_SHIFT], offset_in_page(cur),
+			       bounce + cur, cnt);
+	}
+}
+
 static const char *z_erofs_lz4_decompress(struct z_erofs_decompress_req *rq,
 					  struct page **pagepool)
 {
@@ -272,18 +291,34 @@ static const char *z_erofs_lz4_decompress(struct z_erofs_decompress_req *rq,
 		if (ret > 0) {
 			dst = page_address(*rq->out);
 			dst_maptype = 1;
-		} else {
+		} else if (IS_ENABLED(CONFIG_MMU)) {
 			dst = erofs_vm_map_ram(rq->out, rq->outpages);
 			if (!dst)
 				return ERR_PTR(-ENOMEM);
 			dst_maptype = 2;
+		} else {
+			/*
+			 * Scattered pages can't be mapped contiguously without
+			 * an MMU, so decompress into a bounce buffer instead.
+			 */
+			dst = kmalloc(rq->pageofs_out + rq->outputsize,
+				      rq->gfp | __GFP_NOWARN);
+			if (!dst)
+				return ERR_PTR(-ENOMEM);
+			dst_maptype = 3;
 		}
 	}
-	reason = __z_erofs_lz4_decompress(rq, dst);
-	if (!dst_maptype)
+	/* in-place decompression needs the compressed data within `dst` */
+	reason = __z_erofs_lz4_decompress(rq, dst, dst_maptype != 3);
+	if (!dst_maptype) {
 		kunmap_local(dst);
-	else if (dst_maptype == 2)
+	} else if (dst_maptype == 2) {
 		vm_unmap_ram(dst, rq->outpages);
+	} else if (dst_maptype == 3) {
+		if (!reason)
+			z_erofs_lz4_copy_bounced(rq, dst);
+		kfree(dst);
+	}
 	return reason;
 }
 
