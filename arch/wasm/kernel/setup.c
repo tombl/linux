@@ -1,6 +1,7 @@
 #include <asm/bug.h>
 #include <asm/sections.h>
 #include <asm/setup.h>
+#include <linux/initrd.h>
 #include <linux/libfdt.h>
 #include <linux/memblock.h>
 #include <linux/of.h>
@@ -56,9 +57,50 @@ static void *__init load_devicetree(size_t *size)
 	return devicetree;
 }
 
+/* The built-in initramfs, from the kernel image's .linux.initramfs section. */
+static void __init load_builtin_initramfs(void)
+{
+	size_t size = wasm_boot_get_initramfs(NULL, 0);
+
+	if (!size)
+		return;
+	__initramfs_start = memblock_alloc_or_panic(size, sizeof(u32));
+	BUG_ON(wasm_boot_get_initramfs(__initramfs_start, size) != size);
+	__initramfs_size = size;
+}
+
+/*
+ * The host's initramfs, unpacked over the built-in one. The buffer comes from
+ * memblock, so it is reserved memory that free_initrd_mem() returns to the
+ * page allocator once populate_rootfs() has unpacked it. Its tail is rounded
+ * up to whole pages of zeros, which the newc format skips as padding, so the
+ * last partial page is freed too.
+ */
+static void __init load_initrd(void)
+{
+	size_t size = wasm_boot_get_initrd(NULL, 0);
+	size_t capacity;
+	void *initrd;
+
+	if (!size)
+		return;
+	capacity = PAGE_ALIGN(size);
+	initrd = memblock_alloc(capacity, PAGE_SIZE);
+	if (!initrd) {
+		pr_err("initrd: cannot allocate %zu bytes\n", size);
+		return;
+	}
+	if (wasm_boot_get_initrd(initrd, capacity) != size) {
+		pr_err("initrd: the host changed its size during boot\n");
+		memblock_free(initrd, capacity);
+		return;
+	}
+	initrd_start = (unsigned long)initrd;
+	initrd_end = initrd_start + capacity;
+}
+
 __attribute__((export_name("boot"))) void __init _start(void)
 {
-	static char initramfs[512];
 	void *devicetree;
 	size_t devicetree_size;
 	int node;
@@ -69,13 +111,13 @@ __attribute__((export_name("boot"))) void __init _start(void)
 
 	memblock_reserve(0, (phys_addr_t)&__heap_base);
 
-	__initramfs_start = initramfs;
-	__initramfs_size = wasm_boot_get_initramfs(initramfs, ARRAY_SIZE(initramfs));
-
 	devicetree = load_devicetree(&devicetree_size);
 	BUG_ON(!early_init_dt_scan(devicetree, __pa(devicetree)));
 	BUG_ON(!memblock_is_region_memory(__pa(devicetree), devicetree_size));
 	early_init_fdt_scan_reserved_mem();
+
+	load_builtin_initramfs();
+	load_initrd();
 
 	node = fdt_path_offset(devicetree, "/chosen/sections");
 	if (node < 0)
