@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <limits.h>
+#include <sched.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
@@ -27,14 +28,103 @@ static long sys_kcmp(int pid1, int pid2, int type, unsigned long fd1, unsigned l
 
 static const unsigned int duped_num = 64;
 
+struct child_args {
+	int parent_pid;
+	int parent_fd;
+	int pipe_write_fd;
+	int epoll_fd;
+};
+
+static int run_child(void *opaque)
+{
+	const char kpath[] = "kcmp-test-file";
+	const struct child_args *args = opaque;
+	struct kcmp_epoll_slot epoll_slot;
+	int child_pid = getpid();
+	int fd2;
+	int ret;
+
+	ksft_print_header();
+	ksft_set_plan(3);
+
+	fd2 = open(kpath, O_RDWR);
+	if (fd2 < 0) {
+		perror("Can't open file");
+		ksft_exit_fail();
+	}
+
+	/* An example of output and arguments */
+	printf("pid1: %6d pid2: %6d FD: %2ld FILES: %2ld VM: %2ld "
+	       "FS: %2ld SIGHAND: %2ld IO: %2ld SYSVSEM: %2ld "
+	       "INV: %2ld\n",
+	       args->parent_pid, child_pid,
+	       sys_kcmp(args->parent_pid, child_pid, KCMP_FILE,
+			args->parent_fd, fd2),
+	       sys_kcmp(args->parent_pid, child_pid, KCMP_FILES, 0, 0),
+	       sys_kcmp(args->parent_pid, child_pid, KCMP_VM, 0, 0),
+	       sys_kcmp(args->parent_pid, child_pid, KCMP_FS, 0, 0),
+	       sys_kcmp(args->parent_pid, child_pid, KCMP_SIGHAND, 0, 0),
+	       sys_kcmp(args->parent_pid, child_pid, KCMP_IO, 0, 0),
+	       sys_kcmp(args->parent_pid, child_pid, KCMP_SYSVSEM, 0, 0),
+
+	       /* This one should fail */
+	       sys_kcmp(args->parent_pid, child_pid, KCMP_TYPES + 1, 0, 0));
+
+	/* This one should return same fd */
+	ret = sys_kcmp(args->parent_pid, child_pid, KCMP_FILE,
+		       args->parent_fd, args->parent_fd);
+	if (ret) {
+		printf("FAIL: 0 expected but %d returned (%s)\n",
+			ret, strerror(errno));
+		ksft_inc_fail_cnt();
+		ret = -1;
+	} else {
+		printf("PASS: 0 returned as expected\n");
+		ksft_inc_pass_cnt();
+	}
+
+	/* Compare with self */
+	ret = sys_kcmp(args->parent_pid, args->parent_pid, KCMP_VM, 0, 0);
+	if (ret) {
+		printf("FAIL: 0 expected but %d returned (%s)\n",
+			ret, strerror(errno));
+		ksft_inc_fail_cnt();
+		ret = -1;
+	} else {
+		printf("PASS: 0 returned as expected\n");
+		ksft_inc_pass_cnt();
+	}
+
+	/* Compare epoll target */
+	epoll_slot = (struct kcmp_epoll_slot) {
+		.efd	= args->epoll_fd,
+		.tfd	= duped_num,
+		.toff	= 0,
+	};
+	ret = sys_kcmp(args->parent_pid, args->parent_pid, KCMP_EPOLL_TFD,
+		       args->pipe_write_fd, (unsigned long)(void *)&epoll_slot);
+	if (ret) {
+		printf("FAIL: 0 expected but %d returned (%s)\n",
+			ret, strerror(errno));
+		ksft_inc_fail_cnt();
+		ret = -1;
+	} else {
+		printf("PASS: 0 returned as expected\n");
+		ksft_inc_pass_cnt();
+	}
+
+	return ksft_get_fail_cnt() ? KSFT_FAIL : KSFT_PASS;
+}
+
 int main(int argc, char **argv)
 {
 	const char kpath[] = "kcmp-test-file";
-	struct kcmp_epoll_slot epoll_slot;
+	static char child_stack[64 * 1024];
+	struct child_args args;
 	struct epoll_event ev;
 	int pid1, pid2;
 	int pipefd[2];
-	int fd1, fd2;
+	int fd1;
 	int epollfd;
 	int status;
 	int fddup;
@@ -78,91 +168,24 @@ int main(int argc, char **argv)
 	}
 	close(fddup);
 
-	pid2 = fork();
+	args = (struct child_args) {
+		.parent_pid = pid1,
+		.parent_fd = fd1,
+		.pipe_write_fd = pipefd[1],
+		.epoll_fd = epollfd,
+	};
+	pid2 = clone(run_child, child_stack + sizeof(child_stack), SIGCHLD, &args);
 	if (pid2 < 0) {
-		perror("fork failed");
+		perror("clone failed");
 		ksft_exit_fail();
 	}
 
-	if (!pid2) {
-		int pid2 = getpid();
-		int ret;
-
-		ksft_print_header();
-		ksft_set_plan(3);
-
-		fd2 = open(kpath, O_RDWR);
-		if (fd2 < 0) {
-			perror("Can't open file");
-			ksft_exit_fail();
-		}
-
-		/* An example of output and arguments */
-		printf("pid1: %6d pid2: %6d FD: %2ld FILES: %2ld VM: %2ld "
-		       "FS: %2ld SIGHAND: %2ld IO: %2ld SYSVSEM: %2ld "
-		       "INV: %2ld\n",
-		       pid1, pid2,
-		       sys_kcmp(pid1, pid2, KCMP_FILE,		fd1, fd2),
-		       sys_kcmp(pid1, pid2, KCMP_FILES,		0, 0),
-		       sys_kcmp(pid1, pid2, KCMP_VM,		0, 0),
-		       sys_kcmp(pid1, pid2, KCMP_FS,		0, 0),
-		       sys_kcmp(pid1, pid2, KCMP_SIGHAND,	0, 0),
-		       sys_kcmp(pid1, pid2, KCMP_IO,		0, 0),
-		       sys_kcmp(pid1, pid2, KCMP_SYSVSEM,	0, 0),
-
-			/* This one should fail */
-		       sys_kcmp(pid1, pid2, KCMP_TYPES + 1,	0, 0));
-
-		/* This one should return same fd */
-		ret = sys_kcmp(pid1, pid2, KCMP_FILE, fd1, fd1);
-		if (ret) {
-			printf("FAIL: 0 expected but %d returned (%s)\n",
-				ret, strerror(errno));
-			ksft_inc_fail_cnt();
-			ret = -1;
-		} else {
-			printf("PASS: 0 returned as expected\n");
-			ksft_inc_pass_cnt();
-		}
-
-		/* Compare with self */
-		ret = sys_kcmp(pid1, pid1, KCMP_VM, 0, 0);
-		if (ret) {
-			printf("FAIL: 0 expected but %d returned (%s)\n",
-				ret, strerror(errno));
-			ksft_inc_fail_cnt();
-			ret = -1;
-		} else {
-			printf("PASS: 0 returned as expected\n");
-			ksft_inc_pass_cnt();
-		}
-
-		/* Compare epoll target */
-		epoll_slot = (struct kcmp_epoll_slot) {
-			.efd	= epollfd,
-			.tfd	= duped_num,
-			.toff	= 0,
-		};
-		ret = sys_kcmp(pid1, pid1, KCMP_EPOLL_TFD, pipefd[1],
-			       (unsigned long)(void *)&epoll_slot);
-		if (ret) {
-			printf("FAIL: 0 expected but %d returned (%s)\n",
-				ret, strerror(errno));
-			ksft_inc_fail_cnt();
-			ret = -1;
-		} else {
-			printf("PASS: 0 returned as expected\n");
-			ksft_inc_pass_cnt();
-		}
-
-
-		if (ret)
-			ksft_exit_fail();
-		else
-			ksft_exit_pass();
+	if (waitpid(pid2, &status, 0) < 0) {
+		perror("waitpid failed");
+		ksft_exit_fail();
 	}
+	if (!WIFEXITED(status))
+		ksft_exit_fail();
 
-	waitpid(pid2, &status, P_ALL);
-
-	return 0;
+	return WEXITSTATUS(status);
 }
