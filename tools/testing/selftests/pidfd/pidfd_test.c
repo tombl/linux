@@ -141,6 +141,13 @@ static int test_pidfd_send_signal_simple_success(void)
 	return 0;
 }
 
+static char child_stack[64 * 1024];
+
+static int child_exit_success(void *unused)
+{
+	return EXIT_SUCCESS;
+}
+
 static int test_pidfd_send_signal_exited_fail(void)
 {
 	int pidfd, ret, saved_errno;
@@ -155,13 +162,11 @@ static int test_pidfd_send_signal_exited_fail(void)
 		return 0;
 	}
 
-	pid = fork();
+	pid = clone(child_exit_success, child_stack + sizeof(child_stack),
+		    SIGCHLD, NULL);
 	if (pid < 0)
 		ksft_exit_fail_msg("%s test: Failed to create new process\n",
 				   test_name);
-
-	if (pid == 0)
-		_exit(EXIT_SUCCESS);
 
 	snprintf(buf, sizeof(buf), "/proc/%d", pid);
 
@@ -193,6 +198,7 @@ static int test_pidfd_send_signal_exited_fail(void)
 	return 0;
 }
 
+#ifndef __wasm__
 /*
  * Maximum number of cycles we allow. This is equivalent to PID_MAX_DEFAULT.
  * If users set a higher limit or we have cycled PIDFD_MAX_DEFAULT number of
@@ -399,6 +405,7 @@ static int test_pidfd_send_signal_recycled_pid_fail(void)
 
 	return ret;
 }
+#endif
 
 static int test_pidfd_send_signal_syscall_support(void)
 {
@@ -530,6 +537,7 @@ static void test_pidfd_poll_exec(int use_waitpid)
 		ksft_test_result_pass("%s test: Passed\n", test_name);
 }
 
+#ifndef __wasm__
 static void *test_pidfd_poll_leader_exit_thread(void *priv)
 {
 	ksft_print_msg("Child Thread: starting. pid %d tid %ld ; and sleeping\n",
@@ -609,20 +617,29 @@ static void test_pidfd_poll_leader_exit(int use_waitpid)
 	else
 		ksft_test_result_pass("%s test: Passed\n", test_name);
 }
+#endif
 
 int main(int argc, char **argv)
 {
 	ksft_print_header();
+#ifdef __wasm__
+	ksft_set_plan(5);
+#else
 	ksft_set_plan(8);
+#endif
 
 	test_pidfd_poll_exec(0);
 	test_pidfd_poll_exec(1);
+#ifndef __wasm__
 	test_pidfd_poll_leader_exit(0);
 	test_pidfd_poll_leader_exit(1);
+#endif
 	test_pidfd_send_signal_syscall_support();
 	test_pidfd_send_signal_simple_success();
 	test_pidfd_send_signal_exited_fail();
+#ifndef __wasm__
 	test_pidfd_send_signal_recycled_pid_fail();
+#endif
 
 	ksft_exit_pass();
 }
