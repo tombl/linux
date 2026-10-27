@@ -31,7 +31,22 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <mqueue.h>
-#include <error.h>
+#include <stdarg.h>
+
+#ifndef DEFFILEMODE
+#define DEFFILEMODE 0666
+#endif
+
+static void error(int status, int errnum, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fprintf(stderr, ": %s\n", strerror(errnum));
+	if (status)
+		exit(status);
+}
 
 #include "kselftest.h"
 
