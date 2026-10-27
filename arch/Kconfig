@@ -35,6 +35,16 @@ config ARCH_HAS_SUBPAGE_FAULTS
 	  granularity (e.g. arm64 MTE). The probe_user_*() functions
 	  must be implemented.
 
+config ARCH_NOMMU_PER_MM_ADDRESS_SPACE
+	bool
+	depends on !MMU
+	help
+	  Select if the architecture has no MMU but still gives every mm its
+	  own address space (e.g. wasm, where each process has a separate
+	  linear memory), so the same user address in two processes names
+	  different memory. Futexes are then keyed by (mm, address) as on
+	  MMU systems instead of by address alone.
+
 config HOTPLUG_SMT
 	bool
 
