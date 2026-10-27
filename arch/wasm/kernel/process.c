@@ -112,7 +112,31 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 	task_thread_info(dst)->handler_escaped = 0;
 	task_thread_info(dst)->exec_handoff = false;
 	task_thread_info(dst)->bootstrap = NULL;
+	task_thread_info(dst)->exec_restart = false;
+	task_thread_info(dst)->borrowed_user_memory = false;
+	task_thread_info(dst)->exec_preparing = false;
 	return 0;
+}
+
+/*
+ * Runs the task's user image until its entry point returns or faults. An exec
+ * in place abandons the old image's frames, including the kernel frames of a
+ * syscall whose signal handler called execve, so restart the new image on the
+ * kernel stack as this frame found it.
+ */
+static void __noreturn run_user(void)
+{
+	void *sp = get_stack_pointer();
+
+	while (wasm_user_call())
+		set_stack_pointer(sp);
+
+	// if we're here, either the thread returned from its entrypoint without exiting,
+	// or its entrypoint threw an error (likely either an `unreachable` instruction being
+	// executed, or an out of range memory access.)
+
+	local_irq_enable();
+	do_exit(SIGSEGV);
 }
 
 struct task_struct *__switch_to(struct task_struct *from,
@@ -258,14 +282,7 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 	if (current_thread_info()->exec_handoff)
 		wasm_user_exec_handoff();
 
-	wasm_user_call();
-
-	// if we're here, either the thread returned from its entrypoint without exiting,
-	// or its entrypoint threw an error (likely either an `unreachable` instruction being
-	// executed, or an out of range memory access.)
-
-	local_irq_enable();
-	do_exit(SIGSEGV);
+	run_user();
 }
 
 /*
@@ -299,6 +316,10 @@ static void task_entry(void *arg)
  * worker hands over the task, still running on its logical CPU, and leaves
  * without touching the kernel stack again. The successor then completes the
  * return to userspace in the new image.
+ *
+ * The exception is a CLONE_VM child, whose worker hosts its parent's memory
+ * until it execs: that exec runs in place, see load_wasm_binary(), and the
+ * worker then hosts the child's own memory for the rest of its life.
  */
 static void noinline_for_stack exec_entry_inner(struct task_struct *task)
 {
@@ -319,11 +340,7 @@ static void noinline_for_stack exec_entry_inner(struct task_struct *task)
 
 	syscall_exit_to_user_mode(regs);
 	regs->user_mode = 1;
-	wasm_user_call();
-
-	// see task_entry_inner
-	local_irq_enable();
-	do_exit(SIGSEGV);
+	run_user();
 }
 
 void wasm_exec_entry(void *arg)
@@ -453,6 +470,13 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 			WASM_USER_MEMORY_SHARE : WASM_USER_MEMORY_COPY;
 	if (user_memory != WASM_USER_MEMORY_NONE)
 		task_thread_info(p)->context_mm = p->mm;
+	/*
+	 * A thread's exec ends the other threads, which leaves this worker the
+	 * only user of the memory; another process sharing it lives on.
+	 */
+	if (user_memory == WASM_USER_MEMORY_SHARE &&
+	    !(args->flags & CLONE_THREAD))
+		task_thread_info(p)->borrowed_user_memory = true;
 
 	/*
 	 * A copy must not race a foreign write, such as a ptrace poke, into the
