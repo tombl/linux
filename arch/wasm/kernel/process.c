@@ -10,11 +10,98 @@
 #include <linux/sched/task_stack.h>
 #include <linux/sched/task.h>
 
+/*
+ * A new task's worker may start long after copy_thread(), and copy_process()
+ * can still fail after copy_thread(), for example when a fatal signal arrives
+ * while a COPY clone sleeps for its snapshot. The failed task and its stack
+ * are freed, so the worker must not wait on them, or it later runs whichever
+ * task reuses that memory alongside that task's own worker. The worker and
+ * exit_thread() agree on its fate through state, which lives here because
+ * these arguments outlive the task:
+ *
+ *   PENDING -> STARTED -> RELEASED	the worker waits on the task, and is
+ *					stopped by exit_thread()
+ *   PENDING -> CANCELLED -> RELEASED	the fork failed before the worker
+ *					started, and it never touches the task
+ *
+ * The worker frees these arguments once it runs the task. If it was STARTED,
+ * exit_thread() waits for RELEASED and frees them. If CANCELLED, they wait
+ * on bootstrap_orphans until a later copy_thread() finds them RELEASED.
+ */
+enum {
+	BOOTSTRAP_PENDING,
+	BOOTSTRAP_STARTED,
+	BOOTSTRAP_CANCELLED,
+	BOOTSTRAP_RELEASED,
+};
+
 struct task_bootstrap_args {
 	struct task_struct *task;
 	int (*fn)(void *);
 	void *fn_arg;
+	atomic_t state;
+	/* On bootstrap_orphans while CANCELLED. */
+	struct list_head orphan;
 };
+
+/*
+ * A worker that has not started yet may never start, so a failed fork leaves
+ * its arguments here, and later forks free those whose workers have left.
+ */
+static LIST_HEAD(bootstrap_orphans);
+static DEFINE_SPINLOCK(bootstrap_orphans_lock);
+
+static void free_released_orphans(void)
+{
+	struct task_bootstrap_args *args, *next;
+	LIST_HEAD(released);
+
+	spin_lock(&bootstrap_orphans_lock);
+	list_for_each_entry_safe(args, next, &bootstrap_orphans, orphan) {
+		if (atomic_read_acquire(&args->state) == BOOTSTRAP_RELEASED)
+			list_move(&args->orphan, &released);
+	}
+	spin_unlock(&bootstrap_orphans_lock);
+
+	list_for_each_entry_safe(args, next, &released, orphan)
+		kfree(args);
+}
+
+static __always_inline void release_bootstrap(struct task_bootstrap_args *args)
+{
+	atomic_set_release(&args->state, BOOTSTRAP_RELEASED);
+	__builtin_wasm_memory_atomic_notify(&args->state.counter, 1);
+}
+
+/* Undoes copy_thread() for a task that never ran: its fork failed. */
+void exit_thread(struct task_struct *tsk)
+{
+	struct thread_info *info = task_thread_info(tsk);
+	struct task_bootstrap_args *args = info->bootstrap;
+
+	if (!args)
+		return;
+	info->bootstrap = NULL;
+
+	if (atomic_cmpxchg(&args->state, BOOTSTRAP_PENDING,
+			   BOOTSTRAP_CANCELLED) == BOOTSTRAP_PENDING) {
+		spin_lock(&bootstrap_orphans_lock);
+		list_add_tail(&args->orphan, &bootstrap_orphans);
+		spin_unlock(&bootstrap_orphans_lock);
+		return;
+	}
+
+	/*
+	 * The worker waits on the task for a cpu. It needs none to leave, so
+	 * wait here until it is off the task's stack, which the caller frees.
+	 */
+	atomic_set(&info->running_cpu, WASM_CPU_CANCELLED);
+	__builtin_wasm_memory_atomic_notify(&info->running_cpu.counter, 1);
+	while (atomic_read_acquire(&args->state) != BOOTSTRAP_RELEASED)
+		__builtin_wasm_memory_atomic_wait32(&args->state.counter,
+						    BOOTSTRAP_STARTED, -1);
+	kfree(args);
+}
 
 int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 {
@@ -24,6 +111,7 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 	task_thread_info(dst)->active_siginfo = NULL;
 	task_thread_info(dst)->handler_escaped = 0;
 	task_thread_info(dst)->exec_handoff = false;
+	task_thread_info(dst)->bootstrap = NULL;
 	return 0;
 }
 
@@ -106,6 +194,7 @@ struct task_struct *__switch_to(struct task_struct *from,
 	return prev;
 }
 
+/* Returns only if the task's fork failed, see exit_thread(). */
 static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args)
 {
 	struct task_struct *task = args->task;
@@ -124,6 +213,8 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 		cpu = atomic_read(&info->running_cpu);
 		if (cpu >= 0)
 			break;
+		if (cpu == WASM_CPU_CANCELLED)
+			return;
 		if (cpu == WASM_CPU_REMOTE_WAKE) {
 			if (atomic_cmpxchg(&info->running_cpu,
 					   WASM_CPU_REMOTE_WAKE,
@@ -150,6 +241,7 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 	set_current_task(task);
 	wasm_service_remote_request(task);
 
+	info->bootstrap = NULL;
 	kfree(args);
 
 	// early_printk(
@@ -176,11 +268,27 @@ static void noinline_for_stack task_entry_inner(struct task_bootstrap_args *args
 	do_exit(SIGSEGV);
 }
 
-static void task_entry(void *args)
+/*
+ * Until the task is known to be live, this runs on no stack at all: a new
+ * worker's stack pointer is shared by every worker that is starting.
+ */
+static void task_entry(void *arg)
 {
-	set_stack_pointer(
-		task_pt_regs(((struct task_bootstrap_args *)args)->task) - 1);
+	struct task_bootstrap_args *args = arg;
+
+	if (atomic_cmpxchg(&args->state, BOOTSTRAP_PENDING,
+			   BOOTSTRAP_STARTED) != BOOTSTRAP_PENDING) {
+		release_bootstrap(args);
+		wasm_kernel_halt_worker();
+		return;
+	}
+
+	set_stack_pointer(task_pt_regs(args->task) - 1);
 	task_entry_inner(args);
+
+	/* The fork failed: leave without touching the task's stack again. */
+	release_bootstrap(args);
+	wasm_kernel_halt_worker();
 }
 
 /*
@@ -335,6 +443,8 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 	bootstrap_args->fn = args->fn;
 	bootstrap_args->fn_arg = args->fn_arg;
 	bootstrap_args->task = p;
+	atomic_set(&bootstrap_args->state, BOOTSTRAP_PENDING);
+	free_released_orphans();
 
 	name_len = snprintf(name, ARRAY_SIZE(name), "%s (%d)", p->comm, p->pid);
 
@@ -364,5 +474,6 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 		return ret;
 	}
 
+	task_thread_info(p)->bootstrap = bootstrap_args;
 	return 0;
 }

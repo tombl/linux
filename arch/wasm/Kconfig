@@ -7,6 +7,7 @@ config WASM
 	select ARCH_NOMMU_PER_MM_ADDRESS_SPACE
 	select ARCH_NO_SWAP
 	select BUG
+	select HAVE_EXIT_THREAD
 	select FLATMEM
 	select GENERIC_CPU_DEVICES
 	select GENERIC_CSUM
